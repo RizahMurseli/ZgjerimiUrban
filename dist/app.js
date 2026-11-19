@@ -2102,7 +2102,8 @@ function renderSdgCards(f) {
   const ranked = landcover.classes.map((c,i) => ({c,v:L.total[i]})).filter(x => x.v > 0 && x.c.key !== 'built').sort((a,b) => b.v-a.v);
   const top = ranked.slice(0,2).map(x => `<b>${haFmt(x.v)}</b> ${x.c.label.toLowerCase()}`).join(' dhe ');
   const first = landcover.steps[0].label.toLowerCase(), last = landcover.steps.at(-1).label.toLowerCase();
-  $('sdgLand').innerHTML = `<p class="story-small"><b>${esc(L.name)}</b>: nga korriku 2016 deri në ${last} u shtuan <b>${haFmt(sum)}</b> zonë e ndërtuar.${top ? ` Para ndërtimit, aty kishte kryesisht ${top}.` : ''}</p>`
+  const inBuilt = L.total[lcIndex('built')] || 0;
+  $('sdgLand').innerHTML = `<p class="story-small"><b>${esc(L.name)}</b>: nga korriku 2016 deri në ${last} u shtuan <b>${haFmt(sum)}</b> zonë e ndërtuar. <b>${pct1(sum ? inBuilt/sum : NaN)}</b> u ndërtua brenda vendbanimeve ekzistuese (mbushje e oborreve dhe e hapësirave të lira)${top ? `; jashtë tyre u zunë kryesisht ${top}` : ''}.</p>`
     + `<div class="chart lc-chart">${lcYearChart(L)}</div>`
     + `<div class="choro-legend">${landcover.classes.map(c => `<span><i style="background:${c.color}"></i>${esc(c.label)}</span>`).join('')}</div>`
     + `<div class="lc-row"><span>${esc(L.whole ? C.name : 'Përzgjedhja')}</span>${lcBar(L.total)}</div>`
@@ -2110,7 +2111,7 @@ function renderSdgCards(f) {
     + `<table class="lc-table"><thead><tr><th>Mbulesa para ndërtimit</th><th>ha</th><th>%</th>${L.whole ? '' : `<th>${esc(C.name)} %</th>`}</tr></thead><tbody>`
     + landcover.classes.map((c,i) => L.total[i] > 0 || (!L.whole && Ntot[i] > 0) ? `<tr><td><i style="background:${c.color}"></i>${esc(c.label)}</td><td>${int(L.total[i])}</td><td>${pct1(sum ? L.total[i]/sum : NaN)}</td>${L.whole ? '' : `<td>${pct1(Ntot[i]/nSum)}</td>`}</tr>` : '').join('')
     + `</tbody></table>`
-    + `<p class="note">Çdo piksel që WSF Tracker e shton në një hap krahasohet me hartën vjetore të mbulesës së tokës të vitit para se të nisë ndërtimi (p.sh. ndërtimet deri në janar 2020 me hartën e 2018). Hapat me * nuk kanë hartë për vitin e duhur (seria mbulon ${landcover.years[0]}–${landcover.years.at(-1)}) dhe përdorin vitin më të afërt: për hapat e parë një pjesë del si "tashmë e ndërtuar". "Tashmë e ndërtuar" janë edhe pikselët ku dy produktet nuk pajtohen. Vitet e reja të hartës shtohen vetë në përditësimin mujor. ${esc(landcover.source)}.</p>`;
+    + `<p class="note">Çdo piksel që WSF Tracker e shton në një hap krahasohet me hartën vjetore të mbulesës së tokës të vitit para se të nisë ndërtimi (p.sh. ndërtimet deri në janar 2020 me hartën e 2018). Hapat me * nuk kanë hartë për vitin e duhur (seria mbulon ${landcover.years[0]}–${landcover.years.at(-1)}) dhe përdorin vitin më të afërt: për hapat e parë një pjesë del si "brenda vendbanimit ekzistues". Kjo klasë përfshin ndërtimet e reja në hapësira që harta e Esri i kishte tashmë pjesë të zonës së banuar (oborre, kopshte, parcela brenda fshatrave dhe qyteteve). Vitet e reja të hartës shtohen vetë në përditësimin mujor. ${esc(landcover.source)}.</p>`;
 }
 $('sdgLandBox').addEventListener('toggle',() => { $('sdgLandBox').dataset.touched = '1'; });
 

@@ -37,7 +37,10 @@ from PIL import Image, ImageFilter
 
 from common import args, bbox_of, burn, mirror_name, paths, polygons, utm_forward
 
-URL = 'https://lulctimeseries.blob.core.windows.net/lulctimeseriesv003/lc{y}/{tile}_{y}0101-{y1}0101.tif'
+HOST = 'https://lulctimeseries.blob.core.windows.net'
+# Esri publishes new years in new containers from time to time; every one listed here is searched.
+CONTAINERS = ['lulctimeseriesv003', 'lulctimeseriesv004', 'lulctimeseriesv005', 'lulctimeseriesv006', 'lulctimeseriespublic']
+URL = HOST+'/{container}/lc{y}/{tile}_{y}0101-{y1}0101.tif'
 FIRST_YEAR = 2017
 URBAN_BUFFER_M = 100
 # Classes shown in the atlas: key, Albanian label, colour, Esri class codes.
@@ -45,7 +48,7 @@ CLASSES = [
     ('forest', 'Pyje', '#3f8f5a', [2]),
     ('range', 'Kullota dhe shkurre', '#b9c46a', [11]),
     ('crop', 'Tokë bujqësore', '#e2b04a', [5]),
-    ('built', 'Tashmë e ndërtuar', '#8a8f99', [7]),
+    ('built', 'Brenda vendbanimit ekzistues', '#8a8f99', [7]),
     ('bare', 'Tokë e zhveshur', '#c9b8a0', [8]),
     ('water', 'Ujë dhe ligatina', '#4a90c8', [1, 4]),
     ('other', 'Tjetër (borë, re)', '#6b7685', [9, 10]),
@@ -182,16 +185,42 @@ def read_window(tif, col0, row0, col1, row1):
 
 
 # ---------- analysis ----------
+def list_container(container, zone):
+    """Years found by listing a public container (None when listing is not allowed)."""
+    import os
+    import re
+    if os.environ.get('ATLAS_MIRROR'):
+        return None
+    url = f'{HOST}/{container}?restype=container&comp=list&prefix=lc'
+    years, marker = {}, ''
+    try:
+        while True:
+            with urllib.request.urlopen(url+(f'&marker={marker}' if marker else ''), timeout=60) as r:
+                xml = r.read().decode('utf8', 'replace')
+            for y in re.findall(rf'<Name>lc(\d{{4}})/{zone}_\d{{8}}-\d{{8}}\.tif</Name>', xml):
+                years[int(y)] = container
+            marker = (re.findall(r'<NextMarker>([^<]*)</NextMarker>', xml) or [''])[0]
+            if not marker:
+                return years
+    except urllib.error.HTTPError:
+        return None
+
+
 def available_years(zones):
-    """Years published so far, checked on the first grid zone (stops at the first missing year)."""
-    years = []
-    for y in range(FIRST_YEAR, time.gmtime().tm_year+1):
-        tif = open_source(URL.format(y=y, y1=y+1, tile=zones[0]))
-        if tif is None:
-            break
-        tif.close()
-        years.append(y)
-    return years
+    """{year: container} for every published year, newest container winning. Each container is listed
+    when possible, otherwise probed year by year; missing years in between are skipped."""
+    found = {}
+    for container in CONTAINERS:
+        listed = list_container(container, zones[0])
+        if listed is not None:
+            found.update(listed)
+            continue
+        for y in range(FIRST_YEAR, time.gmtime().tm_year+1):
+            tif = open_source(URL.format(container=container, y=y, y1=y+1, tile=zones[0]))
+            if tif is not None:
+                tif.close()
+                found[y] = container
+    return dict(sorted(found.items()))
 
 
 def step_years(years):
@@ -202,21 +231,22 @@ def step_years(years):
             out.append(None)  # baseline (July 2016): already built
             continue
         ideal = steps[i-1]['year']-1
-        y = min(max(ideal, years[0]), years[-1])
+        y = max([v for v in years if v <= ideal] or [years[0]])  # the newest map not after the ideal year
         out.append(dict(label=s['label'], year=y, exact=y == ideal))
     return out
 
 
 def main():
     zones = grid_zones(manifest['bounds'])
-    years = available_years(zones)
+    where = available_years(zones)
+    years = list(where)
     if not years:
         raise SystemExit('Asnjë vit i Esri Land Cover nuk u gjet.')
     if OPTS.check:
         old = json.loads((DATA/'landcover.json').read_text(encoding='utf8')).get('years', []) if (DATA/'landcover.json').exists() else []
         print(f'NEWYEAR {OPTS.country} {years[-1]}' if years != old else f'SAME {OPTS.country} {years[-1]}', flush=True)
         return
-    print(f'Esri Land Cover: vitet {years[0]}–{years[-1]}, zonat {", ".join(zones)}', flush=True)
+    print(f'Esri Land Cover: vitet {", ".join(map(str, years))} ({", ".join(sorted(set(where.values())))}), zonat {", ".join(zones)}', flush=True)
     map_year = step_years(years)
     Y, S = len(years), len(steps)
     # Which year index each Tracker code (1..S) uses; −1 = baseline step.
@@ -224,7 +254,7 @@ def main():
     for i, m in enumerate(map_year):
         if m:
             code_year[i+1] = years.index(m['year'])
-    sources = {y: [t for t in (open_source(URL.format(y=y, y1=y+1, tile=z)) for z in zones) if t is not None] for y in years}
+    sources = {y: [t for t in (open_source(URL.format(container=where[y], y=y, y1=y+1, tile=z)) for z in zones) if t is not None] for y in years}
     projections = {}
     for y in years:
         for tif in sources[y]:
