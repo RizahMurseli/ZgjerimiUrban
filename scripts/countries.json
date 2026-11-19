@@ -1,0 +1,115 @@
+{
+  "XKX": {
+    "name": "Kosova",
+    "in": "në Kosovë",
+    "of": "e Kosovës",
+    "whole": "Gjithë Kosova",
+    "show": "Shfaq gjithë Kosovën",
+    "short": "KOSOVË",
+    "mark": "K",
+    "geonames": "XK",
+    "bounds": [
+      19.95,
+      41.8,
+      21.85,
+      43.31
+    ],
+    "boundaries": "local-xkx",
+    "windows": "scripts/municipal-windows.json",
+    "census": "data-src/census-xkx.json",
+    "unit1": {
+      "one": "komunë",
+      "many": "komuna",
+      "One": "Komuna",
+      "Many": "Komunat",
+      "the": "komunat",
+      "acc": "komunën"
+    },
+    "unit2": {
+      "one": "zonë kadastrale",
+      "many": "zona kadastrale",
+      "One": "Zona kadastrale",
+      "Many": "Zonat kadastrale",
+      "short": "ZK"
+    },
+    "unitsNote": "Kufijtë e komunave dhe të zonave kadastrale janë në sistemin KOSOVAREF01 (EPSG:9141).",
+    "atlas": "Atlasi urban i Kosovës",
+    "presets": [
+      "Prishtina",
+      "Prizreni",
+      "Peja"
+    ],
+    "soil": {
+      "path": "data-src/als-xkx.tif",
+      "epsg": 9141,
+      "source": "Përshtatshmëria e tokës bujqësore, klasat I–VIII (raster 50 m, EPSG:9141), dhënë nga autori.",
+      "outside": "Vlerat jashtë kufirit të Kosovës janë mbushje dhe maskohen me kufirin."
+    }
+  },
+  "ALB": {
+    "name": "Shqipëria",
+    "in": "në Shqipëri",
+    "of": "e Shqipërisë",
+    "whole": "Gjithë Shqipëria",
+    "show": "Shfaq gjithë Shqipërinë",
+    "short": "SHQIPËRI",
+    "mark": "A",
+    "geonames": "AL",
+    "boundaries": "geoboundaries",
+    "levels": [
+      "ADM1",
+      "ADM2",
+      "ADM3"
+    ],
+    "unit1": {
+      "one": "bashki",
+      "many": "bashki",
+      "One": "Bashkia",
+      "Many": "Bashkitë",
+      "the": "bashkitë",
+      "acc": "bashkinë"
+    },
+    "unit2": {
+      "one": "njësi administrative",
+      "many": "njësi administrative",
+      "One": "Njësia administrative",
+      "Many": "Njësitë administrative",
+      "short": "NjA"
+    },
+    "unitsNote": "Kufijtë administrativë vijnë nga geoBoundaries (gbOpen).",
+    "atlas": "Atlasi urban i Shqipërisë"
+  },
+  "MKD": {
+    "name": "Maqedonia e Veriut",
+    "in": "në Maqedoninë e Veriut",
+    "of": "e Maqedonisë së Veriut",
+    "whole": "Gjithë Maqedonia e Veriut",
+    "show": "Shfaq gjithë Maqedoninë e Veriut",
+    "short": "MAQEDONI E VERIUT",
+    "mark": "M",
+    "geonames": "MK",
+    "boundaries": "geoboundaries",
+    "levels": [
+      "ADM1",
+      "ADM2",
+      "ADM3"
+    ],
+    "unit1": {
+      "one": "komunë",
+      "many": "komuna",
+      "One": "Komuna",
+      "Many": "Komunat",
+      "the": "komunat",
+      "acc": "komunën"
+    },
+    "unit2": {
+      "one": "njësi",
+      "many": "njësi",
+      "One": "Njësia",
+      "Many": "Njësitë",
+      "short": "Nj"
+    },
+    "unitsNote": "Kufijtë administrativë vijnë nga geoBoundaries (gbOpen).",
+    "atlas": "Atlasi urban i Maqedonisë së Veriut"
+  }
+}

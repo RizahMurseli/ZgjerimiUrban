@@ -1,0 +1,114 @@
+name: Build country packs
+# Builds the data pack of one or more countries from global sources (DLR WSF,
+# geoBoundaries, GeoNames, GHS-POP, Esri 10m Land Cover), commits dist/data/<ISO3>/ and republishes.
+# Start it from the Actions tab: "Run workflow", then choose the countries.
+on:
+  workflow_dispatch:
+    inputs:
+      countries:
+        description: 'Kodet ISO3, të ndara me presje (p.sh. ALB,MKD ose XKX,ALB,MKD)'
+        default: 'ALB,MKD'
+        type: string
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Offline pipeline test (synthetic country)
+        run: python scripts/test_pipeline.py
+
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - id: list
+        env:
+          COUNTRIES: ${{ inputs.countries }}
+        run: |
+          echo "matrix=$(python3 -c "import json,os;print(json.dumps([c.strip().upper() for c in os.environ['COUNTRIES'].split(',') if c.strip()]))")" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [test, plan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        country: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Cache downloads
+        uses: actions/cache@v4
+        with:
+          path: .cache/${{ matrix.country }}
+          key: sources-${{ matrix.country }}-${{ hashFiles('scripts/countries.json') }}
+          restore-keys: sources-${{ matrix.country }}-
+      - name: WSF tiles, places and outline
+        run: python scripts/prepare_data.py --country ${{ matrix.country }}
+      - name: Administrative units
+        run: python scripts/prepare_boundaries.py --country ${{ matrix.country }}
+      - name: Population (GHS-POP, census where available)
+        run: python scripts/prepare_population.py --country ${{ matrix.country }}
+      - name: Statistics
+        run: python scripts/compute_stats.py --country ${{ matrix.country }}
+      - name: Land cover under new construction (Esri 10m Land Cover)
+        run: python scripts/prepare_landcover.py --country ${{ matrix.country }}
+      - name: Agricultural land suitability (where countries.json has "soil")
+        run: python scripts/prepare_soil.py --country ${{ matrix.country }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pack-${{ matrix.country }}
+          path: dist/data/${{ matrix.country }}
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: always() && needs.build.result != 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pack-*
+          path: packs
+      - name: Install packs, index and offline files
+        run: |
+          for dir in packs/pack-*; do
+            iso="${dir##*/pack-}"
+            rm -rf "dist/data/$iso" && mkdir -p "dist/data/$iso" && cp -r "$dir"/. "dist/data/$iso/"
+            echo "Paketa $iso: $(ls "dist/data/$iso" | wc -l) skedarë"
+          done
+          python scripts/list_countries.py
+          python scripts/build_single_html.py
+      - name: Commit and republish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898729+github-actions[bot]@users.noreply.github.com"
+          git add dist
+          if git diff --cached --quiet; then echo "Asgjë e re."; exit 0; fi
+          git commit -m "Paketat e shteteve: ${{ inputs.countries }}"
+          git push
+          gh workflow run pages.yml --ref "${GITHUB_REF_NAME}"

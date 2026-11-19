@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Zgjerimi urban në Kosovë</title>
+  <meta name="description" content="Eksploro historinë e zgjerimit urban të çdo vendbanimi në Kosovë, nga të dhënat satelitore të DLR.">
+  <meta name="author" content="Rizah Murseli">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><a class="brand" href="./"><span class="brand-mark" id="brandMark">K</span> ATLASI URBAN <span class="region" id="brandRegion">/ KOSOVË</span></a><span class="data-label">DLR · WSF</span></header>
+  <main>
+    <aside>
+      <h1 id="heroTitle">Zgjerimi urban<br>në Kosovë<span>.</span></h1>
+      <div class="byline"><span class="monogram" aria-hidden="true">RM</span><span>Një atlas nga<strong>Rizah Murseli</strong></span></div>
+      <p class="intro">Zgjidh vendbanimin dhe ndiq ndryshimin e tij në kohë.</p>
+      <div id="countryBox" class="country-box" hidden><label for="country">Shteti</label><select id="country" aria-label="Zgjidh shtetin"></select></div>
+      <label for="search">Vendbanimi</label>
+      <div class="search-wrap"><input id="search" type="search" placeholder="Kërko qytet ose fshat…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="results"><div id="results" role="listbox" hidden></div></div>
+      <div class="presets" id="presets"></div>
+      <label for="period">Periudha</label>
+      <select id="period"><option value="evolution">1985–2015 · WSF Evolution</option><option value="tracker">WSF Tracker</option></select>
+      <div class="extent-label"><label for="extent">Mbulimi i hartës</label><output id="extentValue">16 × 16 km</output></div>
+      <input id="extent" type="range" min="2" max="30" step="1" value="16">
+      <button id="whole" class="secondary">Shfaq gjithë Kosovën <span>↗</span></button>
+      <section class="basemap-box" aria-label="Harta bazë">
+        <span class="bm-title">Harta bazë</span>
+        <label for="bmSource">Burimi</label>
+        <select id="bmSource"><option value="none">Asnjë</option><option value="osm" selected>OpenStreetMap</option><option value="esri">Esri · imazh satelitor</option></select>
+        <label for="bmMode">Paraqitja e sfondit</label>
+        <select id="bmMode"><option value="dark" selected>E errët · thekson ngjyrat e viteve</option><option value="rgb">RGB · ngjyrat natyrale</option><option value="pan">Pankromatike · bardhë e zi</option></select>
+        <div class="extent-label"><label for="bmTransp">Transparenca</label><output id="bmTranspValue">30%</output></div>
+        <input id="bmTransp" type="range" min="0" max="95" step="5" value="30" aria-label="Transparenca e hartës bazë">
+      </section>
+      <section class="location"><span id="locationName">Prishtina</span><span id="coordinates"></span></section>
+      <dl class="stats"><div><dt id="totalLabel">Zonë e ndërtuar në pamje</dt><dd id="total">—</dd></div><div><dt>Shtesa nga kuadri i mëparshëm</dt><dd id="growth">—</dd></div></dl>
+      <div class="download-box">
+        <span class="download-title">Shkarko hartën e kësaj zone</span>
+        <span class="download-note">Pamja aktuale, me legjendë, statistika dhe autorësi</span>
+        <div class="download-buttons"><button data-export="png" type="button">⤓ PNG</button><button data-export="svg" type="button">⤓ SVG</button></div>
+      </div>
+      <div class="methods"><button id="aboutToggle" aria-expanded="false">Rreth të dhënave <span>+</span></button><div id="about" hidden><p>WSF identifikon zonat e ndërtuara në imazhe satelitore. Ngjyra tregon periudhën kur zona u identifikua.</p><p>Evolution ka rezolucion burimor rreth 30 m. Tracker ka rezolucion burimor 10 m. Pamja në ekran përshtatet sipas zmadhimit.</p><p>Tracker nis me gjendjen e korrikut 2016. Kuadrot e mëvonshme paraqesin janarin e vitit përkatës. Periudhat shfaqen veçmas sepse produktet përdorin metoda të ndryshme.</p><p>Sipërfaqet janë vlerësime brenda pamjes dhe kufirit të shtetit. Katalogu i emrave vjen nga GeoNames, me variante të emrave për kërkim. Harta bazë vjen nga OpenStreetMap. <span id="unitsNote">Kufijtë e komunave dhe të zonave kadastrale janë në sistemin KOSOVAREF01 (EPSG:9141).</span> Të dhënat e Tracker përditësohen automatikisht sapo DLR publikon një hap të ri<span id="dataUpdated"></span>.</p><p><a href="kosova-urban.html" id="offlineLink" download>Shkarko versionin offline (një skedar HTML)</a></p><p class="cite"><b>Si ta citoni</b><span id="citeText">Murseli, R. (2026). Zgjerimi urban në Kosovë: atlas interaktiv i zonave të ndërtuara, 1985–2026. Të dhënat: DLR World Settlement Footprint.</span><button id="copyCite">Kopjo</button></p></div></div>
+    </aside>
+    <section class="workspace" aria-label="Harta interaktive">
+      <div class="map-wrap">
+        <canvas id="map" aria-label="Harta e zonave të ndërtuara. Tërhiq për lëvizje, përdor rrotën për zmadhim dhe kliko dy herë për qendrim."></canvas>
+        <div class="map-title"><span id="mapName">PRISHTINA</span><small id="mapPeriod">WSF Evolution</small><small class="signature">© Rizah Murseli · Atlasi urban i Kosovës</small></div>
+        <div class="year-label"><strong id="year">1985</strong><span id="epoch">GJENDJA FILLESTARE</span></div>
+        <svg id="radial" aria-label="Diagrami radial i shtesave sipas drejtimit"></svg>
+        <button id="filterChip" hidden title="Hiq filtrin e njësive"><span>Filtri:</span> <b id="filterName"></b> <i>✕</i></button>
+        <div class="layer-toggles"><button id="toggleRadial" aria-pressed="true">◎ Diagrami radial</button><button id="toggleBasemap" aria-pressed="true">Harta bazë</button><button id="toggleUnits" aria-pressed="true">▢ Kufijtë</button></div>
+        <div id="radialKey"><b>Diagrami radial</b><span><span id="radialKeyText">Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">—</output>), sipas drejtimit.</span> Çdo shtyllë është një vit, me ngjyrën e vitit në hartë; koha ecën në drejtim të akrepave të orës.</span><div class="swatches"><span><i class="sw sw0"></i>afër qendrës</span><span><i class="sw sw1"></i>në mes</span><span><i class="sw sw2"></i>në skaj</span></div></div>
+        <div id="osmCredit">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">kontribuuesit e OpenStreetMap</a></div>
+        <div class="mode-switch" role="radiogroup" aria-label="Mënyra e shfaqjes"><button data-mode="cumulative" class="active" role="radio" aria-checked="true">Gjendja</button><button data-mode="added" role="radio" aria-checked="false">Shtesat e vitit</button><button data-mode="compare" role="radio" aria-checked="false">Krahaso</button></div>
+        <div id="compare" hidden><div id="divider" role="slider" tabindex="0" aria-label="Ndarësi i krahasimit" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"><span>⟷</span></div><label class="compare-a">Majtas <select id="compareYear" aria-label="Viti në anën e majtë"></select></label><span class="compare-b" id="compareB">Djathtas 2015</span></div>
+        <div id="filterAway" hidden><span id="filterAwayText"></span><button id="filterGo">Shko te filtri</button><button id="filterOff">Hiq filtrin</button></div>
+        <div id="tip" hidden></div>
+        <div id="status" role="status" aria-live="polite">Duke ngarkuar të dhënat…</div>
+        <div class="map-tools"><button id="zoomIn" aria-label="Zmadho hartën">+</button><button id="zoomOut" aria-label="Zvogëlo hartën">−</button><button id="reset" aria-label="Rikthe pamjen e vendbanimit">⌖</button></div>
+        <canvas id="overview" width="120" height="140" aria-label="Kliko për të zgjedhur një pikë në Kosovë" tabindex="0"></canvas>
+        <div id="scale"><span></span><small></small></div>
+        <span class="map-help">Tërhiq hartën · Rrota për zmadhim</span>
+      </div>
+      <div class="playback">
+        <div class="play-row"><button id="play" disabled aria-label="Luaj animacionin">▶ <span>Luaj</span></button><input id="time" aria-label="Viti" type="range" min="0" max="30" value="0"><select id="speed" aria-label="Shpejtësia"><option value="800">0,5×</option><option value="400" selected>1×</option><option value="200">2×</option></select></div>
+        <div id="legend" aria-label="Legjenda e viteve"></div>
+        <p class="timeline-hint">Çdo ngjyrë i përket një viti. Grija tregon gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.</p>
+      </div>
+    </section>
+    <section class="insights" aria-label="Analiza">
+      <div class="tabs" role="tablist"><button role="tab" data-tab="zone" aria-selected="true">Kjo zonë</button><button role="tab" data-tab="units" aria-selected="false">Njësitë</button><button role="tab" data-tab="sdg" aria-selected="false">Qëndrueshmëria</button><button role="tab" data-tab="race" aria-selected="false" id="tabRace">Gara 5 km</button><button role="tab" data-tab="kosovo" aria-selected="false" id="tabNation">Kosova</button></div>
+      <div class="tab" id="tab-zone">
+        <p class="story" id="zoneStory">—</p>
+        <div class="kpis"><div><span>Rritja</span><strong id="kpiGrowth">—</strong></div><div><span>Viti më aktiv</span><strong id="kpiPeak">—</strong></div><div><span>Mesatarja vjetore</span><strong id="kpiAvg">—</strong></div></div>
+        <h3>Zona e ndërtuar, kumulative <small>km²</small></h3><div class="chart" id="chartCumulative"></div>
+        <h3>Shtesa sipas vitit <small>km²</small></h3><div class="chart" id="chartAdded"></div>
+        <h3>Statistikat përshkruese <small>shtesat dhe rritja vjetore, pa gjendjen fillestare</small></h3><div id="descStats"></div>
+        <details class="year-table"><summary>Tabela për çdo vit <small>ha dhe %</small></summary><div id="yearTable"></div></details>
+        <h3>Qendër apo periferi? <small>% e tokës së ndërtuar sipas largësisë nga qendra e pamjes</small></h3><div class="chart" id="chartRings"></div>
+      </div>
+      <div class="tab" id="tab-units" hidden>
+        <div class="cascade">
+          <label for="munBtn"><span id="munLabelText">1 · Komunat</span> <small>një ose disa</small></label>
+          <div class="ms" id="munPick">
+            <button id="munBtn" class="ms-btn" type="button" aria-haspopup="listbox" aria-expanded="false"><span id="munBtnText">Gjithë Kosova · 38 komunat</span><i aria-hidden="true">▾</i></button>
+            <div class="ms-panel" id="munPanel" hidden>
+              <input id="munFilter" type="search" autocomplete="off" placeholder="Filtro komunat…" aria-label="Filtro komunat">
+              <div id="munList" class="ms-list" role="listbox" aria-multiselectable="true"></div>
+              <div class="ms-foot"><button id="munNone" type="button">Gjithë Kosova</button><button id="munDone" type="button">Mbyll</button></div>
+            </div>
+          </div>
+          <label for="zoneBtn" class="zone-label"><span id="zoneLabelText">2 · Zonat kadastrale</span> <small>opsionale · pa zgjedhje = njësitë e plota</small></label>
+          <div class="ms" id="zonePick">
+            <button id="zoneBtn" class="ms-btn" type="button" aria-haspopup="listbox" aria-expanded="false" disabled><span id="zoneBtnText">Zgjidh fillimisht komunën</span><i aria-hidden="true">▾</i></button>
+            <div class="ms-panel" id="zonePanel" hidden>
+              <input id="zoneFilter" type="search" autocomplete="off" placeholder="Filtro zonat sipas emrit…" aria-label="Filtro zonat kadastrale">
+              <div id="zoneList" class="ms-list" role="listbox" aria-multiselectable="true"></div>
+              <div class="ms-foot"><button id="zoneNone" type="button">Komunat e plota</button><button id="zoneDone" type="button">Mbyll</button></div>
+            </div>
+          </div>
+          <div class="active-filter" id="activeFilter"></div>
+        </div>
+        <div class="unit-controls">
+          <label>Treguesi<select id="unitMetric">
+            <option value="share">Pjesa e territorit të ndërtuar (%)</option>
+            <option value="built">Sipërfaqja e ndërtuar</option>
+            <option value="growth">Rritja nga gjendja fillestare (%)</option>
+            <option value="added">Shtesa nga gjendja fillestare</option>
+            <option value="intensity">Shtesa për km² territor (ha/km²)</option>
+          </select></label>
+        </div>
+        <p class="metric-note" id="metricNote"></p>
+        <div class="choropleth" id="choropleth"></div>
+        <div class="choro-legend" id="choroLegend"></div>
+        <h3>Përzgjedhja <small id="selCount">kliko njësitë në hartë, në hartën tematike ose në tabelë</small></h3>
+        <div class="sel-actions"><button id="selZoom">Shfaq në hartë</button><button id="selCsv">Shkarko CSV</button></div>
+        <p class="story" id="selStory"></p>
+        <h3 id="unitChartTitle">Ecuria në kohë</h3><div class="chart" id="chartUnits"></div>
+        <h3 id="tableTitle">Renditja</h3>
+        <div class="table-wrap"><table id="unitTable"><thead></thead><tbody></tbody></table></div>
+        <p class="note" id="tableNote"></p>
+      </div>
+      <div class="tab" id="tab-sdg" hidden>
+        <div class="sdg-head"><p class="story" id="sdgStory">—</p><span class="sdg-pill" id="sdgPill"></span></div>
+        <div class="sdg-scope" id="sdgScope"></div>
+        <div class="sdg-source" id="sdgSourceBox" hidden><label for="sdgSource">Burimi i popullsisë</label><select id="sdgSource"></select><p class="note" id="sdgSourceNote"></p></div>
+        <div class="sdg-kpis" id="sdgKpis"></div>
+        <h3>Harta e efikasitetit të tokës <small>SDG 11.3.1 · kliko për ta shtuar ose hequr nga filtri</small></h3>
+        <div class="choropleth" id="sdgMap"></div>
+        <div class="choro-legend" id="sdgLegend"></div>
+        <h3>Toka kundrejt popullsisë <small id="sdgScatterNote">rritja vjetore</small></h3>
+        <div class="chart" id="sdgScatter"></div>
+        <h3>Zonë e ndërtuar për banor, 2024 <small id="sdgBarsNote">m² sipas WSF Tracker</small></h3>
+        <div class="chart" id="sdgBars"></div>
+        <h3>Lidhja me objektivat e zhvillimit të qëndrueshëm</h3>
+        <div class="sdg-cards" id="sdgCards"></div>
+        <details class="sdg-more" id="soilBox" open hidden><summary>Ndërtimet sipas përshtatshmërisë së tokës bujqësore <small id="soilState"></small></summary>
+          <p class="story-small" id="soilStory"></p>
+          <div class="chart lc-chart" id="soilChart"></div>
+          <div class="choro-legend" id="soilLegend"></div>
+          <table class="lc-table soil-table" id="soilTable"></table>
+          <p class="note" id="soilNote"></p>
+        </details>
+        <details class="sdg-more" id="sdgLandBox"><summary>Mbi çfarë u ndërtua? <small id="sdgLandState"></small></summary><div id="sdgLand"></div></details>
+        <details class="sdg-more"><summary>Metoda dhe kufizimet</summary>
+          <div class="sdg-formula" id="sdgFormula"></div>
+          <p class="note"><b>T</b>: zona e ndërtuar nga WSF Tracker, janar 2017 → janar 2024. <span id="sdgPopNote"></span> Kur popullsia bie, raporti nuk ka kuptim dhe njësia renditet te "zgjerim me popullsi në rënie".</p>
+          <p class="note" id="sdgEstimateNote" hidden>Periudhat e popullsisë dhe të tokës nuk përputhen plotësisht; krahasohen shpejtësitë vjetore. Për katër komunat veriore të dy vitet janë vlerësime: ato janë jashtë totalit. Bojkoti i pjesshëm i 2011 në disa komuna me shumicë serbe mund ta fryjë rritjen e tyre. Diaspora nuk numërohet si popullsi rezidente, por shtëpitë e saj e rrisin zonën e ndërtuar.</p>
+          <p class="note">Popullsia jepet për njësitë e nivelit të parë. Zonat më të vogla dhe rrethi radial nuk përdoren këtu.</p>
+        </details>
+        <div class="sel-actions" style="margin-top:12px"><button id="sdgCsv" type="button">Shkarko CSV (SDG 11.3.1)</button></div>
+      </div>
+      <div class="tab" id="tab-race" hidden>
+        <p class="story" id="raceStory">38 qendrat komunale, krahasuar në rreze të njëjtë prej 5 km nga qendra. Renditja ndjek vitin në kohëzgjatje; luaje animacionin për ta parë garën.</p>
+        <div class="race-controls"><label for="raceSort">Rendit sipas</label><select id="raceSort"><option value="area">Sipërfaqes së ndërtuar</option><option value="pct">Rritjes nga viti bazë (%)</option><option value="added">Shtesës së vitit</option></select></div>
+        <div id="race" role="list"></div>
+      </div>
+      <div class="tab" id="tab-kosovo" hidden>
+        <p class="story" id="kosovoStory">—</p>
+        <h3><span id="nationEvoTitle">Gjithë Kosova · 1985–2015</span> <small>km², WSF Evolution</small></h3><div class="chart" id="chartNationEvo"></div>
+        <h3><span id="nationTrkTitle">Gjithë Kosova · 2016–2026</span> <small>km², WSF Tracker</small></h3><div class="chart" id="chartNationTrk"></div>
+        <p class="note">Dy produktet maten ndryshe (30 m kundrejt 10 m), ndaj vlerat e tyre nuk vazhdojnë njëra-tjetrën. Krahasoni ritmin, jo nivelin.</p>
+        <h3 id="hotTitle">Vendbanimet me shtesën më të madhe</h3>
+        <ol id="hotspots"></ol>
+      </div>
+    </section>
+  </main>
+  <footer><span class="credit">Koncepti, analiza dhe zhvillimi: <strong>Rizah Murseli</strong> · 2026</span><span>Burimi <a href="https://geoservice.dlr.de/web/datasets/wsf" target="_blank" rel="noopener">DLR · World Settlement Footprint</a> · CC BY 4.0</span><span><a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> · <a href="https://www.geoboundaries.org/" target="_blank" rel="noopener">geoBoundaries</a> · Harta bazë © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a></span></footer>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

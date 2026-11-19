@@ -1,0 +1,71 @@
+name: Update WSF data
+# Checks DLR once a month for new WSF Tracker steps, and Esri for a new year of the
+# land-cover series. For every country pack in dist/data with something new it downloads the tracker again, recomputes
+# the statistics, commits the data and republishes the atlas.
+on:
+  schedule:
+    - cron: '17 3 5 * *'   # 03:17 UTC on the 5th of every month
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rillogarit statistikat edhe pa të dhëna të reja'
+        type: boolean
+        default: false
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Restore downloads
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: update-${{ github.run_id }}
+          restore-keys: update-
+      - name: Check DLR and update each country
+        id: check
+        env:
+          FORCE: ${{ inputs.force }}
+        run: |
+          changed=false
+          for iso in $(python3 -c "import json;print(' '.join(p['id'] for p in json.load(open('dist/data/countries.json'))))"); do
+            python scripts/prepare_data.py --country "$iso" --update | tee "check-$iso.log"
+            # A new year of the Esri land-cover series also triggers a recomputation.
+            python scripts/prepare_landcover.py --country "$iso" --check | tee -a "check-$iso.log" || true
+            if grep -q '^UPDATED\|^NEWYEAR' "check-$iso.log" || [ "$FORCE" = "true" ]; then
+              # Level-1/level-2 units are needed in full precision for the statistics.
+              python scripts/prepare_boundaries.py --country "$iso"
+              python scripts/compute_stats.py --country "$iso"
+              python scripts/prepare_soil.py --country "$iso"
+              python scripts/prepare_landcover.py --country "$iso"
+              changed=true
+            fi
+          done
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+      - name: Commit and republish
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/list_countries.py
+          python scripts/build_single_html.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898729+github-actions[bot]@users.noreply.github.com"
+          git add dist
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Të dhëna të reja WSF Tracker ($(cat check-*.log | grep -h '^UPDATED\|^NEWYEAR' | head -3 | tr '\n' ' '))"
+          git push
+          # Pushes made with GITHUB_TOKEN do not start other workflows, so start publishing explicitly.
+          gh workflow run pages.yml --ref "${GITHUB_REF_NAME}"
