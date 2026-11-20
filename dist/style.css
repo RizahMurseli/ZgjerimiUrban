@@ -250,3 +250,26 @@ table.years tr.now td{background:#16303a;color:var(--text)}
 
 /* Map height must not follow the side panel, or the canvas goes stale and stretches. */
 @media(min-width:851px){.map-wrap{flex:none}}
+/* Base year */
+.base-label{margin-top:18px}.base-label small{font-weight:400;color:var(--muted);margin-left:4px}
+.base-hint{font-size:10.5px;color:var(--muted);line-height:1.5;margin:7px 0 0}
+/* Area of interest */
+.aoi-box{margin-top:22px;padding-top:16px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:9px}
+.aoi-help,.aoi-formats{font-size:11px;color:var(--muted);line-height:1.5;margin:0}.aoi-formats{font-size:10px}
+.aoi-buttons{display:flex;gap:6px}.aoi-buttons button{flex:1;background:#141e2c;border:1px solid #344156;border-radius:7px;color:var(--text);padding:10px 8px;font-size:12px}
+.aoi-buttons button:hover{border-color:#ffd666;color:#ffd666}.aoi-buttons button[aria-pressed=true]{background:#ffd666;color:#1b1500;border-color:#ffd666;font-weight:700}
+.aoi-buttons.small button{padding:7px 6px;font-size:11px}
+.aoi-msg{font-size:11px;margin:0;color:var(--accent)}.aoi-msg.error{color:#ff8a8a}
+.aoi-active{display:flex;flex-direction:column;gap:5px;border:1px solid #ffd66655;background:#ffd6660d;border-radius:8px;padding:11px}
+.aoi-active b{color:#ffd666;font-size:13px}.aoi-active>span{font:10.5px 'Space Mono',monospace;color:var(--muted);line-height:1.5}.aoi-note{font-family:'DM Sans',sans-serif!important;color:#e4c56b!important}
+#aoiDraw{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
+#aoiDraw .aoi-fill{fill:#ffd666;fill-opacity:.12;stroke:none}#aoiDraw .aoi-line{fill:none;stroke:#ffd666;stroke-width:2;stroke-dasharray:6 4}
+#aoiDraw .aoi-vertex{fill:#0b111b;stroke:#ffd666;stroke-width:2}#aoiDraw .aoi-vertex.first{fill:#ffd666}
+#map.drawing{cursor:crosshair}
+#aoiBar{position:absolute;z-index:4;left:50%;top:18px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;background:#141e2cf2;border:1px solid #ffd66688;border-radius:8px;padding:8px 10px;font-size:12px;max-width:calc(100% - 40px);box-shadow:0 10px 30px #0008}
+#aoiBar[hidden]{display:none}#aoiBar span{color:var(--text);margin-right:4px}
+#aoiBar button{background:transparent;border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;white-space:nowrap}
+#aoiBar #aoiFinish{background:#ffd666;color:#1b1500;border-color:#ffd666;font-weight:700}#aoiBar button:disabled{opacity:.4;cursor:default}
+.map-wrap.dropping{outline:2px dashed #ffd666;outline-offset:-6px}
+.zone-actions{margin:12px 0 4px}
+.aoi-active[hidden],.aoi-msg[hidden],.aoi-note[hidden]{display:none}

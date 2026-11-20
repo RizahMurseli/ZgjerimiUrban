@@ -42,7 +42,58 @@ const canvas = $('map');
 const context = canvas.getContext('2d');
 const normalize = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 // Time axis comes from manifest.json, so new WSF Tracker steps need no code change.
-const period = (name=state.period) => manifest.periods[name];
+// Base year: the analysis can start at any step. period() returns the steps from that step on,
+// and every per-step series (units, municipalities, national) is sliced the same way in applyBase().
+state.base = {evolution:0,tracker:0};
+const baseOff = (name=state.period) => state.base[name] || 0;
+const periodCache = {};
+const period = (name=state.period) => {
+  const raw = manifest.periods[name], off = baseOff(name);
+  if (!off) return raw;
+  return periodCache[name+':'+off] ||= {...raw,rawOffset:off,
+    range:`${raw.steps[off].label.toLowerCase()} – ${raw.steps.at(-1).label.toLowerCase()}`,
+    steps:[{...raw.steps[off],epoch:(/^Janar/.test(raw.steps[off].label) ? 'JANAR · ' : /^Korrik/.test(raw.steps[off].label) ? 'KORRIK · ' : '')+'VITI BAZË'},...raw.steps.slice(off+1)]};
+};
+function rebaseSeries(obj) {
+  if (!obj) return;
+  if (!obj._r) Object.defineProperty(obj,'_r',{value:{},enumerable:false});
+  for (const p of Object.keys(manifest.periods)) {
+    if (!obj[p] && !obj._r[p]) continue;
+    if (!obj._r[p]) obj._r[p] = obj[p];
+    obj[p] = obj._r[p].slice(baseOff(p));
+  }
+}
+const rawSeries = (obj,p) => obj._r?.[p] || obj[p];
+// Raw WSF code (1 = first step) → code relative to the base step (1 = built by the base year).
+function baseRemap(name=state.period) {
+  const off = baseOff(name), n = manifest.periods[name].steps.length, out = new Uint8Array(256);
+  for (let k=1;k<=n;k++) out[k] = k <= off+1 ? 1 : k-off;
+  return out;
+}
+function applyBase() {
+  if (stats) { rebaseSeries(stats.national);stats.municipal.forEach(rebaseSeries); }
+  if (units) { units.municipalities.forEach(rebaseSeries);units.cadastral.forEach(rebaseSeries);rebaseSeries(units.kosovo); }
+}
+function setBase(off) {
+  const name = state.period, raw = manifest.periods[name], old = baseOff(name);
+  off = Math.max(0,Math.min(raw.steps.length-2,off|0));
+  if (off === old && $('baseYear').value === String(off)) return;
+  const keep = i => Math.max(0,Math.min(raw.steps.length-1-off,i+old-off));
+  state.index = keep(state.index);state.compareIndex = keep(state.compareIndex);
+  state.base[name] = off;
+  applyBase();
+  sdgCache = null;
+  syncBaseControl();
+  buildLegend();
+  sample = null;viewStats = null;
+  paint();
+  loadView();
+}
+function syncBaseControl() {
+  const raw = manifest.periods[state.period];
+  $('baseYear').replaceChildren(...raw.steps.slice(0,-1).map((st,i) => new Option(st.label+(i ? '' : ' · fillimi i serisë'),String(i))));
+  $('baseYear').value = String(baseOff());
+}
 const count = () => period().steps.length;
 const stepYear = i => period().steps[i].year;
 const yearLabel = (i,name) => period(name).steps[i].label;
@@ -159,7 +210,7 @@ async function loadView() {
   context.fillRect(0,0,canvas.width,canvas.height);
   overview();
   const v = {...view};
-  const grid = new Uint8Array(v.size*v.size);
+  const grid = new Uint8Array(v.size*v.size), remap = baseRemap();
   try {
     const visible = manifest.tiles.filter(tile => {
       const [w,s,e,n] = tile.bbox;
@@ -183,7 +234,7 @@ async function loadView() {
           const lon = v.west+(x+.5)/v.size*(v.east-v.west);
           const col = Math.max(0,Math.min(size-1,Math.floor((lon-west)/(east-west)*size)));
           const index = y*v.size+x;
-          if (mask[index*4+3] > 127) grid[index] = values[row*size+col];
+          if (mask[index*4+3] > 127) grid[index] = remap[values[row*size+col]];
         }
       }
     }
@@ -269,6 +320,7 @@ function paint(mapOnly=false) {
   context.imageSmoothingEnabled = false;
   context.drawImage(layer,view.x,view.y);
   drawUnits();
+  drawAoi();
   pathFor(context,(lon,lat) => [view.x+(lon-view.west)/(view.east-view.west)*view.size,view.y+(view.north-lat)/(view.north-view.south)*view.size]);
   context.strokeStyle = '#34445c';
   context.lineWidth = .8;
@@ -276,7 +328,7 @@ function paint(mapOnly=false) {
   const area = (state.span/view.size)**2;
   $('total').textContent = number(total*area)+' km²';
   lastStats = {total:total*area,added:added*area};
-  $('totalLabel').textContent = !filterMask ? 'Zonë e ndërtuar në pamje' : filterMask.kind === 'circle' ? 'Zonë e ndërtuar brenda rrethit' : filterMask.circle ? 'Zonë e ndërtuar brenda rrethit dhe filtrit' : 'Zonë e ndërtuar brenda filtrit';
+  $('totalLabel').textContent = !filterMask ? 'Zonë e ndërtuar në pamje' : filterMask.kind === 'aoi' ? 'Zonë e ndërtuar në zonën e interesit' : filterMask.kind === 'circle' ? 'Zonë e ndërtuar brenda rrethit' : filterMask.circle ? 'Zonë e ndërtuar brenda rrethit dhe filtrit' : 'Zonë e ndërtuar brenda filtrit';
   $('growth').textContent = state.index ? '+'+number(added*area)+' km²' : 'Gjendja fillestare';
   const scaleKm = state.span > 60 ? 20 : state.span > 15 ? 5 : state.span > 5 ? 2 : 1;
   $('scale').firstElementChild.style.width = (scaleKm/state.span*view.size*canvas.clientWidth/canvas.width)+'px';
@@ -289,6 +341,7 @@ function paint(mapOnly=false) {
   }
   overview();
   renderRadial();
+  renderAoiDraft();
 }
 const layer = document.createElement('canvas');
 // ---------- OpenStreetMap background ----------
@@ -404,8 +457,10 @@ function searchPlaces() {
 function updateHash() {
   const params = new URLSearchParams({c:C.id,lat:state.lat.toFixed(5),lon:state.lon.toFixed(5),km:String(state.span),p:state.period,name:state.name,m:state.mode,b:state.basemap ? state.basemapSource : '0',bm:state.basemapMode,bt:String(state.basemapTransp),r:state.radial ? '1' : '0',u:state.unitsOverlay ? '1' : '0'});
   if (state.tab !== 'zone') params.set('t',state.tab);
+  if (baseOff()) params.set('by',String(period().steps[0].label.replace(/^(Janar|Korrik) /,m => m[0] === 'K' ? '7-' : '')));
   if (MUN.size) params.set('mun',[...MUN].join('.'));
   if (ZONE.size && ZONE.size <= 60) params.set('zk',[...ZONE].join('.'));
+  if (state.aoi) params.set('aoi','1');
   history.replaceState(null,'','#'+params.toString());
 }
 function pointAt(lon,lat) {
@@ -437,7 +492,8 @@ $('results').addEventListener('keydown',event => {
 });
 document.addEventListener('click',event => { if (!event.target.closest('.search-wrap')) hideResults(); });
 $('country').onchange = () => { location.hash = 'c='+$('country').value;location.reload(); };
-$('period').onchange = () => { state.period = $('period').value;state.index = state.compareIndex = 0;sample = null;viewStats = null;buildLegend();paint();loadView(); };
+$('period').onchange = () => { state.period = $('period').value;state.index = state.compareIndex = 0;sample = null;viewStats = null;syncBaseControl();buildLegend();paint();loadView(); };
+$('baseYear').onchange = () => setBase(Number($('baseYear').value));
 $('extent').oninput = () => { $('extentValue').textContent = $('extent').value+' × '+$('extent').value+' km'; };
 $('extent').onchange = () => { state.span = Number($('extent').value);loadView(); };
 $('whole').onclick = () => { Object.assign(state,wholeView(),{name:C.whole});loadView(); };
@@ -475,7 +531,9 @@ canvas.onpointerup = event => {
   if (Math.hypot(dx,dy)>4) {
     const scale = canvas.clientWidth/canvas.width;
     pointAt(drag.lon-dx/(view.size*scale)*(view.east-view.west),drag.lat+dy/(view.size*scale)*(view.north-view.south));
-  } else if (units && state.unitsOverlay) {
+  } else if (aoiDraft) {
+    draftClick(event);
+  } else if (units && state.unitsOverlay && !state.aoi) {
     // A click (no drag) selects or deselects the unit under the pointer.
     const rect = canvas.getBoundingClientRect();
     const x = (event.clientX-rect.left)*canvas.width/rect.width-view.x, y = (event.clientY-rect.top)*canvas.height/rect.height-view.y;
@@ -485,6 +543,7 @@ canvas.onpointerup = event => {
 };
 canvas.onpointercancel = () => { drag = null; };
 canvas.ondblclick = event => {
+  if (aoiDraft) { event.preventDefault();endDraw(true);return; }
   const rect = canvas.getBoundingClientRect();
   const x = (event.clientX-rect.left)*canvas.width/rect.width-view.x;
   const y = (event.clientY-rect.top)*canvas.height/rect.height-view.y;
@@ -562,6 +621,15 @@ async function start() {
     $('toggleBasemap').setAttribute('aria-pressed',String(state.basemap));
     syncBasemapControls();
     $('period').value = state.period;
+    if (hash.has('by')) {
+      // by=2000, or by=7-2016 for the July 2016 Tracker step
+      const want = hash.get('by'), july = /^7-/.test(want), y = Number(want.replace(/^7-/,''));
+      const k = manifest.periods[state.period].steps.findIndex(st => st.year === y && /^Korrik/.test(st.label) === july);
+      if (k > 0 && k < manifest.periods[state.period].steps.length-1) state.base[state.period] = k;
+    }
+    applyBase();
+    syncBaseControl();
+    if (hash.get('aoi') === '1') restoreAoi();
     $('search').value = state.name;
     buildLegend();
     paint();
@@ -591,6 +659,7 @@ const filterLabel = list => {
   return [m ? `${m} ${C.unit1.many}` : '',z ? `${z} ${C.unit2.many}` : ''].filter(Boolean).join(' + ');
 };
 function buildFilterMask(v) {
+  if (state.aoi) return aoiMask(v);
   const size = v.size, c = size/2, list = filterUnits();
   const circle = state.radial ? RADIAL.lens*size : null;
   if (list.length) {
@@ -773,10 +842,10 @@ function renderZone() {
   let peak = 1;
   for (let i=2;i<n;i++) if (s.added[i] > s.added[peak]) peak = i;
   const ratio = start > 0 ? end/start : null;
-  const scope = !s.filter ? `Në këtë pamje (${esc(state.name)})` : s.filter.kind === 'circle' ? `Brenda rrethit me rreze ${number(Math.round(s.lensKm*10)/10)} km rreth ${esc(state.name)}` : s.filter.circle ? `Brenda rrethit me rreze ${number(Math.round(s.lensKm*10)/10)} km, vetëm në ${esc(s.filter.label)}` : `Brenda filtrit (${esc(s.filter.label)})`;
+  const scope = !s.filter ? `Në këtë pamje (${esc(state.name)})` : s.filter.kind === 'aoi' ? `Brenda zonës së interesit <b>${esc(s.filter.label)}</b> (${number(Math.round(s.landKm2*1000)/10)} ha${s.filter.partial ? ', vetëm pjesa në pamje' : ''})` : s.filter.kind === 'circle' ? `Brenda rrethit me rreze ${number(Math.round(s.lensKm*10)/10)} km rreth ${esc(state.name)}` : s.filter.circle ? `Brenda rrethit me rreze ${number(Math.round(s.lensKm*10)/10)} km, vetëm në ${esc(s.filter.label)}` : `Brenda filtrit (${esc(s.filter.label)})`;
   let story = `${scope}, zona e ndërtuar kalon nga <b>${km2(start)}</b> (${yearLabel(0)}) në <b>${km2(end)}</b> (${yearLabel(n-1)})`;
   story += ratio && ratio >= 1.5 ? `, rreth <b>${number(Math.round(ratio*10)/10)} herë</b> më shumë.` : ratio ? `, <b>+${number(Math.round((ratio-1)*1000)/10)}%</b>.` : '.';
-  if (state.period === 'evolution' && growth > 0) {
+  if (state.period === 'evolution' && growth > 0 && stepIndexOfYear(1999) > 0) {
     const after = (end-c[stepIndexOfYear(1999)])/growth*100;
     story += ` <b>${number(Math.round(after))}%</b> e kësaj rritjeje u regjistrua pas vitit 1999.`;
   }
@@ -832,9 +901,9 @@ function renderRace(rebuild) {
 function renderKosovo() {
   if (!stats) { $('kosovoStory').textContent = 'Statistikat nuk u ngarkuan.';return; }
   const e = stats.national.evolution, t = stats.national.tracker;
-  const share = (e[e.length-1]-e[stepIndexOfYear(1999,'evolution')])/(e[e.length-1]-e[0])*100;
+  const i99 = stepIndexOfYear(1999,'evolution'), share = i99 > 0 ? (e[e.length-1]-e[i99])/(e[e.length-1]-e[0])*100 : null;
   const pe = period('evolution'), pt = period('tracker');
-  $('kosovoStory').innerHTML = `Sipas WSF Evolution, zona e ndërtuar ${C.in} u rrit nga <b>${km2(e[0])}</b> në ${pe.steps[0].label} në <b>${km2(e[e.length-1])}</b> në ${pe.steps.at(-1).label}, <b>${number(Math.round(e[e.length-1]/e[0]*10)/10)} herë</b> më shumë. Rreth <b>${number(Math.round(share))}%</b> e kësaj rritjeje erdhi pas vitit 1999. Tracker, me rezolucion më të imët, regjistron <b>+${number(Math.round((t[t.length-1]/t[0]-1)*100))}%</b> nga ${pt.steps[0].label.toLowerCase()} deri në ${pt.steps.at(-1).label.toLowerCase()}.`;
+  $('kosovoStory').innerHTML = `Sipas WSF Evolution, zona e ndërtuar ${C.in} u rrit nga <b>${km2(e[0])}</b> në ${pe.steps[0].label} në <b>${km2(e[e.length-1])}</b> në ${pe.steps.at(-1).label}, <b>${number(Math.round(e[e.length-1]/e[0]*10)/10)} herë</b> më shumë.${share != null ? ` Rreth <b>${number(Math.round(share))}%</b> e kësaj rritjeje erdhi pas vitit 1999.` : ''} Tracker, me rezolucion më të imët, regjistron <b>+${number(Math.round((t[t.length-1]/t[0]-1)*100))}%</b> nga ${pt.steps[0].label.toLowerCase()} deri në ${pt.steps.at(-1).label.toLowerCase()}.`;
   const go = (period,i) => {
     if (state.period !== period) { $('period').value = period;$('period').onchange(); }
     setIndex(i);
@@ -844,7 +913,7 @@ function renderKosovo() {
   timeChart($('chartNationTrk'),{values:t,years:pt.steps.map(s => s.year),active:state.period === 'tracker' ? state.index : null,color:'#5e9bff',
     label:C.name+' '+pt.range,onPick:i => go('tracker',i),tip:i => `${yearLabel(i,'tracker')}<br><b>${km2(t[i])}</b>`+(i ? `<br>+${km2(t[i]-t[i-1])}` : '')});
   const [a,b] = state.period === 'evolution' ? [0,1] : [2,3];
-  $('hotTitle').innerHTML = `Vendbanimet me shtesën më të madhe <small>${period().range} · brenda 1 km nga pika e vendbanimit</small>`;
+  $('hotTitle').innerHTML = `Vendbanimet me shtesën më të madhe <small>${manifest.periods[state.period].range} · brenda 1 km nga pika e vendbanimit</small>`;
   const ranked = places.map(p => ({p,v:stats.places[p.id]})).filter(r => r.v).sort((x,y) => (y.v[b]-y.v[a])-(x.v[b]-x.v[a]));
   const chosen = [];
   for (const r of ranked) {
@@ -964,7 +1033,7 @@ function renderRadial() {
   const s = viewStats, byUnits = s?.filter?.kind === 'units';
   // No dimming outside: the map itself shows only base-year areas there, in their normal colour.
   let out = `<circle class="radial-lens" cx="${cx}" cy="${cy}" r="${lens}"/>`;
-  $('radialKeyText').innerHTML = byUnits ? `Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>) dhe brenda <span class="kname">${esc(s.filter.label)}</span>, sipas drejtimit.` : `Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>), sipas drejtimit.`;
+  $('radialKeyText').innerHTML = s?.filter?.kind === 'aoi' ? `Shtesat vjetore brenda zonës së interesit <span class="kname">${esc(s.filter.label)}</span>, sipas drejtimit nga qendra e pamjes.` : byUnits ? `Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>) dhe brenda <span class="kname">${esc(s.filter.label)}</span>, sipas drejtimit.` : `Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>), sipas drejtimit.`;
   if (s && s.radial) {
     const m = count()-1;
     const series = s.radial.map(dir => dir.map(band => Array.from({length:m},(_,k) => band[k+2])));
@@ -1160,6 +1229,7 @@ function clickUnitAt(lon,lat) {
 function clearFilter() { MUN.clear();ZONE.clear();afterSelection(); }
 function afterSelection(zoom=true) {
   syncFilter();
+  if (state.aoi && filterUnits().length) clearAoi(false);
   // The map (and so the radial diagram) is centred on the filter: the chosen zones or municipality.
   const list = filterUnits();
   if (zoom && list.length) { zoomToUnits(list,list.length === 1 ? list[0].name : filterLabel(list));return; }
@@ -1531,16 +1601,17 @@ $('activeFilter').onclick = event => {
 };
 // The same filter state on the map: a chip to remove it, and a notice when it is out of view.
 function showFilterState() {
-  const fm = filterMask, byUnits = fm?.kind === 'units';
+  const fm = filterMask, byUnits = fm?.kind === 'units' || fm?.kind === 'aoi';
   $('filterChip').hidden = !byUnits;
+  $('filterChip').title = fm?.kind === 'aoi' ? 'Hiq zonën e interesit' : 'Hiq filtrin e njësive';
   if (byUnits) $('filterName').textContent = fm.label;
   const away = byUnits && fm.inside === 0;
   $('filterAway').hidden = !away;
-  if (away) $('filterAwayText').innerHTML = `Filtri <b>${esc(fm.label)}</b> nuk ndodhet ${fm.circle ? 'brenda rrethit' : 'në këtë pamje'}.`;
+  if (away) $('filterAwayText').innerHTML = fm.kind === 'aoi' ? `Zona e interesit <b>${esc(fm.label)}</b> nuk ndodhet në këtë pamje.` : `Filtri <b>${esc(fm.label)}</b> nuk ndodhet ${fm.circle ? 'brenda rrethit' : 'në këtë pamje'}.`;
 }
-$('filterGo').onclick = () => zoomToUnits(filterUnits());
-$('filterOff').onclick = clearFilter;
-$('filterChip').onclick = clearFilter;
+$('filterGo').onclick = () => state.aoi ? zoomToUnits([{bbox:state.aoi.bbox}],state.aoi.name) : zoomToUnits(filterUnits());
+$('filterOff').onclick = () => state.aoi ? clearAoi() : clearFilter();
+$('filterChip').onclick = () => state.aoi ? clearAoi() : clearFilter();
 
 // ---------- Statistics for every step and descriptive measures ----------
 function quantile(sorted,q) {
@@ -1604,7 +1675,7 @@ function exportSvg() {
   try { mapImage = crop.toDataURL('image/png'); }
   catch { throw new Error('Harta bazë nuk lejon eksportin. Fikni "Harta OSM" dhe provoni përsëri.'); }
   const palette = colors(), i = state.index, steps = period().steps, fm = viewStats.filter, z = zoneStatistics();
-  const scope = !fm ? 'në pamje' : fm.kind === 'circle' ? 'brenda rrethit' : fm.circle ? 'brenda rrethit dhe filtrit' : 'brenda filtrit';
+  const scope = !fm ? 'në pamje' : fm.kind === 'aoi' ? 'brenda zonës së interesit' : fm.kind === 'circle' ? 'brenda rrethit' : fm.circle ? 'brenda rrethit dhe filtrit' : 'brenda filtrit';
   const kmPerPx = state.span/S, nice = [.25,.5,1,2,5,10,20,50].find(k => k/kmPerPx >= S/6) || 50, barPx = nice/kmPerPx;
   let out = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 <style>
@@ -1861,7 +1932,7 @@ function sdgMetrics(list,name) {
   const t = manifest.periods.tracker.steps, jan = y => t.findIndex(s => s.year === y && !/^Korrik/.test(s.label));
   const i0 = jan(SDG_T0) >= 0 ? jan(SDG_T0) : 1, i1 = jan(SDG_T1) >= 0 ? jan(SDG_T1) : t.length-1, P = popPeriod();
   const r = {name,list,estimate:popSource === 'census' && list.some(u => u.pop.estimate),areaKm2:0,p11:0,p24:0,b17:0,b24:0};
-  for (const u of list) { const v = unitPop(u);r.areaKm2 += u.areaKm2;r.p11 += v[0];r.p24 += v[1];r.b17 += u.tracker[i0];r.b24 += u.tracker[i1]; }
+  for (const u of list) { const v = unitPop(u);r.areaKm2 += u.areaKm2;r.p11 += v[0];r.p24 += v[1];r.b17 += rawSeries(u,'tracker')[i0];r.b24 += rawSeries(u,'tracker')[i1]; }
   r.pgr = Math.log(r.p24/r.p11)/P.years*100;
   r.lcr = Math.log(r.b24/r.b17)/(t[i1].year-t[i0].year)*100;
   r.ratio = r.pgr > 0 ? r.lcr/r.pgr : null;
@@ -2156,7 +2227,10 @@ function renderSoil() {
   const box = $('soilBox');
   box.hidden = !soil;
   if (!soil) return;
-  const S = soilFocus(), product = state.period === 'tracker' ? 'tracker' : 'evolution', pe = period(product), best = soil.best;
+  const S0 = soilFocus(), product = state.period === 'tracker' ? 'tracker' : 'evolution', pe = period(product), best = soil.best;
+  // Base year: everything built up to the base step counts as the starting stock.
+  const off = baseOff(product), S = {...S0};
+  if (off) S[product] = [S0[product].slice(0,off+1).reduce((acc,r) => acc.map((v,k) => v+r[k])),...S0[product].slice(off+1)];
   const add = rows => rows.reduce((acc,r) => acc.map((v,k) => v+r[k]),soil.labels.map(() => 0));
   const stock = S[product][0], added = add(S[product].slice(1)), built = stock.map((v,k) => v+added[k]);
   const tot = a => a.reduce((x,y) => x+y,0), bestOf = a => a.slice(0,best).reduce((x,y) => x+y,0);
@@ -2180,3 +2254,438 @@ function exportSdgCsv() {
 }
 $('sdgCsv').onclick = exportSdgCsv;
 $('sdgSource').onchange = () => { popSource = $('sdgSource').value;sdgCache = null;renderSdg(); };
+
+// ---------- Area of interest: drawn on the map or uploaded (SHP in a .zip, KML, KMZ, GeoJSON) ----------
+// state.aoi = {name, parts:[[ring Float64Array lon,lat,...], ...], bbox:[w,s,e,n], areaHa, source, note}
+state.aoi = null;
+let aoiDraft = null;   // {points:[[lon,lat]...], hover:[lon,lat]|null}
+const aoiBbox = parts => {
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  for (const part of parts) for (const ring of part) for (let i=0;i<ring.length;i+=2) {
+    w = Math.min(w,ring[i]);e = Math.max(e,ring[i]);s = Math.min(s,ring[i+1]);n = Math.max(n,ring[i+1]);
+  }
+  return [w,s,e,n];
+};
+// Area on the ellipsoid, accurate to well under 1% at this scale (local equal-area scaling per ring).
+function ringAreaKm2(ring) {
+  let a = 0;
+  const lat0 = ring[1]*Math.PI/180, kx = 111.32*Math.cos(lat0), ky = 111.132;
+  for (let i=0,j=ring.length-2;i<ring.length;j=i,i+=2) a += (ring[j]*kx)*(ring[i+1]*ky)-(ring[i]*kx)*(ring[j+1]*ky);
+  return Math.abs(a)/2;
+}
+function partAreaKm2(part) { return part.reduce((acc,ring,k) => acc+(k ? -1 : 1)*ringAreaKm2(ring),0); }
+function makeAoi(parts,name,source,note='') {
+  parts = parts.map(part => part.filter(r => r.length >= 6)).filter(p => p.length);
+  if (!parts.length) throw new Error('Skedari nuk përmban asnjë poligon.');
+  const bbox = aoiBbox(parts), [bw,bs,be,bn] = manifest.bounds;
+  if (bbox[0] < -180 || bbox[2] > 180 || bbox[1] < -90 || bbox[3] > 90) throw new Error('Koordinatat nuk janë gjeografike pas shndërrimit; kontrolloni sistemin koordinativ (.prj).');
+  if (bbox[2] < bw || bbox[0] > be || bbox[3] < bs || bbox[1] > bn) throw new Error(`Zona ndodhet jashtë territorit të atlasit (${C.name}).`);
+  // Sort rings so the outer one comes first in every part (needed for the area sign).
+  for (const part of parts) part.sort((a,b) => ringAreaKm2(b)-ringAreaKm2(a));
+  const areaHa = parts.reduce((acc,p) => acc+partAreaKm2(p),0)*100;
+  return {name:name || 'Zona e interesit',parts,bbox,areaHa,source,note};
+}
+function setAoi(aoi) {
+  state.aoi = aoi;
+  if (units) { MUN.clear();ZONE.clear();syncFilter(); }
+  try { localStorage.setItem('atlas-aoi-'+C.id,JSON.stringify({name:aoi.name,source:aoi.source,note:aoi.note,parts:aoi.parts.map(p => p.map(r => Array.from(r,v => Math.round(v*1e6)/1e6)))})); } catch {}
+  renderAoiBox();
+  zoomToUnits([{bbox:aoi.bbox}],aoi.name);
+}
+function clearAoi(reload=true) {
+  if (!state.aoi) return;
+  state.aoi = null;
+  try { localStorage.removeItem('atlas-aoi-'+C.id); } catch {}
+  renderAoiBox();
+  if (reload) { refreshFilter();paint(true);updateHash(); }
+}
+function restoreAoi() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('atlas-aoi-'+C.id) || 'null');
+    if (raw) state.aoi = makeAoi(raw.parts.map(p => p.map(r => Float64Array.from(r))),raw.name,raw.source,raw.note);
+  } catch { state.aoi = null; }
+  renderAoiBox();
+}
+function aoiMask(v) {
+  const size = v.size, c = size/2, a = state.aoi;
+  const draw = document.createElement('canvas');
+  draw.width = draw.height = size;
+  const ctx = draw.getContext('2d',{willReadFrequently:true});
+  const sx = lon => (lon-v.west)/(v.east-v.west)*size, sy = lat => (v.north-lat)/(v.north-v.south)*size;
+  ctx.fillStyle = '#fff';
+  // Each part is filled on its own (holes by even-odd), so overlapping features add up instead of cancelling.
+  for (const part of a.parts) {
+    ctx.beginPath();
+    for (const ring of part) {
+      ctx.moveTo(sx(ring[0]),sy(ring[1]));
+      for (let i=2;i<ring.length;i+=2) ctx.lineTo(sx(ring[i]),sy(ring[i+1]));
+      ctx.closePath();
+    }
+    ctx.fill('evenodd');
+  }
+  const alpha = ctx.getImageData(0,0,size,size).data, data = new Uint8Array(size*size);
+  let radius = 0, inside = 0;
+  for (let y=0;y<size;y++) for (let x=0;x<size;x++) {
+    const i = y*size+x;
+    if (alpha[i*4+3] > 127) { data[i] = 1;inside++;radius = Math.max(radius,Math.hypot(x+.5-c,y+.5-c)); }
+  }
+  const [w,s,e,n] = a.bbox, partial = w < v.west || e > v.east || s < v.south || n > v.north;
+  return {kind:'aoi',data,radius:Math.max(radius,1),label:a.name,inside,circle:false,partial};
+}
+function drawAoi() {
+  if (!view || (!state.aoi && !aoiDraft)) return;
+  const sx = lon => view.x+(lon-view.west)/(view.east-view.west)*view.size;
+  const sy = lat => view.y+(view.north-lat)/(view.north-view.south)*view.size;
+  const scale = canvas.width/canvas.clientWidth;
+  context.save();
+  context.beginPath();context.rect(view.x,view.y,view.size,view.size);context.clip();
+  context.lineJoin = 'round';
+  if (state.aoi) {
+    context.beginPath();
+    for (const part of state.aoi.parts) for (const ring of part) {
+      context.moveTo(sx(ring[0]),sy(ring[1]));
+      for (let i=2;i<ring.length;i+=2) context.lineTo(sx(ring[i]),sy(ring[i+1]));
+      context.closePath();
+    }
+    context.fillStyle = 'rgba(255,214,102,.08)';
+    context.fill('evenodd');
+    context.strokeStyle = '#000a';context.lineWidth = 4.4*scale;context.stroke();
+    context.strokeStyle = '#ffd666';context.lineWidth = 2.2*scale;context.stroke();
+  }
+  context.restore();
+}
+// Drawing: the preview lives in its own SVG so it follows the pointer without repainting the map.
+function renderAoiDraft() {
+  const svg = $('aoiDraw');
+  if (!aoiDraft || !view) { svg.innerHTML = '';return; }
+  const scale = canvas.clientWidth/canvas.width;
+  svg.setAttribute('viewBox',`0 0 ${canvas.clientWidth} ${canvas.clientHeight}`);
+  const P = ([lon,lat]) => [(view.x+(lon-view.west)/(view.east-view.west)*view.size)*scale,(view.y+(view.north-lat)/(view.north-view.south)*view.size)*scale];
+  const pts = aoiDraft.points.map(P), hover = aoiDraft.hover ? P(aoiDraft.hover) : null;
+  const line = [...pts,...(hover ? [hover] : [])].map(p => p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+  let out = '';
+  if (pts.length >= 2 || (pts.length && hover)) out += `<polygon points="${line}" class="aoi-fill"/><polyline points="${line}" class="aoi-line"/>`;
+  pts.forEach((p,k) => { out += `<circle cx="${p[0]}" cy="${p[1]}" r="${k === 0 && pts.length >= 3 ? 7 : 4.5}" class="aoi-vertex${k === 0 ? ' first' : ''}"/>`; });
+  svg.innerHTML = out;
+  const n = pts.length;
+  $('aoiBarText').textContent = n < 3 ? `Kliko në hartë për të shtuar kulmet e zonës (${n} deri tani, duhen të paktën 3).` : `${n} kulme · ${number(Math.round(partAreaKm2([Float64Array.from(aoiDraft.points.flat())])*1000)/10)} ha. Kliko kulmin e parë, dy herë klik ose Enter për ta mbyllur.`;
+  $('aoiFinish').disabled = n < 3;
+  $('aoiUndo').disabled = !n;
+}
+function startDraw() {
+  aoiDraft = {points:[],hover:null};
+  $('aoiBar').hidden = false;
+  canvas.classList.add('drawing');
+  $('aoiDrawBtn').setAttribute('aria-pressed','true');
+  renderAoiDraft();
+}
+function endDraw(commit) {
+  const pts = aoiDraft?.points || [];
+  aoiDraft = null;
+  $('aoiBar').hidden = true;
+  canvas.classList.remove('drawing');
+  $('aoiDrawBtn').setAttribute('aria-pressed','false');
+  renderAoiDraft();
+  if (commit && pts.length >= 3) {
+    const ring = Float64Array.from([...pts,pts[0]].flat());
+    const k = Number(localStorage.getItem?.('atlas-aoi-n') || 0)+1;
+    try { localStorage.setItem('atlas-aoi-n',String(k)); } catch {}
+    try { setAoi(makeAoi([[ring]],`Zona e vizatuar ${k}`,'vizatuar në hartë')); }
+    catch(error) { aoiMessage(error.message,true); }
+  } else paint(true);
+}
+const lonLatAt = event => {
+  const rect = canvas.getBoundingClientRect();
+  const x = (event.clientX-rect.left)*canvas.width/rect.width-view.x, y = (event.clientY-rect.top)*canvas.height/rect.height-view.y;
+  return [view.west+x/view.size*(view.east-view.west),view.north-y/view.size*(view.north-view.south)];
+};
+function draftClick(event) {
+  const p = lonLatAt(event), pts = aoiDraft.points, scale = canvas.clientWidth/canvas.width;
+  const px = q => [(q[0]-view.west)/(view.east-view.west)*view.size*scale,(view.north-q[1])/(view.north-view.south)*view.size*scale];
+  const near = (a,b,r) => { const A = px(a), B = px(b);return Math.hypot(A[0]-B[0],A[1]-B[1]) < r; };
+  if (pts.length >= 3 && near(p,pts[0],10)) { endDraw(true);return; }
+  if (pts.length && near(p,pts.at(-1),4)) return;   // second click of a double click
+  pts.push(p);
+  renderAoiDraft();
+}
+canvas.addEventListener('pointermove',event => {
+  if (!aoiDraft || !view || drag && Math.hypot(event.clientX-drag.x,event.clientY-drag.y) > 4) return;
+  aoiDraft.hover = lonLatAt(event);
+  renderAoiDraft();
+});
+canvas.addEventListener('pointerleave',() => { if (aoiDraft) { aoiDraft.hover = null;renderAoiDraft(); } });
+document.addEventListener('keydown',event => {
+  if (!aoiDraft || /input|select|textarea/i.test(event.target.tagName)) return;
+  if (event.key === 'Escape') { event.preventDefault();event.stopImmediatePropagation();endDraw(false); }
+  else if (event.key === 'Enter') { event.preventDefault();event.stopImmediatePropagation();endDraw(true); }
+  else if (event.key === 'Backspace' || (event.key === 'z' && (event.ctrlKey || event.metaKey))) { event.preventDefault();event.stopImmediatePropagation();aoiDraft.points.pop();renderAoiDraft(); }
+},true);
+
+// ---- File reading ----
+async function unzip(buffer) {
+  const bytes = new Uint8Array(buffer), dv = new DataView(buffer), files = new Map();
+  let eocd = -1;
+  for (let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--) if (dv.getUint32(i,true) === 0x06054b50) { eocd = i;break; }
+  if (eocd < 0) throw new Error('Arkivi .zip nuk lexohet.');
+  let p = dv.getUint32(eocd+16,true);
+  const total = dv.getUint16(eocd+10,true);
+  for (let k=0;k<total;k++) {
+    if (dv.getUint32(p,true) !== 0x02014b50) break;
+    const method = dv.getUint16(p+10,true), csize = dv.getUint32(p+20,true);
+    const nlen = dv.getUint16(p+28,true), elen = dv.getUint16(p+30,true), clen = dv.getUint16(p+32,true), local = dv.getUint32(p+42,true);
+    const name = new TextDecoder().decode(bytes.subarray(p+46,p+46+nlen));
+    p += 46+nlen+elen+clen;
+    if (name.endsWith('/') || /(^|\/)__MACOSX\//.test(name)) continue;
+    const start = local+30+dv.getUint16(local+26,true)+dv.getUint16(local+28,true), raw = bytes.slice(start,start+csize);
+    let data;
+    if (method === 0) data = raw;
+    else if (method === 8) data = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    else continue;
+    files.set(name,data);
+  }
+  return files;
+}
+// Projections: WGS84, Web Mercator and every Transverse Mercator (UTM, Gauss-Krüger, KOSOVAREF01, KRGJSH, MGI Balkans).
+const ELL = {wgs84:[6378137,1/298.257223563],grs80:[6378137,1/298.257222101],bessel:[6377397.155,1/299.1528128],hayford:[6378388,1/297],krassowsky:[6378245,1/298.3]};
+function tmInverse(x,y,o) {
+  const {a,f,lon0,lat0,k0,fe,fn} = o, e2 = f*(2-f), ep2 = e2/(1-e2), e4 = e2*e2, e6 = e4*e2;
+  const M = phi => a*((1-e2/4-3*e4/64-5*e6/256)*phi-(3*e2/8+3*e4/32+45*e6/1024)*Math.sin(2*phi)+(15*e4/256+45*e6/1024)*Math.sin(4*phi)-(35*e6/3072)*Math.sin(6*phi));
+  const mu = (M(lat0)+(y-fn)/k0)/(a*(1-e2/4-3*e4/64-5*e6/256)), e1 = (1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2));
+  const phi1 = mu+(3*e1/2-27*e1**3/32)*Math.sin(2*mu)+(21*e1**2/16-55*e1**4/32)*Math.sin(4*mu)+(151*e1**3/96)*Math.sin(6*mu)+(1097*e1**4/512)*Math.sin(8*mu);
+  const s = Math.sin(phi1), c = Math.cos(phi1), t = Math.tan(phi1), C1 = ep2*c*c, T1 = t*t;
+  const N1 = a/Math.sqrt(1-e2*s*s), R1 = a*(1-e2)/(1-e2*s*s)**1.5, D = (x-fe)/(N1*k0);
+  const lat = phi1-(N1*t/R1)*(D*D/2-(5+3*T1+10*C1-4*C1*C1-9*ep2)*D**4/24+(61+90*T1+298*C1+45*T1*T1-252*ep2-3*C1*C1)*D**6/720);
+  const lon = lon0+(D-(1+2*T1+C1)*D**3/6+(5-2*C1+28*T1-3*C1*C1+8*ep2+24*T1*T1)*D**5/120)/c;
+  return [lon,lat];
+}
+// Datum shift to WGS84 (position-vector Helmert; rotations in arc-seconds, scale in ppm).
+function helmert(lon,lat,ell,p) {
+  const [a,f] = ell, e2 = f*(2-f), sl = Math.sin(lat), N = a/Math.sqrt(1-e2*sl*sl);
+  const X = N*Math.cos(lat)*Math.cos(lon), Y = N*Math.cos(lat)*Math.sin(lon), Z = N*(1-e2)*sl;
+  const [tx,ty,tz,rx=0,ry=0,rz=0,ds=0] = p, r = Math.PI/648000, k = 1+ds*1e-6;
+  const X2 = tx+k*(X-rz*r*Y+ry*r*Z), Y2 = ty+k*(rz*r*X+Y-rx*r*Z), Z2 = tz+k*(-ry*r*X+rx*r*Y+Z);
+  const [A,F] = ELL.wgs84, E2 = F*(2-F), P = Math.hypot(X2,Y2);
+  let la = Math.atan2(Z2,P*(1-E2));
+  for (let i=0;i<6;i++) { const s = Math.sin(la), n = A/Math.sqrt(1-E2*s*s);la = Math.atan2(Z2+E2*n*s,P); }
+  return [Math.atan2(Y2,X2),la];
+}
+function projectionFromPrj(wkt) {
+  if (!wkt) return null;
+  const num = v => Number(v), deg = Math.PI/180;
+  const sph = /(?:SPHEROID|ELLIPSOID)\[\s*"([^"]*)"\s*,\s*([\d.eE+-]+)\s*,\s*([\d.eE+-]+)/i.exec(wkt);
+  const ell = sph ? [num(sph[2]),num(sph[3]) ? 1/num(sph[3]) : 0] : ELL.wgs84;
+  const datum = (/DATUM\[\s*"([^"]*)"/i.exec(wkt) || [,''])[1];
+  let towgs = /TOWGS84\[([^\]]+)\]/i.exec(wkt)?.[1].split(',').map(Number);
+  let note = '';
+  if (!towgs && /MGI|Hermannskogel/i.test(datum)) { towgs = [682,-203,480];note = 'Datumi MGI 1901 u shndërrua me parametrat e përafërt 682, −203, 480 m (saktësi rreth 5 m).'; }
+  if (towgs && towgs.every(v => !v)) towgs = null;
+  const shift = towgs ? (lon,lat) => helmert(lon,lat,ell,towgs) : (lon,lat) => [lon,lat];
+  if (!/^\s*PROJ(CS|CRS)/i.test(wkt)) {
+    return {name:(/^\s*GEOG\w*\[\s*"([^"]*)"/i.exec(wkt) || [,'gjeografik'])[1],note,fn:(x,y) => { const [l,b] = shift(x*deg,y*deg);return [l/deg,b/deg]; }};
+  }
+  const proj = (/PROJECTION\[\s*"([^"]*)"/i.exec(wkt) || /METHOD\[\s*"([^"]*)"/i.exec(wkt) || [,''])[1];
+  const P = {};
+  for (const m of wkt.matchAll(/PARAMETER\[\s*"([^"]+)"\s*,\s*([\d.eE+-]+)/gi)) P[m[1].toLowerCase().replace(/[\s_]+/g,'_')] = num(m[2]);
+  const units = [...wkt.matchAll(/(?:UNIT|LENGTHUNIT)\[\s*"([^"]*)"\s*,\s*([\d.eE+-]+)/gi)], unit = units.length ? num(units.at(-1)[2]) || 1 : 1;
+  const name = (/^\s*PROJ\w*\[\s*"([^"]*)"/i.exec(wkt) || [,proj])[1];
+  if (/transverse|gauss|tm\b/i.test(proj)) {
+    const o = {a:ell[0],f:ell[1],lon0:(P.central_meridian ?? P.longitude_of_natural_origin ?? P.longitude_of_origin ?? 0)*deg,lat0:(P.latitude_of_origin ?? P.latitude_of_natural_origin ?? 0)*deg,
+      k0:P.scale_factor ?? P.scale_factor_at_natural_origin ?? 1,fe:P.false_easting ?? 0,fn:P.false_northing ?? 0};
+    return {name,note,fn:(x,y) => { const [l,b] = tmInverse(x*unit,y*unit,o);const [L,B] = shift(l,b);return [L/deg,B/deg]; }};
+  }
+  if (/mercator/i.test(proj) && /auxiliary|pseudo|popular|web|3857/i.test(proj+name)) {
+    const R = 6378137;
+    return {name,note,fn:(x,y) => [x*unit/R/deg,(2*Math.atan(Math.exp(y*unit/R))-Math.PI/2)/deg]};
+  }
+  throw new Error(`Projeksioni "${proj || name}" nuk mbështetet. Ruajeni skedarin në WGS84 (EPSG:4326) ose në një sistem Transverse Mercator (p.sh. UTM, KOSOVAREF01).`);
+}
+// Without a .prj, guess from the coordinate range.
+function guessProjection(x,y) {
+  const deg = Math.PI/180;
+  if (Math.abs(x) <= 180 && Math.abs(y) <= 90) return null;
+  if (x > 7.2e6 && x < 7.8e6 && y > 4.3e6 && y < 4.9e6)
+    return {name:'KOSOVAREF01 / Balkans zone 7 (EPSG:9141), i supozuar',fn:(a,b) => tmInverse(a,b,{a:ELL.grs80[0],f:ELL.grs80[1],lon0:21*deg,lat0:0,k0:.9999,fe:7500000,fn:0}).map(v => v/deg)};
+  if (x > 1e5 && x < 9e5 && y > 4.3e6 && y < 4.9e6)
+    return {name:'WGS 84 / UTM 34N (EPSG:32634), i supozuar',fn:(a,b) => tmInverse(a,b,{a:ELL.wgs84[0],f:ELL.wgs84[1],lon0:21*deg,lat0:0,k0:.9996,fe:5e5,fn:0}).map(v => v/deg)};
+  if (x > 1.5e6 && x < 3.2e6 && y > 4.7e6 && y < 5.7e6)
+    return {name:'Web Mercator (EPSG:3857), i supozuar',fn:(a,b) => [a/6378137/deg,(2*Math.atan(Math.exp(b/6378137))-Math.PI/2)/deg]};
+  throw new Error('Sistemi koordinativ nuk njihet dhe skedari .prj mungon. Shtoni .prj në zip ose ruajeni në WGS84.');
+}
+function parseShp(buffer) {
+  const dv = new DataView(buffer);
+  if (dv.getInt32(0,false) !== 9994) throw new Error('Skedari .shp nuk është i vlefshëm.');
+  const type = dv.getInt32(32,true);
+  if (![5,15,25].includes(type)) throw new Error('Shapefile duhet të jetë me poligone (jo pika ose vija).');
+  const parts = [];
+  let p = 100;
+  while (p+8 <= buffer.byteLength) {
+    const len = dv.getInt32(p+4,false)*2, c = p+8;
+    p = c+len;
+    if (len < 4 || dv.getInt32(c,true) === 0) continue;
+    const nParts = dv.getInt32(c+36,true), nPts = dv.getInt32(c+40,true), pts = c+44+4*nParts;
+    const starts = Array.from({length:nParts},(_,k) => dv.getInt32(c+44+4*k,true));
+    // Rings of one record form one feature: outer rings clockwise, holes counter-clockwise.
+    const feature = [];
+    for (let k=0;k<nParts;k++) {
+      const a = starts[k], b = k+1 < nParts ? starts[k+1] : nPts, ring = new Float64Array((b-a)*2);
+      for (let i=a;i<b;i++) { ring[(i-a)*2] = dv.getFloat64(pts+16*i,true);ring[(i-a)*2+1] = dv.getFloat64(pts+16*i+8,true); }
+      feature.push(ring);
+    }
+    // Split a record with several outer rings into parts (a ring's sign tells outer from hole).
+    const signed = r => { let s = 0;for (let i=0,j=r.length-2;i<r.length;j=i,i+=2) s += (r[j]-r[i])*(r[j+1]+r[i+1]);return s; };
+    let cur = null;
+    for (const ring of feature) { if (signed(ring) > 0 || !cur) { cur = [ring];parts.push(cur); } else cur.push(ring); }
+  }
+  return parts;
+}
+// First record's name-like text field from the .dbf (NAME, EMRI, …); null when there is none.
+function dbfName(bytes,count) {
+  try {
+    const dv = new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength), headLen = dv.getUint16(8,true), recLen = dv.getUint16(10,true);
+    const fields = [];
+    for (let p = 32,off = 1;p+32 <= headLen && bytes[p] !== 0x0d;p += 32) {
+      const name = new TextDecoder().decode(bytes.subarray(p,p+11)).replace(/\0.*$/,''), type = String.fromCharCode(bytes[p+11]), len = bytes[p+16];
+      fields.push({name,type,off,len});off += len;
+    }
+    const f = fields.find(f => f.type === 'C' && /^(name|emri|emer|emertimi|naziv|ime|komuna|municipali|zona|title|label)/i.test(f.name));
+    if (!f || count < 1) return null;
+    const v = new TextDecoder().decode(bytes.subarray(headLen+f.off,headLen+f.off+f.len)).trim();
+    return v || null;
+  } catch { return null; }
+}
+function projectParts(parts,proj) {
+  if (!proj) return parts;
+  return parts.map(part => part.map(ring => { const out = new Float64Array(ring.length);for (let i=0;i<ring.length;i+=2) { const [l,b] = proj.fn(ring[i],ring[i+1]);out[i] = l;out[i+1] = b; }return out; }));
+}
+function parseKml(text) {
+  const doc = new DOMParser().parseFromString(text,'application/xml');
+  if (doc.querySelector('parsererror')) throw new Error('Skedari KML nuk lexohet.');
+  const coords = el => Float64Array.from((el?.textContent || '').trim().split(/\s+/).filter(Boolean).flatMap(t => t.split(',').slice(0,2).map(Number)));
+  const parts = [];
+  for (const poly of doc.getElementsByTagNameNS('*','Polygon')) {
+    const outer = poly.getElementsByTagNameNS('*','outerBoundaryIs')[0]?.getElementsByTagNameNS('*','coordinates')[0];
+    const inner = [...poly.getElementsByTagNameNS('*','innerBoundaryIs')].map(b => b.getElementsByTagNameNS('*','coordinates')[0]);
+    if (outer) parts.push([coords(outer),...inner.map(coords)]);
+  }
+  const name = doc.getElementsByTagNameNS('*','Placemark')[0]?.getElementsByTagNameNS('*','name')[0]?.textContent?.trim() || doc.getElementsByTagNameNS('*','name')[0]?.textContent?.trim();
+  return {parts,name};
+}
+function parseGeoJson(obj) {
+  const parts = [], ring = r => Float64Array.from(r.flatMap(c => [c[0],c[1]]));
+  const walk = g => {
+    if (!g) return;
+    if (g.type === 'FeatureCollection') g.features.forEach(f => walk(f.geometry));
+    else if (g.type === 'Feature') walk(g.geometry);
+    else if (g.type === 'GeometryCollection') g.geometries.forEach(walk);
+    else if (g.type === 'Polygon') parts.push(g.coordinates.map(ring));
+    else if (g.type === 'MultiPolygon') g.coordinates.forEach(p => parts.push(p.map(ring)));
+  };
+  walk(obj);
+  const crs = obj.crs?.properties?.name || '';
+  const name = obj.name || obj.features?.[0]?.properties?.name || obj.features?.[0]?.properties?.emri || obj.properties?.name;
+  return {parts,name,crs};
+}
+async function readAoiFiles(fileList) {
+  const files = new Map();
+  for (const f of fileList) {
+    const lower = f.name.toLowerCase();
+    if (/\.(zip|kmz)$/.test(lower)) for (const [n,d] of await unzip(await f.arrayBuffer())) files.set(n.split('/').pop(),{data:d,from:f.name});
+    else files.set(f.name,{data:new Uint8Array(await f.arrayBuffer()),from:f.name});
+  }
+  const find = ext => [...files.keys()].filter(n => n.toLowerCase().endsWith(ext));
+  const base = n => n.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ');
+  const text = d => new TextDecoder().decode(d);
+  const shp = find('.shp'), kml = find('.kml'), gj = [...find('.geojson'),...find('.json')];
+  if (shp.length) {
+    const stem = shp[0].replace(/\.shp$/i,''), prjName = [...files.keys()].find(n => n.toLowerCase() === stem.toLowerCase()+'.prj') || find('.prj')[0];
+    const d = files.get(shp[0]).data;
+    let parts = parseShp(d.buffer.slice(d.byteOffset,d.byteOffset+d.byteLength));
+    if (!parts.length) throw new Error('Shapefile nuk përmban poligone.');
+    const proj = prjName ? projectionFromPrj(text(files.get(prjName).data)) : guessProjection(parts[0][0][0],parts[0][0][1]);
+    parts = projectParts(parts,proj);
+    const dbf = [...files.keys()].find(n => n.toLowerCase() === stem.toLowerCase()+'.dbf');
+    const label = (dbf && dbfName(files.get(dbf).data,1)) || base(shp[0]);
+    return makeAoi(parts,label,`Shapefile · ${proj ? proj.name : 'WGS84'}`,[!prjName && proj ? 'Skedari .prj mungon: sistemi u përcaktua nga vlerat e koordinatave.' : '',proj?.note || ''].filter(Boolean).join(' '));
+  }
+  if (kml.length) {
+    const r = parseKml(text(files.get(kml[0]).data));
+    if (!r.parts.length) throw new Error('KML nuk përmban poligone (Polygon).');
+    return makeAoi(r.parts,r.name || base(files.get(kml[0]).from),'KML · WGS84');
+  }
+  if (gj.length) {
+    const r = parseGeoJson(JSON.parse(text(files.get(gj[0]).data)));
+    if (!r.parts.length) throw new Error('GeoJSON nuk përmban poligone.');
+    let proj = null;
+    const m = /EPSG::?(\d+)/i.exec(r.crs);
+    if (m && m[1] !== '4326' && m[1] !== '4258') proj = guessProjection(r.parts[0][0][0],r.parts[0][0][1]);
+    return makeAoi(projectParts(r.parts,proj),r.name || base(gj[0]),`GeoJSON · ${proj ? proj.name : 'WGS84'}`);
+  }
+  if (find('.dbf').length || find('.shx').length) throw new Error('Mungon skedari .shp. Zgjidhni .shp, .shx, .dbf dhe .prj së bashku, ose një .zip me to.');
+  throw new Error('Formati nuk njihet. Përdorni .zip me shapefile, .shp (me .prj), .kml, .kmz ose .geojson.');
+}
+function aoiMessage(text,error=false) {
+  $('aoiMsg').hidden = !text;
+  $('aoiMsg').textContent = text || '';
+  $('aoiMsg').classList.toggle('error',error);
+}
+function renderAoiBox() {
+  const a = state.aoi;
+  $('aoiActive').hidden = !a;
+  if (!a) return;
+  $('aoiName').textContent = a.name;
+  $('aoiMeta').textContent = `${number(Math.round(a.areaHa*10)/10)} ha · ${a.parts.length} ${a.parts.length === 1 ? 'poligon' : 'poligone'} · ${a.source}`;
+  $('aoiNote').hidden = !a.note;
+  $('aoiNote').textContent = a.note || '';
+}
+function exportAoiGeoJson() {
+  const a = state.aoi;
+  if (!a) return;
+  const ring = r => { const out = [];for (let i=0;i<r.length;i+=2) out.push([Math.round(r[i]*1e7)/1e7,Math.round(r[i+1]*1e7)/1e7]);return out; };
+  const gj = {type:'FeatureCollection',name:a.name,features:[{type:'Feature',properties:{name:a.name,area_ha:Math.round(a.areaHa*100)/100,source:a.source},geometry:{type:'MultiPolygon',coordinates:a.parts.map(p => p.map(ring))}}]};
+  download(new Blob([JSON.stringify(gj)],{type:'application/geo+json'}),`zona-${normalize(a.name).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'interesi'}.geojson`);
+}
+// CSV for the analysed zone: every step, plus the direction split of the radial diagram.
+function exportZoneCsv() {
+  const z = zoneStatistics(), s = viewStats;
+  if (!z || !s) return;
+  const fm = s.filter, steps = period().steps;
+  const zone = !fm ? 'pamja e hartës' : fm.kind === 'aoi' ? fm.label : fm.kind === 'circle' ? `rrethi ${number(Math.round(s.lensKm*10)/10)} km rreth ${state.name}` : fm.label;
+  const dirs = ['veri','lindje','jug','perendim'];
+  const head = ['zona','periudha','viti_baze','siperfaqja_e_zones_ha','hapi','viti','ndertuar_ha','perqindja_e_zones','shtesa_ha','rritja_perqind',...dirs.map(d => 'shtesa_'+d+'_ha')];
+  const r2 = v => v == null ? '' : Math.round(v*100)/100;
+  const lines = z.rows.map((r,k) => [zone,period().source,steps[0].label,r2(z.landHa),r.label,steps[k].year,r2(r.builtHa),r2(r.share),k ? r2(r.addHa) : '',k ? r2(r.rate) : '',
+    ...s.radial.map(dir => k ? r2(dir.reduce((acc,band) => acc+band[k+1],0)*100) : '')]);
+  const q = v => /[",;\n]/.test(String(v)) ? '"'+String(v).replace(/"/g,'""')+'"' : String(v);
+  const body = [head,...lines].map(r => r.map(q).join(',')).join('\n');
+  const slug = normalize(zone).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50) || 'zona';
+  download(new Blob(['﻿'+body],{type:'text/csv;charset=utf-8'}),`atlasi-urban-${slug}-${state.period}-${steps[0].short}-${steps.at(-1).short}.csv`);
+}
+$('aoiDrawBtn').onclick = () => aoiDraft ? endDraw(false) : startDraw();
+$('aoiFinish').onclick = () => endDraw(true);
+$('aoiCancel').onclick = () => endDraw(false);
+$('aoiUndo').onclick = () => { aoiDraft?.points.pop();renderAoiDraft(); };
+$('aoiUploadBtn').onclick = () => $('aoiFile').click();
+$('aoiFile').onchange = async () => {
+  const list = [...$('aoiFile').files];
+  $('aoiFile').value = '';
+  if (!list.length) return;
+  aoiMessage('Duke lexuar skedarin…');
+  try { const aoi = await readAoiFiles(list);aoiMessage('');setAoi(aoi); }
+  catch(error) { console.error(error);aoiMessage(error.message || 'Skedari nuk u lexua.',true); }
+};
+$('aoiZoom').onclick = () => state.aoi && zoomToUnits([{bbox:state.aoi.bbox}],state.aoi.name);
+$('aoiClear').onclick = () => clearAoi();
+$('aoiGeojson').onclick = exportAoiGeoJson;
+$('zoneCsv').onclick = exportZoneCsv;
+// Drop files on the map to load them as the zone of interest.
+document.querySelector('.map-wrap').addEventListener('dragover',event => { if ([...event.dataTransfer.types].includes('Files')) { event.preventDefault();document.querySelector('.map-wrap').classList.add('dropping'); } });
+document.querySelector('.map-wrap').addEventListener('dragleave',() => document.querySelector('.map-wrap').classList.remove('dropping'));
+document.querySelector('.map-wrap').addEventListener('drop',async event => {
+  event.preventDefault();
+  document.querySelector('.map-wrap').classList.remove('dropping');
+  const list = [...event.dataTransfer.files];
+  if (!list.length) return;
+  aoiMessage('Duke lexuar skedarin…');
+  try { const aoi = await readAoiFiles(list);aoiMessage('');setAoi(aoi); }
+  catch(error) { console.error(error);aoiMessage(error.message || 'Skedari nuk u lexua.',true); }
+});

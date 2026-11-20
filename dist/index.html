@@ -21,9 +21,24 @@
       <div class="presets" id="presets"></div>
       <label for="period">Periudha</label>
       <select id="period"><option value="evolution">1985–2015 · WSF Evolution</option><option value="tracker">WSF Tracker</option></select>
+      <label for="baseYear" class="base-label">Viti bazë <small>nga cili vit nis analiza</small></label>
+      <select id="baseYear" aria-describedby="baseHint"></select>
+      <p class="base-hint" id="baseHint">Ndërtimi deri në vitin bazë shfaqet gri; shtesat, grafikët dhe CSV-të llogariten që nga ky vit.</p>
       <div class="extent-label"><label for="extent">Mbulimi i hartës</label><output id="extentValue">16 × 16 km</output></div>
       <input id="extent" type="range" min="2" max="30" step="1" value="16">
       <button id="whole" class="secondary">Shfaq gjithë Kosovën <span>↗</span></button>
+      <section class="aoi-box" aria-label="Zona e interesit">
+        <span class="bm-title">Zona e interesit</span>
+        <p class="aoi-help">Vizatoni një zonë në hartë ose ngarkoni kufirin e saj. Statistikat, grafikët, harta dhe CSV-të llogariten vetëm për të.</p>
+        <div class="aoi-buttons"><button id="aoiDrawBtn" type="button" aria-pressed="false">✎ Vizato në hartë</button><button id="aoiUploadBtn" type="button">⤒ Ngarko skedar</button></div>
+        <input id="aoiFile" type="file" accept=".zip,.shp,.shx,.dbf,.prj,.cpg,.kml,.kmz,.geojson,.json" multiple hidden>
+        <p class="aoi-formats">SHP (në .zip, ose .shp + .shx + .dbf + .prj), KML, KMZ, GeoJSON. Pranohen WGS84, UTM, KOSOVAREF01 dhe Gauss-Krüger. Skedari mund të tërhiqet edhe mbi hartë.</p>
+        <p id="aoiMsg" class="aoi-msg" role="status" hidden></p>
+        <div id="aoiActive" class="aoi-active" hidden>
+          <b id="aoiName"></b><span id="aoiMeta"></span><span id="aoiNote" class="aoi-note" hidden></span>
+          <div class="aoi-buttons small"><button id="aoiZoom" type="button">Shfaq</button><button id="aoiGeojson" type="button">⤓ GeoJSON</button><button id="aoiClear" type="button">✕ Hiq</button></div>
+        </div>
+      </section>
       <section class="basemap-box" aria-label="Harta bazë">
         <span class="bm-title">Harta bazë</span>
         <label for="bmSource">Burimi</label>
@@ -48,6 +63,8 @@
         <div class="map-title"><span id="mapName">PRISHTINA</span><small id="mapPeriod">WSF Evolution</small><small class="signature">© Rizah Murseli · Atlasi urban i Kosovës</small></div>
         <div class="year-label"><strong id="year">1985</strong><span id="epoch">GJENDJA FILLESTARE</span></div>
         <svg id="radial" aria-label="Diagrami radial i shtesave sipas drejtimit"></svg>
+        <svg id="aoiDraw" aria-hidden="true"></svg>
+        <div id="aoiBar" hidden role="status"><span id="aoiBarText"></span><button id="aoiUndo" type="button" title="Hiq kulmin e fundit (Backspace)">↶ Kthe</button><button id="aoiFinish" type="button" disabled>✓ Përfundo</button><button id="aoiCancel" type="button" title="Esc">Anulo</button></div>
         <button id="filterChip" hidden title="Hiq filtrin e njësive"><span>Filtri:</span> <b id="filterName"></b> <i>✕</i></button>
         <div class="layer-toggles"><button id="toggleRadial" aria-pressed="true">◎ Diagrami radial</button><button id="toggleBasemap" aria-pressed="true">Harta bazë</button><button id="toggleUnits" aria-pressed="true">▢ Kufijtë</button></div>
         <div id="radialKey"><b>Diagrami radial</b><span><span id="radialKeyText">Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">—</output>), sipas drejtimit.</span> Çdo shtyllë është një vit, me ngjyrën e vitit në hartë; koha ecën në drejtim të akrepave të orës.</span><div class="swatches"><span><i class="sw sw0"></i>afër qendrës</span><span><i class="sw sw1"></i>në mes</span><span><i class="sw sw2"></i>në skaj</span></div></div>
@@ -77,6 +94,7 @@
         <h3>Shtesa sipas vitit <small>km²</small></h3><div class="chart" id="chartAdded"></div>
         <h3>Statistikat përshkruese <small>shtesat dhe rritja vjetore, pa gjendjen fillestare</small></h3><div id="descStats"></div>
         <details class="year-table"><summary>Tabela për çdo vit <small>ha dhe %</small></summary><div id="yearTable"></div></details>
+        <div class="sel-actions zone-actions"><button id="zoneCsv" type="button">Shkarko CSV të zonës</button></div>
         <h3>Qendër apo periferi? <small>% e tokës së ndërtuar sipas largësisë nga qendra e pamjes</small></h3><div class="chart" id="chartRings"></div>
       </div>
       <div class="tab" id="tab-units" hidden>
