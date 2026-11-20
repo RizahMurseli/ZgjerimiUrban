@@ -92,9 +92,10 @@ function pathFor(ctx, transform) {
 }
 function updateView() {
   const rect = canvas.getBoundingClientRect();
-  const ratio = Math.min(1.5,window.devicePixelRatio || 1);
-  canvas.width = Math.min(1400,Math.round(rect.width*ratio));
-  canvas.height = Math.min(1200,Math.round(rect.height*ratio));
+  // One uniform scale for both axes, so the canvas is never stretched unevenly on large screens.
+  const ratio = Math.min(1.5,window.devicePixelRatio || 1,1400/Math.max(1,rect.width),1200/Math.max(1,rect.height));
+  canvas.width = Math.max(1,Math.round(rect.width*ratio));
+  canvas.height = Math.max(1,Math.round(rect.height*ratio));
   const size = Math.min(canvas.width,canvas.height);
   const dx = state.span/2/(111.32*Math.cos(state.lat*Math.PI/180));
   const dy = state.span/2/111.132;
@@ -495,6 +496,17 @@ canvas.addEventListener('wheel',event => {
   wheelTimer = setTimeout(() => zoom(event.deltaY>0 ? 1.25 : .8),90);
 },{passive:false});
 window.addEventListener('resize',() => { clearTimeout(resizeTimer);resizeTimer = setTimeout(loadView,200); });
+// The map box can change size without a window resize (side panel content, tabs, fonts), so watch it directly.
+if (window.ResizeObserver) {
+  let lastBox = '';
+  new ResizeObserver(entries => {
+    const r = entries[0].contentRect, key = Math.round(r.width)+'x'+Math.round(r.height);
+    if (key === lastBox) return;
+    const first = !lastBox; lastBox = key;
+    if (first || !view) return;
+    clearTimeout(resizeTimer);resizeTimer = setTimeout(loadView,150);
+  }).observe(canvas);
+}
 let openTab = null;
 async function start() {
   try {

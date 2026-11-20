@@ -247,3 +247,6 @@ table.years tr.now td{background:#16303a;color:var(--text)}
 .lc-chart{position:relative;margin:6px 0 2px}.lc-chart svg{display:block;width:100%;height:auto}
 .lc-years text{font:9.5px 'Space Mono',monospace;fill:var(--muted)}
 .soil-table tr.best td:first-child{font-weight:700}.soil-table tr.sum td{border-top:1px solid var(--muted);font-weight:700}
+
+/* Map height must not follow the side panel, or the canvas goes stale and stretches. */
+@media(min-width:851px){.map-wrap{flex:none}}
