@@ -1,4 +1,47 @@
 const $ = id => document.getElementById(id);
+// ---------- Language: Albanian (default) or English. Chosen by #l=en, then remembered. ----------
+const LANG = (() => {
+  const h = new URLSearchParams(location.hash.slice(1)).get('l');
+  if (h === 'en' || h === 'sq') { try { localStorage.setItem('atlas-lang',h); } catch {} return h; }
+  try { return localStorage.getItem('atlas-lang') === 'en' ? 'en' : 'sq'; } catch { return 'sq'; }
+})();
+const L = (sq,en) => LANG === 'en' ? en : sq;
+const LOCALE = L('sq','en');
+document.documentElement.lang = LANG;
+const MONTH_EN = {janar:'January',korrik:'July'};
+const trLabel = text => LANG === 'en' ? String(text).replace(/\b(janar|korrik)\b/gi,m => MONTH_EN[m.toLowerCase()]) : text;
+const EPOCH_EN = {'GJENDJA FILLESTARE':'BASELINE','KORRIK · GJENDJA FILLESTARE':'JULY · BASELINE','JANAR':'JANUARY','KORRIK':'JULY'};
+const trEpoch = text => LANG === 'en' ? (EPOCH_EN[text] ?? text) : text;
+const yearOnly = text => String(text).replace(/^(Janar|Korrik|January|July) /,'');
+// Texts that arrive inside the data files.
+const EN_DATA = {
+  'WSF TRACKER · 10 M NË BURIM':'WSF TRACKER · 10 M AT SOURCE',
+  'Pyje':'Forest','Kullota dhe shkurre':'Grassland and shrubland','Tokë bujqësore':'Cropland','Brenda vendbanimit ekzistues':'Inside existing settlement','Tokë e zhveshur':'Bare ground','Ujë dhe ligatina':'Water and wetlands','Tjetër (borë, re)':'Other (snow, cloud)',
+  'Regjistrimi':'Census',
+  'Agjencia e Statistikave të Kosovës (ASK): Regjistrimi i popullsisë 2011; Regjistrimi 2024, rezultatet e para përfundimtare (Tab. 4.1, Tab. 5.1).':'Kosovo Agency of Statistics (KAS): 2011 Population Census; 2024 Census, first final results (Tab. 4.1, Tab. 5.1).',
+  'Për Leposaviqin, Zubin Potokun, Zveçanin dhe Mitrovicën e Veriut të dy vitet janë vlerësime të ASK, sepse regjistrimet u bojkotuan.':'For Leposaviq, Zubin Potok, Zveçan and North Mitrovica both years are KAS estimates, because the censuses were boycotted.',
+  'Përshtatshmëria e tokës bujqësore, klasat I–VIII (raster 50 m, EPSG:9141), dhënë nga autori.':'Agricultural land suitability, classes I–VIII (50 m raster, EPSG:9141), provided by the author.',
+};
+const tx = text => LANG === 'en' && text && EN_DATA[text] || text;
+// Country and unit names in English; the data packs carry the Albanian ones.
+const COUNTRY_EN = {
+  XKX:{name:'Kosovo',in:'in Kosovo',of:'of Kosovo',whole:'All of Kosovo',show:'Show all of Kosovo',short:'KOSOVO',atlas:'Urban Atlas of Kosovo',
+    unit1:{one:'municipality',many:'municipalities',One:'Municipality',Many:'Municipalities',the:'the municipalities',acc:'the municipality'},
+    unit2:{one:'cadastral zone',many:'cadastral zones',One:'Cadastral zone',Many:'Cadastral zones',short:'CZ'},
+    unitsNote:'Municipal and cadastral zone boundaries are in KOSOVAREF01 (EPSG:9141).'},
+  ALB:{name:'Albania',in:'in Albania',of:'of Albania',whole:'All of Albania',show:'Show all of Albania',short:'ALBANIA',atlas:'Urban Atlas of Albania',
+    unit1:{one:'municipality',many:'municipalities',One:'Municipality',Many:'Municipalities',the:'the municipalities',acc:'the municipality'},
+    unit2:{one:'administrative unit',many:'administrative units',One:'Administrative unit',Many:'Administrative units',short:'AU'}},
+  MKD:{name:'North Macedonia',in:'in North Macedonia',of:'of North Macedonia',whole:'All of North Macedonia',show:'Show all of North Macedonia',short:'N. MACEDONIA',atlas:'Urban Atlas of North Macedonia',
+    unit1:{one:'municipality',many:'municipalities',One:'Municipality',Many:'Municipalities',the:'the municipalities',acc:'the municipality'},
+    unit2:{one:'unit',many:'units',One:'Unit',Many:'Units',short:'U'}},
+};
+function countryText(c) {
+  if (LANG !== 'en') return c;
+  const en = COUNTRY_EN[c.id] || {name:c.name,in:'in '+c.name,of:'of '+c.name,whole:'All of '+c.name,show:'Show all of '+c.name,short:c.short,atlas:'Urban Atlas of '+c.name,
+    unit1:{one:'unit',many:'units',One:'Unit',Many:'Units',the:'the units',acc:'the unit'},unit2:{one:'sub-unit',many:'sub-units',One:'Sub-unit',Many:'Sub-units',short:'SU'}};
+  return {...c,...en,unitsNote:en.unitsNote ?? ''};
+}
 const base = [99,112,139];
 const annual = [[75,227,241],[62,138,255],[165,115,255],[246,112,218],[255,173,204],[139,231,98],[240,236,79],[255,183,61],[255,124,54],[255,67,86]];
 const state = {period:'evolution',index:0,lat:42.67272,lon:21.16688,span:16,name:'Prishtina',playing:false,mode:'cumulative',compareIndex:0,split:.5,tab:'zone',basemap:true,radial:true,basemapSource:'osm',basemapMode:'dark',basemapTransp:30};
@@ -13,26 +56,26 @@ function wholeView() {
 }
 function applyCountryText() {
   const set = (id,text) => { const el = $(id);if (el) el.textContent = text; };
-  document.title = 'Zgjerimi urban '+C.in;
-  document.querySelector('meta[name=description]')?.setAttribute('content',`Eksploro historinë e zgjerimit urban të çdo vendbanimi ${C.in}, nga të dhënat satelitore të DLR.`);
+  document.title = L('Zgjerimi urban ','Urban expansion ')+C.in;
+  document.querySelector('meta[name=description]')?.setAttribute('content',L(`Eksploro historinë e zgjerimit urban të çdo vendbanimi ${C.in}, nga të dhënat satelitore të DLR.`,`Explore the history of urban expansion of every settlement ${C.in}, from DLR satellite data.`));
   set('brandMark',C.mark);set('brandRegion','/ '+C.short);
-  $('heroTitle').innerHTML = `Zgjerimi urban<br>${esc(C.in)}<span>.</span>`;
+  $('heroTitle').innerHTML = `${L('Zgjerimi urban','Urban expansion')}<br>${esc(C.in)}<span>.</span>`;
   $('whole').firstChild.textContent = C.show+' ';
   for (const el of document.querySelectorAll('.signature')) el.textContent = '© Rizah Murseli · '+C.atlas;
   set('unitsNote',C.unitsNote || '');
   $('offlineLink').href = C.id === 'XKX' ? 'kosova-urban.html' : `atlas-${C.id.toLowerCase()}.html`;
-  set('citeText',`Murseli, R. (2026). Zgjerimi urban ${C.in}: atlas interaktiv i zonave të ndërtuara, 1985–2026. Të dhënat: DLR World Settlement Footprint.`);
-  $('overview').setAttribute('aria-label','Kliko për të zgjedhur një pikë '+C.in);
+  set('citeText',L(`Murseli, R. (2026). Zgjerimi urban ${C.in}: atlas interaktiv i zonave të ndërtuara, 1985–2026. Të dhënat: DLR World Settlement Footprint.`,`Murseli, R. (2026). Urban expansion ${C.in}: an interactive atlas of built-up areas, 1985–2026. Data: DLR World Settlement Footprint.`));
+  $('overview').setAttribute('aria-label',L('Kliko për të zgjedhur një pikë ','Click to pick a point ')+C.in);
   set('tabNation',C.name);set('nationEvoTitle',C.whole+' · 1985–2015');set('nationTrkTitle',C.whole+' · 2016–2026');
   set('munLabelText','1 · '+C.unit1.Many);set('zoneLabelText','2 · '+C.unit2.Many);
   const centres = places.filter(p => p.municipal).length;
-  set('raceStory',`${centres} qendrat e ${C.unit1.many.replace(/a$/,'ave').replace(/i$/,'ive')}, krahasuar në rreze të njëjtë prej 5 km nga qendra. Renditja ndjek vitin në kohëzgjatje; luaje animacionin për ta parë garën.`);
-  set('tabRace','Gara 5 km');
+  set('raceStory',L(`${centres} qendrat e ${C.unit1.many.replace(/a$/,'ave').replace(/i$/,'ive')}, krahasuar në rreze të njëjtë prej 5 km nga qendra. Renditja ndjek vitin në kohëzgjatje; luaje animacionin për ta parë garën.`,`${centres} ${C.unit1.one} centres, compared within the same 5 km radius of the centre. The ranking follows the timeline; play the animation to watch the race.`));
+  set('tabRace',L('Gara 5 km','5 km race'));
   const presetPlaces = (C.presets || []).map(n => places.find(p => p.name === n)).filter(Boolean);
   $('presets').innerHTML = (presetPlaces.length ? presetPlaces : places.filter(p => p.municipal).slice(0,3)).map(p => `<button data-place="${esc(p.name)}">${esc(p.name)}</button>`).join('');
   for (const b of $('presets').querySelectorAll('[data-place]')) b.onclick = () => { const place = places.find(p => p.name === b.dataset.place);if (place) selectPlace(place); };
   const sel = $('country');
-  sel.innerHTML = countries.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  sel.innerHTML = countries.map(c => `<option value="${c.id}">${esc(LANG === 'en' && COUNTRY_EN[c.id] ? COUNTRY_EN[c.id].name : c.name)}</option>`).join('');
   sel.value = C.id;
   $('countryBox').hidden = countries.length < 2;
 }
@@ -48,11 +91,13 @@ state.base = {evolution:0,tracker:0};
 const baseOff = (name=state.period) => state.base[name] || 0;
 const periodCache = {};
 const period = (name=state.period) => {
-  const raw = manifest.periods[name], off = baseOff(name);
-  if (!off) return raw;
-  return periodCache[name+':'+off] ||= {...raw,rawOffset:off,
-    range:`${raw.steps[off].label.toLowerCase()} – ${raw.steps.at(-1).label.toLowerCase()}`,
-    steps:[{...raw.steps[off],epoch:(/^Janar/.test(raw.steps[off].label) ? 'JANAR · ' : /^Korrik/.test(raw.steps[off].label) ? 'KORRIK · ' : '')+'VITI BAZË'},...raw.steps.slice(off+1)]};
+  const raw = manifest.periods[name], off = baseOff(name), key = name+':'+off;
+  if (periodCache[key]) return periodCache[key];
+  const steps = raw.steps.map(st => ({...st,label:trLabel(st.label),epoch:trEpoch(st.epoch),july:/^Korrik/.test(st.label)})).slice(off);
+  if (off) steps[0] = {...steps[0],epoch:(/^Janar/.test(raw.steps[off].label) ? L('JANAR · ','JANUARY · ') : /^Korrik/.test(raw.steps[off].label) ? L('KORRIK · ','JULY · ') : '')+L('VITI BAZË','BASE YEAR')};
+  const lab = st => L(st.label.toLowerCase(),trLabel(st.label));
+  return periodCache[key] = {...raw,steps,rawOffset:off,source:tx(raw.source),
+    range:off || LANG === 'en' ? `${lab(raw.steps[off])} – ${lab(raw.steps.at(-1))}` : raw.range};
 };
 function rebaseSeries(obj) {
   if (!obj) return;
@@ -91,14 +136,14 @@ function setBase(off) {
 }
 function syncBaseControl() {
   const raw = manifest.periods[state.period];
-  $('baseYear').replaceChildren(...raw.steps.slice(0,-1).map((st,i) => new Option(st.label+(i ? '' : ' · fillimi i serisë'),String(i))));
+  $('baseYear').replaceChildren(...raw.steps.slice(0,-1).map((st,i) => new Option(trLabel(st.label)+(i ? '' : L(' · fillimi i serisë',' · start of the series')),String(i))));
   $('baseYear').value = String(baseOff());
 }
 const count = () => period().steps.length;
 const stepYear = i => period().steps[i].year;
 const yearLabel = (i,name) => period(name).steps[i].label;
-const stepIndexOfYear = (year,name) => period(name).steps.findIndex(s => s.year === year && !/^Korrik/.test(s.label));
-const number = value => new Intl.NumberFormat('sq',{maximumFractionDigits:2}).format(value);
+const stepIndexOfYear = (year,name) => period(name).steps.findIndex(s => s.year === year && !s.july);
+const number = value => new Intl.NumberFormat(LOCALE,{maximumFractionDigits:2}).format(value);
 const interpolate = (a,b,t) => a.map((v,i) => Math.round(v+(b[i]-v)*t));
 function colors(name=state.period) {
   const n = period(name).steps.length-1;
@@ -110,7 +155,7 @@ function colors(name=state.period) {
 function stop() {
   state.playing = false;
   clearTimeout(timer);
-  $('play').innerHTML = '▶ <span>Luaj</span>';
+  $('play').innerHTML = L('▶ <span>Luaj</span>','▶ <span>Play</span>');
 }
 function schedule() {
   clearTimeout(timer);
@@ -171,7 +216,7 @@ async function tileData(tile, size) {
   const period = state.period;
   const request = (async () => {
     const response = await fetch(BASE+period+'-'+tile.id+'.png');
-    if (!response.ok) throw new Error('Pllaka e të dhënave nuk u ngarkua.');
+    if (!response.ok) throw new Error(L('Pllaka e të dhënave nuk u ngarkua.','A data tile failed to load.'));
     const bitmap = await createImageBitmap(await response.blob());
     const offscreen = document.createElement('canvas');
     offscreen.width = offscreen.height = size;
@@ -203,7 +248,7 @@ async function loadView() {
   $('scale').style.visibility = 'hidden';
   $('play').disabled = true;
   $('status').hidden = false;
-  $('status').textContent = 'Duke ngarkuar zonën…';
+  $('status').textContent = L('Duke ngarkuar zonën…','Loading the area…');
   viewStats = null;
   updateView();
   context.fillStyle = '#070c14';
@@ -248,9 +293,9 @@ async function loadView() {
     updateHash();
   } catch(error) {
     if (token !== generation) return;
-    $('status').textContent = 'Ngarkimi dështoi. ';
+    $('status').textContent = L('Ngarkimi dështoi. ','Loading failed. ');
     const retry = document.createElement('button');
-    retry.textContent = 'Provo përsëri';
+    retry.textContent = L('Provo përsëri','Try again');
     retry.onclick = loadView;
     $('status').append(retry);
     console.error(error);
@@ -264,7 +309,7 @@ function buildLegend() {
     button.style.setProperty('--color','rgb('+color.join(',')+')');
     button.textContent = count() <= 13 || stepYear(i)%5 === 0 ? period().steps[i].short : '';
     button.title = yearLabel(i);
-    button.setAttribute('aria-label','Shfaq '+yearLabel(i));
+    button.setAttribute('aria-label',L('Shfaq ','Show ')+yearLabel(i));
     button.onclick = () => setIndex(i);
     $('legend').append(button);
   });
@@ -328,8 +373,8 @@ function paint(mapOnly=false) {
   const area = (state.span/view.size)**2;
   $('total').textContent = number(total*area)+' km²';
   lastStats = {total:total*area,added:added*area};
-  $('totalLabel').textContent = !filterMask ? 'Zonë e ndërtuar në pamje' : filterMask.kind === 'aoi' ? 'Zonë e ndërtuar në zonën e interesit' : filterMask.kind === 'circle' ? 'Zonë e ndërtuar brenda rrethit' : filterMask.circle ? 'Zonë e ndërtuar brenda rrethit dhe filtrit' : 'Zonë e ndërtuar brenda filtrit';
-  $('growth').textContent = state.index ? '+'+number(added*area)+' km²' : 'Gjendja fillestare';
+  $('totalLabel').textContent = !filterMask ? L('Zonë e ndërtuar në pamje','Built-up area in view') : filterMask.kind === 'aoi' ? L('Zonë e ndërtuar në zonën e interesit','Built-up area in the zone of interest') : filterMask.kind === 'circle' ? L('Zonë e ndërtuar brenda rrethit','Built-up area inside the circle') : filterMask.circle ? L('Zonë e ndërtuar brenda rrethit dhe filtrit','Built-up area inside the circle and filter') : L('Zonë e ndërtuar brenda filtrit','Built-up area inside the filter');
+  $('growth').textContent = state.index ? '+'+number(added*area)+' km²' : L('Gjendja fillestare','Baseline');
   const scaleKm = state.span > 60 ? 20 : state.span > 15 ? 5 : state.span > 5 ? 2 : 1;
   $('scale').firstElementChild.style.width = (scaleKm/state.span*view.size*canvas.clientWidth/canvas.width)+'px';
   $('scale').lastElementChild.textContent = scaleKm+' km';
@@ -337,7 +382,7 @@ function paint(mapOnly=false) {
   if (mode === 'compare') {
     $('divider').style.left = (state.split*100)+'%';
     $('divider').setAttribute('aria-valuenow',Math.round(state.split*100));
-    $('compareB').textContent = 'Djathtas '+yearLabel(state.index);
+    $('compareB').textContent = L('Djathtas ','Right ')+yearLabel(state.index);
   }
   overview();
   renderRadial();
@@ -355,8 +400,8 @@ const TILE_URLS = {
   esri:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
 };
 const BASEMAP_CREDIT = {
-  osm:{html:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">kontribuuesit e OpenStreetMap</a>'+(LOCAL_FILE ? ' · © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>' : ''),text:'Harta bazë © OpenStreetMap'+(LOCAL_FILE ? ', CARTO' : '')},
-  esri:{html:'Imazhi © <a href="https://www.esri.com/" target="_blank" rel="noopener">Esri</a>, Maxar, Earthstar Geographics',text:'Imazhi satelitor © Esri, Maxar, Earthstar Geographics'},
+  osm:{html:L('© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">kontribuuesit e OpenStreetMap</a>','© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>')+(LOCAL_FILE ? ' · © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>' : ''),text:L('Harta bazë © OpenStreetMap','Base map © OpenStreetMap')+(LOCAL_FILE ? ', CARTO' : '')},
+  esri:{html:L('Imazhi © <a href="https://www.esri.com/" target="_blank" rel="noopener">Esri</a>, Maxar, Earthstar Geographics','Imagery © <a href="https://www.esri.com/" target="_blank" rel="noopener">Esri</a>, Maxar, Earthstar Geographics'),text:L('Imazhi satelitor © Esri, Maxar, Earthstar Geographics','Satellite imagery © Esri, Maxar, Earthstar Geographics')},
 };
 const BASEMAP_FILTER = {dark:'grayscale(1) invert(1) brightness(.5) contrast(.8)',pan:'grayscale(1) contrast(1.08) brightness(.9)',rgb:'none'};
 const tiles = new Map();
@@ -443,13 +488,13 @@ function searchPlaces() {
     button.setAttribute('role','option');
     const title = document.createElement('span'); title.textContent = place.name;
     const subtitle = document.createElement('small');
-    subtitle.textContent = (place.municipal ? `Qendër · ${C.unit1.one} · ` : '')+place.lat.toFixed(3)+'° N, '+place.lon.toFixed(3)+'° E';
+    subtitle.textContent = (place.municipal ? L(`Qendër · ${C.unit1.one} · `,`Centre · ${C.unit1.one} · `) : '')+place.lat.toFixed(3)+'° N, '+place.lon.toFixed(3)+'° E';
     button.append(title,subtitle);
     button.onclick = () => selectPlace(place);
     $('results').append(button);
   }
   if (!matches.length) {
-    const p = document.createElement('p');p.textContent = 'Emri nuk u gjet. Mund të zgjedhësh pikën në hartën e vogël.';$('results').append(p);
+    const p = document.createElement('p');p.textContent = L('Emri nuk u gjet. Mund të zgjedhësh pikën në hartën e vogël.','Name not found. You can pick the point on the small map.');$('results').append(p);
   }
   $('results').hidden = false;
   $('search').setAttribute('aria-expanded','true');
@@ -457,16 +502,17 @@ function searchPlaces() {
 function updateHash() {
   const params = new URLSearchParams({c:C.id,lat:state.lat.toFixed(5),lon:state.lon.toFixed(5),km:String(state.span),p:state.period,name:state.name,m:state.mode,b:state.basemap ? state.basemapSource : '0',bm:state.basemapMode,bt:String(state.basemapTransp),r:state.radial ? '1' : '0',u:state.unitsOverlay ? '1' : '0'});
   if (state.tab !== 'zone') params.set('t',state.tab);
-  if (baseOff()) params.set('by',String(period().steps[0].label.replace(/^(Janar|Korrik) /,m => m[0] === 'K' ? '7-' : '')));
+  if (baseOff()) params.set('by',(period().steps[0].july ? '7-' : '')+period().steps[0].year);
   if (MUN.size) params.set('mun',[...MUN].join('.'));
   if (ZONE.size && ZONE.size <= 60) params.set('zk',[...ZONE].join('.'));
   if (state.aoi) params.set('aoi','1');
+  if (LANG === 'en') params.set('l','en');
   history.replaceState(null,'','#'+params.toString());
 }
 function pointAt(lon,lat) {
   const [bw,bs,be,bn] = manifest.bounds;
   if (lon < bw || lon > be || lat < bs || lat > bn) return;
-  Object.assign(state,{lon,lat,name:'Zonë e zgjedhur'});
+  Object.assign(state,{lon,lat,name:L('Zonë e zgjedhur','Selected area')});
   $('search').value = '';
   loadView();
 }
@@ -504,7 +550,7 @@ $('play').onclick = () => {
   if (!sample) return;
   if (state.index >= count()-1) { state.index = 0;paint(); }
   state.playing = true;
-  $('play').innerHTML = 'Ⅱ <span>Ndalo</span>';
+  $('play').innerHTML = L('Ⅱ <span>Ndalo</span>','Ⅱ <span>Pause</span>');
   schedule();
 };
 $('zoomIn').onclick = () => zoom(.75);
@@ -574,12 +620,17 @@ async function start() {
     BASE = 'data/'+(countries.find(c => c.id === wanted) || countries[0]).id+'/';
     const responses = await Promise.all(['places','manifest','boundary'].map(name => fetch(BASE+name+'.json').then(r => { if(!r.ok) throw new Error(name); return r.json(); })));
     [places,manifest,boundary] = responses;
-    C = manifest.country;
+    C = countryText(manifest.country);
     stats = await fetch(BASE+'stats.json').then(r => r.ok ? r.json() : null).catch(() => null);
     units = await fetch(BASE+'units.json').then(r => r.ok ? r.json() : null).then(raw => raw && decodeUnits(raw)).catch(error => { console.error(error);return null; });
     population = await fetch(BASE+'population.json').then(r => r.ok ? r.json() : null).catch(() => null);
     landcover = await fetch(BASE+'landcover.json').then(r => r.ok ? r.json() : null).catch(() => null);
     soil = await fetch(BASE+'soil.json').then(r => r.ok ? r.json() : null).catch(() => null);
+    if (LANG === 'en') {
+      if (landcover) { landcover.classes.forEach(c => { c.label = tx(c.label); });landcover.steps.forEach(st => { st.label = trLabel(st.label); }); }
+      if (population?.sources) for (const src of Object.values(population.sources)) { src.label = tx(src.label);src.source = tx(src.source);src.note = tx(src.note); }
+      if (soil) soil.source = tx(soil.source);
+    }
     applyCountryText();
     if (units && !units.cadastral.length) $('zonePick').closest('.cascade').classList.add('single-level');
     if (population && !population.sources) population = null;  // old format
@@ -589,7 +640,7 @@ async function start() {
     }
     if (!units || !population) document.querySelector('[data-tab=sdg]').hidden = true;
     for (const option of $('period').options) option.textContent = manifest.periods[option.value].title;
-    if (manifest.updated) $('dataUpdated').textContent = ` (përditësimi i fundit: ${manifest.updated})`;
+    if (manifest.updated) $('dataUpdated').textContent = L(` (përditësimi i fundit: ${manifest.updated})`,` (last update: ${manifest.updated})`);
     if (units) {
     } else {
       $('toggleUnits').hidden = true;
@@ -601,7 +652,7 @@ async function start() {
     const [bw,bs,be,bn] = manifest.bounds;
     Object.assign(state,{lat:selectedPlace.lat,lon:selectedPlace.lon,span:selectedPlace.span || 16,name:selectedPlace.name});
     if (hash.has('lat') && lat>bs && lat<bn && lon>bw && lon<be && km>=2 && km<=wholeView().span) {
-      Object.assign(state,{lat,lon,span:km,name:hash.get('name') || 'Zonë e zgjedhur',period:hash.get('p') === 'tracker' ? 'tracker' : 'evolution'});
+      Object.assign(state,{lat,lon,span:km,name:hash.get('name') || L('Zonë e zgjedhur','Selected area'),period:hash.get('p') === 'tracker' ? 'tracker' : 'evolution'});
     }
     if (['cumulative','added','compare'].includes(hash.get('m'))) setMode(hash.get('m'),false);
     if (hash.get('b') === '0') state.basemap = false;
@@ -636,12 +687,12 @@ async function start() {
     await loadView();
     if (openTab) document.querySelector(`[data-tab=${openTab}]`)?.click();
   } catch(error) {
-    $('status').textContent = 'Të dhënat nuk u ngarkuan. Rifresko faqen për të provuar përsëri.';
+    $('status').textContent = L('Të dhënat nuk u ngarkuan. Rifresko faqen për të provuar përsëri.','The data did not load. Refresh the page to try again.');
     console.error(error);
   }
 }
 // ---------- Analysis: statistics for the visible area ----------
-const events = [{year:1999,label:'1999 · fundi i luftës',anchor:'end'},{year:2008,label:'2008 · pavarësia',anchor:'start'}];
+const events = [{year:1999,label:L('1999 · fundi i luftës','1999 · end of the war'),anchor:'end'},{year:2008,label:L('2008 · pavarësia','2008 · independence'),anchor:'start'}];
 const km2 = value => number(value < 10 ? Math.round(value*100)/100 : Math.round(value*10)/10)+' km²';
 // Hectares for the radial diagram, where the values per direction and year are small.
 const ha = km => { const v = km*100;return number(v < 10 ? Math.round(v*10)/10 : Math.round(v))+' ha'; };
@@ -690,7 +741,7 @@ function buildFilterMask(v) {
   if (state.radial) {
     const radius = RADIAL.lens*size, data = new Uint8Array(size*size);
     for (let y=0;y<size;y++) for (let x=0;x<size;x++) data[y*size+x] = Math.hypot(x+.5-c,y+.5-c) < radius ? 1 : 0;
-    return {kind:'circle',data,radius,label:'rrethi'};
+    return {kind:'circle',data,radius,label:L('rrethi','the circle')};
   }
   return null;
 }
@@ -800,7 +851,7 @@ function timeChart(host, o) {
 }
 function ringChart(host) {
   const s = viewStats;
-  if (!s || !s.rings) { host.innerHTML = '<p class="note">Profili sipas largësisë shfaqet kur pamja është më e vogël se 40 km.</p>';return; }
+  if (!s || !s.rings) { host.innerHTML = L('<p class="note">Profili sipas largësisë shfaqet kur pamja është më e vogël se 40 km.</p>','<p class="note">The distance profile is shown when the view is smaller than 40 km.</p>');return; }
   const W = Math.max(240,host.clientWidth), H = 130, m = {l:34,r:6,t:8,b:20};
   const iw = W-m.l-m.r, ih = H-m.t-m.b, n = s.rings, palette = colors();
   const base = Array.from({length:n},(_,r) => ringShare(r,0));
@@ -808,7 +859,7 @@ function ringChart(host) {
   const max = niceMax(Math.max(...now,...base,1));
   const y = v => m.t+ih-v/max*ih, band = iw/n, bw = Math.max(2,(band-6)/2);
   const nowColor = 'rgb('+palette[state.index].join(',')+')';
-  let svg = `<svg width="${W}" height="${H}" role="img" aria-label="Përqindja e tokës së ndërtuar sipas largësisë">`;
+  let svg = L(`<svg width="${W}" height="${H}" role="img" aria-label="Përqindja e tokës së ndërtuar sipas largësisë">`,`<svg width="${W}" height="${H}" role="img" aria-label="Share of built-up land by distance">`);
   for (const t of [0,max/2,max]) svg += `<line class="${t ? 'grid' : 'axis'}" x1="${m.l}" x2="${W-m.r}" y1="${y(t)}" y2="${y(t)}"/><text x="${m.l-5}" y="${y(t)+3}" text-anchor="end">${number(t)}%</text>`;
   for (let r=0;r<n;r++) {
     const x0 = m.l+r*band+2;
@@ -817,10 +868,10 @@ function ringChart(host) {
     svg += `<text x="${x0+band/2-2}" y="${H-5}" text-anchor="middle">${band < 48 ? number((r+1)*s.step) : number(r*s.step)+'–'+number((r+1)*s.step)}</text>`;
     svg += `<rect class="hit" data-r="${r}" x="${m.l+r*band}" y="0" width="${band}" height="${H}"/>`;
   }
-  svg += `</svg><div class="chart-tip" hidden></div><div class="legend-row"><span><i style="background:rgb(${palette[0].join(',')})"></i>${yearLabel(0)}</span>${state.index ? `<span><i style="background:${nowColor}"></i>${yearLabel(state.index)}</span>` : ''}<span>${band < 48 ? 'kufiri i jashtëm i unazës, km' : 'km nga qendra'}</span></div>`;
+  svg += L(`</svg><div class="chart-tip" hidden></div><div class="legend-row"><span><i style="background:rgb(${palette[0].join(',')})"></i>${yearLabel(0)}</span>${state.index ? `<span><i style="background:${nowColor}"></i>${yearLabel(state.index)}</span>` : ''}<span>${band < 48 ? 'kufiri i jashtëm i unazës, km' : 'km nga qendra'}</span></div>`,`</svg><div class="chart-tip" hidden></div><div class="legend-row"><span><i style="background:rgb(${palette[0].join(',')})"></i>${yearLabel(0)}</span>${state.index ? `<span><i style="background:${nowColor}"></i>${yearLabel(state.index)}</span>` : ''}<span>${band < 48 ? 'outer edge of the ring, km' : 'km from the centre'}</span></div>`);
   let gain = -1, gainRing = 0;
   for (let r=0;r<n;r++) { const g = (now[r]-base[r])*s.ringLand[r]; if (g > gain) { gain = g;gainRing = r; } }
-  if (state.index && gain > 0) svg += `<p class="note">Shtesa më e madhe në sipërfaqe ndodhi në unazën <b>${number(gainRing*s.step)}–${number((gainRing+1)*s.step)} km</b> nga qendra.</p>`;
+  if (state.index && gain > 0) svg += L(`<p class="note">Shtesa më e madhe në sipërfaqe ndodhi në unazën <b>${number(gainRing*s.step)}–${number((gainRing+1)*s.step)} km</b> nga qendra.</p>`,`<p class="note">The largest added area was in the ring <b>${number(gainRing*s.step)}–${number((gainRing+1)*s.step)} km</b> from the centre.</p>`);
   host.innerHTML = svg;
   const tip = host.querySelector('.chart-tip');
   host.querySelectorAll('.hit').forEach(el => {
@@ -836,31 +887,31 @@ function ringChart(host) {
 }
 function renderZone() {
   const s = viewStats;
-  if (!s) { $('zoneStory').textContent = 'Duke llogaritur…';return; }
+  if (!s) { $('zoneStory').textContent = L('Duke llogaritur…','Calculating…');return; }
   const c = s.cumulative, n = c.length, palette = colors();
   const start = c[0], end = c[n-1], growth = end-start;
   let peak = 1;
   for (let i=2;i<n;i++) if (s.added[i] > s.added[peak]) peak = i;
   const ratio = start > 0 ? end/start : null;
-  const scope = !s.filter ? `Në këtë pamje (${esc(state.name)})` : s.filter.kind === 'aoi' ? `Brenda zonës së interesit <b>${esc(s.filter.label)}</b> (${number(Math.round(s.landKm2*1000)/10)} ha${s.filter.partial ? ', vetëm pjesa në pamje' : ''})` : s.filter.kind === 'circle' ? `Brenda rrethit me rreze ${number(Math.round(s.lensKm*10)/10)} km rreth ${esc(state.name)}` : s.filter.circle ? `Brenda rrethit me rreze ${number(Math.round(s.lensKm*10)/10)} km, vetëm në ${esc(s.filter.label)}` : `Brenda filtrit (${esc(s.filter.label)})`;
-  let story = `${scope}, zona e ndërtuar kalon nga <b>${km2(start)}</b> (${yearLabel(0)}) në <b>${km2(end)}</b> (${yearLabel(n-1)})`;
-  story += ratio && ratio >= 1.5 ? `, rreth <b>${number(Math.round(ratio*10)/10)} herë</b> më shumë.` : ratio ? `, <b>+${number(Math.round((ratio-1)*1000)/10)}%</b>.` : '.';
+  const scope = !s.filter ? L(`Në këtë pamje (${esc(state.name)})`,`In this view (${esc(state.name)})`) : s.filter.kind === 'aoi' ? L(`Brenda zonës së interesit <b>${esc(s.filter.label)}</b> (${number(Math.round(s.landKm2*1000)/10)} ha${s.filter.partial ? ', vetëm pjesa në pamje' : ''})`,`Inside the zone of interest <b>${esc(s.filter.label)}</b> (${number(Math.round(s.landKm2*1000)/10)} ha${s.filter.partial ? ', only the part in view' : ''})`) : s.filter.kind === 'circle' ? L(`Brenda rrethit me rreze ${number(Math.round(s.lensKm*10)/10)} km rreth ${esc(state.name)}`,`Inside the ${number(Math.round(s.lensKm*10)/10)} km radius circle around ${esc(state.name)}`) : s.filter.circle ? L(`Brenda rrethit me rreze ${number(Math.round(s.lensKm*10)/10)} km, vetëm në ${esc(s.filter.label)}`,`Inside the ${number(Math.round(s.lensKm*10)/10)} km radius circle, only in ${esc(s.filter.label)}`) : L(`Brenda filtrit (${esc(s.filter.label)})`,`Inside the filter (${esc(s.filter.label)})`);
+  let story = L(`${scope}, zona e ndërtuar kalon nga <b>${km2(start)}</b> (${yearLabel(0)}) në <b>${km2(end)}</b> (${yearLabel(n-1)})`,`${scope}, the built-up area grows from <b>${km2(start)}</b> (${yearLabel(0)}) to <b>${km2(end)}</b> (${yearLabel(n-1)})`);
+  story += ratio && ratio >= 1.5 ? L(`, rreth <b>${number(Math.round(ratio*10)/10)} herë</b> më shumë.`,`, about <b>${number(Math.round(ratio*10)/10)} times</b> as much.`) : ratio ? `, <b>+${number(Math.round((ratio-1)*1000)/10)}%</b>.` : '.';
   if (state.period === 'evolution' && growth > 0 && stepIndexOfYear(1999) > 0) {
     const after = (end-c[stepIndexOfYear(1999)])/growth*100;
-    story += ` <b>${number(Math.round(after))}%</b> e kësaj rritjeje u regjistrua pas vitit 1999.`;
+    story += L(` <b>${number(Math.round(after))}%</b> e kësaj rritjeje u regjistrua pas vitit 1999.`,` <b>${number(Math.round(after))}%</b> of this growth was recorded after 1999.`);
   }
-  if (/^Korrik/.test(yearLabel(0))) story += ` Shtesa e hapit të parë (${yearLabel(1)}) mbulon vetëm gjashtë muaj.`;
+  if (period().steps[0].july) story += L(` Shtesa e hapit të parë (${yearLabel(1)}) mbulon vetëm gjashtë muaj.`,` The first step's addition (${yearLabel(1)}) covers only six months.`);
   $('zoneStory').innerHTML = story;
   $('kpiGrowth').textContent = ratio ? '+'+number(Math.round((ratio-1)*100))+'%' : '—';
-  $('kpiPeak').textContent = growth > 0 ? yearLabel(peak).replace(/^Janar /,'') : '—';
+  $('kpiPeak').textContent = growth > 0 ? yearOnly(yearLabel(peak)) : '—';
   $('kpiPeak').title = growth > 0 ? '+'+km2(s.added[peak]) : '';
   $('kpiAvg').textContent = number(Math.round(growth/(n-1)*100)/100)+' km²';
   const pickYear = i => setIndex(i);
   timeChart($('chartCumulative'),{values:c,years:period().steps.map(s => s.year),active:state.index,events:state.period === 'evolution' ? events : null,
-    label:'Zona e ndërtuar kumulative',onPick:pickYear,tip:i => `${yearLabel(i)}<br><b>${km2(c[i])}</b>`});
+    label:L('Zona e ndërtuar kumulative','Cumulative built-up area'),onPick:pickYear,tip:i => `${yearLabel(i)}<br><b>${km2(c[i])}</b>`});
   const added = s.added.map((v,i) => i ? v : 0);
   timeChart($('chartAdded'),{kind:'bars',values:added,years:period().steps.map(s => s.year),active:state.index,colors:palette.map(p => 'rgb('+p.join(',')+')'),
-    label:'Shtesa sipas vitit',onPick:pickYear,tip:i => i ? `${yearLabel(i)}<br><b>+${km2(added[i])}</b>` : `${yearLabel(0)}<br>Gjendja fillestare`});
+    label:L('Shtesa sipas vitit','Added area by year'),onPick:pickYear,tip:i => i ? `${yearLabel(i)}<br><b>+${km2(added[i])}</b>` : L(`${yearLabel(0)}<br>Gjendja fillestare`,`${yearLabel(0)}<br>Baseline`)});
   ringChart($('chartRings'));
   renderZoneStatistics();
 }
@@ -894,16 +945,16 @@ function renderRace(rebuild) {
     bar.style.width = (max ? Math.max(0,value)/max*100 : 0)+'%';
     bar.style.setProperty('--color',color);
     row.querySelector('.race-value').textContent = sort === 'pct' ? (idx ? '+'+number(Math.round(value))+'%' : '—') : (sort === 'added' && idx ? '+' : '')+number(Math.round(value*100)/100);
-    row.title = `${m.name} · ${yearLabel(idx)} · ${km2(m[period][idx])} brenda 5 km`;
+    row.title = L(`${m.name} · ${yearLabel(idx)} · ${km2(m[period][idx])} brenda 5 km`,`${m.name} · ${yearLabel(idx)} · ${km2(m[period][idx])} within 5 km`);
   });
 }
 // ---------- Kosovo-wide view and fastest-growing settlements ----------
 function renderKosovo() {
-  if (!stats) { $('kosovoStory').textContent = 'Statistikat nuk u ngarkuan.';return; }
+  if (!stats) { $('kosovoStory').textContent = L('Statistikat nuk u ngarkuan.','Statistics did not load.');return; }
   const e = stats.national.evolution, t = stats.national.tracker;
   const i99 = stepIndexOfYear(1999,'evolution'), share = i99 > 0 ? (e[e.length-1]-e[i99])/(e[e.length-1]-e[0])*100 : null;
   const pe = period('evolution'), pt = period('tracker');
-  $('kosovoStory').innerHTML = `Sipas WSF Evolution, zona e ndërtuar ${C.in} u rrit nga <b>${km2(e[0])}</b> në ${pe.steps[0].label} në <b>${km2(e[e.length-1])}</b> në ${pe.steps.at(-1).label}, <b>${number(Math.round(e[e.length-1]/e[0]*10)/10)} herë</b> më shumë.${share != null ? ` Rreth <b>${number(Math.round(share))}%</b> e kësaj rritjeje erdhi pas vitit 1999.` : ''} Tracker, me rezolucion më të imët, regjistron <b>+${number(Math.round((t[t.length-1]/t[0]-1)*100))}%</b> nga ${pt.steps[0].label.toLowerCase()} deri në ${pt.steps.at(-1).label.toLowerCase()}.`;
+  $('kosovoStory').innerHTML = L(`Sipas WSF Evolution, zona e ndërtuar ${C.in} u rrit nga <b>${km2(e[0])}</b> në ${pe.steps[0].label} në <b>${km2(e[e.length-1])}</b> në ${pe.steps.at(-1).label}, <b>${number(Math.round(e[e.length-1]/e[0]*10)/10)} herë</b> më shumë.${share != null ? ` Rreth <b>${number(Math.round(share))}%</b> e kësaj rritjeje erdhi pas vitit 1999.` : ''} Tracker, me rezolucion më të imët, regjistron <b>+${number(Math.round((t[t.length-1]/t[0]-1)*100))}%</b> nga ${pt.steps[0].label.toLowerCase()} deri në ${pt.steps.at(-1).label.toLowerCase()}.`,`According to WSF Evolution, the built-up area ${C.in} grew from <b>${km2(e[0])}</b> in ${pe.steps[0].label} to <b>${km2(e[e.length-1])}</b> in ${pe.steps.at(-1).label}, <b>${number(Math.round(e[e.length-1]/e[0]*10)/10)} times</b> as much.${share != null ? ` About <b>${number(Math.round(share))}%</b> of this growth came after 1999.` : ''} Tracker, at finer resolution, records <b>+${number(Math.round((t[t.length-1]/t[0]-1)*100))}%</b> from ${pt.steps[0].label} to ${pt.steps.at(-1).label}.`);
   const go = (period,i) => {
     if (state.period !== period) { $('period').value = period;$('period').onchange(); }
     setIndex(i);
@@ -913,7 +964,7 @@ function renderKosovo() {
   timeChart($('chartNationTrk'),{values:t,years:pt.steps.map(s => s.year),active:state.period === 'tracker' ? state.index : null,color:'#5e9bff',
     label:C.name+' '+pt.range,onPick:i => go('tracker',i),tip:i => `${yearLabel(i,'tracker')}<br><b>${km2(t[i])}</b>`+(i ? `<br>+${km2(t[i]-t[i-1])}` : '')});
   const [a,b] = state.period === 'evolution' ? [0,1] : [2,3];
-  $('hotTitle').innerHTML = `Vendbanimet me shtesën më të madhe <small>${manifest.periods[state.period].range} · brenda 1 km nga pika e vendbanimit</small>`;
+  $('hotTitle').innerHTML = L(`Vendbanimet me shtesën më të madhe <small>${manifest.periods[state.period].range} · brenda 1 km nga pika e vendbanimit</small>`,`Settlements with the largest additions <small>${trLabel(manifest.periods[state.period].range)} · within 1 km of the settlement point</small>`);
   const ranked = places.map(p => ({p,v:stats.places[p.id]})).filter(r => r.v).sort((x,y) => (y.v[b]-y.v[a])-(x.v[b]-x.v[a]));
   const chosen = [];
   for (const r of ranked) {
@@ -972,16 +1023,16 @@ canvas.addEventListener('pointermove',event => {
   const km = Math.hypot(x+.5-view.size/2,y+.5-view.size/2)*state.span/view.size;
   const palette = colors();
   let text;
-  if (!code) text = 'Pa ndërtim të identifikuar';
-  else if (code === 1) text = `<i style="background:rgb(${palette[0].join(',')})"></i>Ndërtuar deri në <b>${yearLabel(0).toLowerCase()}</b>`;
-  else text = `<i style="background:rgb(${palette[code-1].join(',')})"></i>Identifikuar në <b>${yearLabel(code-1)}</b>`;
+  if (!code) text = L('Pa ndërtim të identifikuar','No built-up area detected');
+  else if (code === 1) text = L(`<i style="background:rgb(${palette[0].join(',')})"></i>Ndërtuar deri në <b>${yearLabel(0).toLowerCase()}</b>`,`<i style="background:rgb(${palette[0].join(',')})"></i>Built by <b>${yearLabel(0)}</b>`);
+  else text = L(`<i style="background:rgb(${palette[code-1].join(',')})"></i>Identifikuar në <b>${yearLabel(code-1)}</b>`,`<i style="background:rgb(${palette[code-1].join(',')})"></i>Detected in <b>${yearLabel(code-1)}</b>`);
   let where = '';
   if (units) {
     const lon = view.west+(x+.5)/view.size*(view.east-view.west), lat = view.north-(y+.5)/view.size*(view.north-view.south);
     const m = unitAt(lon,lat,'municipalities'), c = unitAt(lon,lat,'cadastral');
-    if (m) where = `<small>${esc(C.unit1.One)}: <b>${esc(m.name)}</b>${c ? ` · ${esc(C.unit2.short)}: <b>${esc(c.name)}</b>` : ''}${state.unitsOverlay ? (MUN.has(m.id) ? (c ? ` · kliko: ${ZONE.has(c.id) ? 'hiqe' : 'zgjidhe'} njësinë` : '') : ` · kliko: shto ${esc(C.unit1.acc)} në filtër`) : ''}</small>`;
+    if (m) where = L(`<small>${esc(C.unit1.One)}: <b>${esc(m.name)}</b>${c ? ` · ${esc(C.unit2.short)}: <b>${esc(c.name)}</b>` : ''}${state.unitsOverlay ? (MUN.has(m.id) ? (c ? ` · kliko: ${ZONE.has(c.id) ? 'hiqe' : 'zgjidhe'} njësinë` : '') : ` · kliko: shto ${esc(C.unit1.acc)} në filtër`) : ''}</small>`,`<small>${esc(C.unit1.One)}: <b>${esc(m.name)}</b>${c ? ` · ${esc(C.unit2.short)}: <b>${esc(c.name)}</b>` : ''}${state.unitsOverlay ? (MUN.has(m.id) ? (c ? ` · click: ${ZONE.has(c.id) ? 'remove' : 'select'} the unit` : '') : ` · click: add the ${esc(C.unit1.one)} to the filter`) : ''}</small>`);
   }
-  $('tip').innerHTML = text+where+`<small>${number(Math.round(km*10)/10)} km nga qendra e pamjes</small>`;
+  $('tip').innerHTML = text+where+L(`<small>${number(Math.round(km*10)/10)} km nga qendra e pamjes</small>`,`<small>${number(Math.round(km*10)/10)} km from the centre of the view</small>`);
   const wrap = $('tip').parentElement.getBoundingClientRect();
   $('tip').style.left = Math.min(event.clientX-wrap.left+14,wrap.width-200)+'px';
   $('tip').style.top = (event.clientY-wrap.top+14)+'px';
@@ -1012,13 +1063,13 @@ document.addEventListener('keydown',event => {
 // Inside the lens: the map. Around it: one chart per direction (N, E, S, W).
 // Time runs clockwise along each arc; height = area added that year inside the lens
 // in that quarter, stacked from near the centre (inside) to the lens edge (outside).
-const DIRS = ['VERI','LINDJE','JUG','PERËNDIM'];
+const DIRS = [L('VERI','NORTH'),L('LINDJE','EAST'),L('JUG','SOUTH'),L('PERËNDIM','WEST')];
 // Shades of a year's colour for the three distance bands: darker near the centre, lighter at the edge.
 const shade = (rgb,band) => {
   const mix = band === 0 ? rgb.map(v => Math.round(v*.55)) : band === 2 ? rgb.map(v => Math.round(v+(255-v)*.5)) : rgb;
   return 'rgb('+mix.join(',')+')';
 };
-const BAND_NAMES = ['afër qendrës','në mes','në skaj'];
+const BAND_NAMES = [L('afër qendrës','near the centre'),L('në mes','middle'),L('në skaj','outer edge')];
 function renderRadial() {
   const svg = $('radial');
   $('radialKey').hidden = !state.radial;
@@ -1033,7 +1084,7 @@ function renderRadial() {
   const s = viewStats, byUnits = s?.filter?.kind === 'units';
   // No dimming outside: the map itself shows only base-year areas there, in their normal colour.
   let out = `<circle class="radial-lens" cx="${cx}" cy="${cy}" r="${lens}"/>`;
-  $('radialKeyText').innerHTML = s?.filter?.kind === 'aoi' ? `Shtesat vjetore brenda zonës së interesit <span class="kname">${esc(s.filter.label)}</span>, sipas drejtimit nga qendra e pamjes.` : byUnits ? `Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>) dhe brenda <span class="kname">${esc(s.filter.label)}</span>, sipas drejtimit.` : `Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>), sipas drejtimit.`;
+  $('radialKeyText').innerHTML = s?.filter?.kind === 'aoi' ? L(`Shtesat vjetore brenda zonës së interesit <span class="kname">${esc(s.filter.label)}</span>, sipas drejtimit nga qendra e pamjes.`,`Annual additions inside the zone of interest <span class="kname">${esc(s.filter.label)}</span>, by direction from the centre of the view.`) : byUnits ? L(`Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>) dhe brenda <span class="kname">${esc(s.filter.label)}</span>, sipas drejtimit.`,`Annual additions inside the circle (radius <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>) and inside <span class="kname">${esc(s.filter.label)}</span>, by direction.`) : L(`Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>), sipas drejtimit.`,`Annual additions inside the circle (radius <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>), by direction.`);
   if (s && s.radial) {
     const m = count()-1;
     const series = s.radial.map(dir => dir.map(band => Array.from({length:m},(_,k) => band[k+2])));
@@ -1088,7 +1139,7 @@ function renderRadial() {
       el.onpointermove = event => {
         const k = yearAt(event,d), v = series[d].map(band => band[k]);
         const wrap = $('tip').parentElement.getBoundingClientRect();
-        $('tip').innerHTML = `<b>${DIRS[d]} · ${yearLabel(k+1)}</b><br>`+v.map((x,b) => `<i style="background:${shade(colors()[k+1],b)}"></i>${BAND_NAMES[b]}: +${ha(x)}`).join('<br>')+`<small>Kliko për të zgjedhur vitin</small>`;
+        $('tip').innerHTML = `<b>${DIRS[d]} · ${yearLabel(k+1)}</b><br>`+v.map((x,b) => `<i style="background:${shade(colors()[k+1],b)}"></i>${BAND_NAMES[b]}: +${ha(x)}`).join('<br>')+L(`<small>Kliko për të zgjedhur vitin</small>`,`<small>Click to select the year</small>`);
         $('tip').style.left = Math.min(event.clientX-wrap.left+14,wrap.width-210)+'px';
         $('tip').style.top = (event.clientY-wrap.top+14)+'px';
         $('tip').hidden = false;
@@ -1131,11 +1182,11 @@ $('bmMode').onchange = () => { state.basemapMode = $('bmMode').value;setLayer('b
 $('bmTransp').oninput = () => { state.basemapTransp = Number($('bmTransp').value);syncBasemapControls();if (view) paint(true); };
 $('bmTransp').onchange = () => { if (sample) updateHash(); };
 $('copyCite').onclick = async () => {
-  try { await navigator.clipboard.writeText($('citeText').textContent);$('copyCite').textContent = 'U kopjua ✓'; }
-  catch { $('copyCite').textContent = 'Zgjidhe tekstin për ta kopjuar'; }
-  setTimeout(() => { $('copyCite').textContent = 'Kopjo'; },2500);
+  try { await navigator.clipboard.writeText($('citeText').textContent);$('copyCite').textContent = L('U kopjua ✓','Copied ✓'); }
+  catch { $('copyCite').textContent = L('Zgjidhe tekstin për ta kopjuar','Select the text to copy it'); }
+  setTimeout(() => { $('copyCite').textContent = L('Kopjo','Copy'); },2500);
 };
-console.log('%c ATLASI URBAN · KOSOVË %c\nKoncepti, analiza dhe zhvillimi: Rizah Murseli\nTë dhënat: DLR World Settlement Footprint · GeoNames · OpenStreetMap',
+console.log(L('%c ATLASI URBAN · KOSOVË %c\nKoncepti, analiza dhe zhvillimi: Rizah Murseli\nTë dhënat: DLR World Settlement Footprint · GeoNames · OpenStreetMap','%c URBAN ATLAS %c\nConcept, analysis and development: Rizah Murseli\nData: DLR World Settlement Footprint · GeoNames · OpenStreetMap'),
   'background:#66e0d1;color:#08221e;font-weight:700;padding:3px 6px;border-radius:3px','color:#94a6bd');
 
 // ---------- Administrative units: municipalities and cadastral zones ----------
@@ -1146,11 +1197,11 @@ const UNIT_COLORS = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#0ca30c'
 const CHORO = ['#ffe48a','#fdb24c','#f57d34','#dc4127','#a81d22'];
 Object.assign(state,{unitLevel:'municipalities',unitMetric:'share',unitsOverlay:true,unitQuery:'',unitSort:{key:'metric',dir:-1}});
 const METRICS = {
-  share:{label:'Pjesa e territorit të ndërtuar',note:'Sa përqind e sipërfaqes së njësisë është e ndërtuar. E krahasueshme mes njësive të madhësive të ndryshme.',fmt:v => number(Math.round(v*10)/10)+'%'},
-  built:{label:'Sipërfaqja e ndërtuar',note:'Sipërfaqja totale e ndërtuar brenda njësisë.',fmt:v => areaFmt(v)},
-  growth:{label:'Rritja nga gjendja fillestare',note:'Sa u rrit zona e ndërtuar krahasuar me hapin e parë të periudhës. Njësitë pa ndërtim fillestar nuk kanë vlerë.',fmt:v => v == null ? '—' : (v >= 0 ? '+' : '')+number(Math.round(v))+'%'},
-  added:{label:'Shtesa nga gjendja fillestare',note:'Sipërfaqja e ndërtuar e shtuar që nga hapi i parë i periudhës.',fmt:v => '+'+areaFmt(v)},
-  intensity:{label:'Shtesa për km² territor',note:'Hektarë të rinj ndërtimi për çdo km² të njësisë: tregon presionin e zgjerimit pavarësisht madhësisë.',fmt:v => number(Math.round(v*10)/10)+' ha/km²'},
+  share:{label:L('Pjesa e territorit të ndërtuar','Share of territory built up'),note:L('Sa përqind e sipërfaqes së njësisë është e ndërtuar. E krahasueshme mes njësive të madhësive të ndryshme.','What percentage of the unit is built up. Comparable across units of different size.'),fmt:v => number(Math.round(v*10)/10)+'%'},
+  built:{label:L('Sipërfaqja e ndërtuar','Built-up area'),note:L('Sipërfaqja totale e ndërtuar brenda njësisë.','Total built-up area inside the unit.'),fmt:v => areaFmt(v)},
+  growth:{label:L('Rritja nga gjendja fillestare','Growth since the baseline'),note:L('Sa u rrit zona e ndërtuar krahasuar me hapin e parë të periudhës. Njësitë pa ndërtim fillestar nuk kanë vlerë.','How much the built-up area grew compared with the first step of the period. Units with no initial built-up area have no value.'),fmt:v => v == null ? '—' : (v >= 0 ? '+' : '')+number(Math.round(v))+'%'},
+  added:{label:L('Shtesa nga gjendja fillestare','Added since the baseline'),note:L('Sipërfaqja e ndërtuar e shtuar që nga hapi i parë i periudhës.','Built-up area added since the first step of the period.'),fmt:v => '+'+areaFmt(v)},
+  intensity:{label:L('Shtesa për km² territor','Added per km² of territory'),note:L('Hektarë të rinj ndërtimi për çdo km² të njësisë: tregon presionin e zgjerimit pavarësisht madhësisë.','Hectares of new construction per km² of the unit: shows expansion pressure regardless of size.'),fmt:v => number(Math.round(v*10)/10)+' ha/km²'},
 };
 const areaFmt = v => v < 1 ? number(Math.round(v*100*10)/10)+' ha' : km2(v);
 function decodeUnits(raw) {
@@ -1312,7 +1363,7 @@ function choroSvg(level) {
     }
     return best;
   };
-  let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Harta tematike e njësive">`;
+  let svg = L(`<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Harta tematike e njësive">`,`<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Thematic map of the units">`);
   for (const u of units[level]) svg += `<path class="u" data-id="${u.id}" fill-rule="evenodd" d="${d(u)}"/>`;
   for (const u of units.municipalities) svg += `<path class="outline" data-mid="${u.id}" d="${d(u)}"/>`;
   svg += '<g class="labels">';
@@ -1341,7 +1392,7 @@ function renderChoropleth() {
       tip.hidden = false;
       tip.style.left = Math.max(80,Math.min(r.width-80,event.clientX-r.left))+'px';
       tip.style.top = (event.clientY-r.top-10)+'px';
-      tip.innerHTML = `<b>${esc(unitLabel(u))}</b><br>${METRICS[state.unitMetric].label}: <b>${METRICS[state.unitMetric].fmt(metricOf(u))}</b><br><small>${yearLabel(state.index)} · territori ${areaFmt(u.areaKm2)}</small>`;
+      tip.innerHTML = L(`<b>${esc(unitLabel(u))}</b><br>${METRICS[state.unitMetric].label}: <b>${METRICS[state.unitMetric].fmt(metricOf(u))}</b><br><small>${yearLabel(state.index)} · territori ${areaFmt(u.areaKm2)}</small>`,`<b>${esc(unitLabel(u))}</b><br>${METRICS[state.unitMetric].label}: <b>${METRICS[state.unitMetric].fmt(metricOf(u))}</b><br><small>${yearLabel(state.index)} · territory ${areaFmt(u.areaKm2)}</small>`);
     };
     host.querySelector('svg').onpointerleave = () => { tip.hidden = true; };
     host.querySelector('svg').onclick = event => {
@@ -1381,7 +1432,7 @@ function renderChoropleth() {
   }
   const fmt = METRICS[state.unitMetric].fmt, b = breaks;
   const ranges = [`≤ ${fmt(b[0])}`,`${fmt(b[0])} – ${fmt(b[1])}`,`${fmt(b[1])} – ${fmt(b[2])}`,`${fmt(b[2])} – ${fmt(b[3])}`,`> ${fmt(b[3])}`];
-  $('choroLegend').innerHTML = CHORO.map((c,i) => `<span><i style="background:${c}"></i>${ranges[i]}</span>`).join('')+(state.unitMetric === 'growth' ? '<span><i style="background:#2a3240"></i>pa ndërtim fillestar</span>' : '')+`<span>· klasat sipas ${esc(yearLabel(last))}</span>`;
+  $('choroLegend').innerHTML = CHORO.map((c,i) => `<span><i style="background:${c}"></i>${ranges[i]}</span>`).join('')+(state.unitMetric === 'growth' ? L('<span><i style="background:#2a3240"></i>pa ndërtim fillestar</span>','<span><i style="background:#2a3240"></i>no initial built-up area</span>') : '')+L(`<span>· klasat sipas ${esc(yearLabel(last))}</span>`,`<span>· classes for ${esc(yearLabel(last))}</span>`);
 }
 function multiLine(host,series,o) {
   const W = Math.max(260,host.clientWidth), H = 170, m = {l:46,r:10,t:10,b:20};
@@ -1424,52 +1475,52 @@ function renderUnitTable() {
   const cols = [
     {key:'name',label:cad ? C.unit2.One : C.unit1.One,l:true,val:u => u.name,show:u => esc(u.name)},
     ...(cad ? [{key:'mun',label:C.unit1.One,l:true,val:u => munName(u.municipality),show:u => esc(munName(u.municipality))}] : []),
-    {key:'area',label:'Territori',val:u => u.areaKm2,show:u => areaFmt(u.areaKm2)},
+    {key:'area',label:L('Territori','Territory'),val:u => u.areaKm2,show:u => areaFmt(u.areaKm2)},
     {key:'base',label:period().steps[0].short,val:u => u[state.period][0],show:u => areaFmt(u[state.period][0])},
     {key:'now',label:period().steps[last].short,val:u => u[state.period][last],show:u => areaFmt(u[state.period][last])},
     {key:'share',label:'% terr.',val:u => metricOf(u,last,'share'),show:u => METRICS.share.fmt(metricOf(u,last,'share'))},
-    {key:'growth',label:'Rritja',val:u => metricOf(u,last,'growth') ?? -1e9,show:u => METRICS.growth.fmt(metricOf(u,last,'growth'))},
+    {key:'growth',label:L('Rritja','Growth'),val:u => metricOf(u,last,'growth') ?? -1e9,show:u => METRICS.growth.fmt(metricOf(u,last,'growth'))},
     ...(['share','growth'].includes(state.unitMetric) ? [] : [{key:'metric',label:metric.label.split(' ')[0],val:u => metricOf(u,last) ?? -1e9,show:u => metric.fmt(metricOf(u,last))}]),
   ];
   const sortKey = cols.some(c => c.key === state.unitSort.key) ? state.unitSort.key : (cols.find(c => c.key === state.unitMetric) ? state.unitMetric : 'metric');
   const col = cols.find(c => c.key === sortKey) || cols.find(c => c.key === 'share');
   const dir = state.unitSort.dir;
-  rows.sort((a,b) => { const x = col.val(a), y = col.val(b);return (typeof x === 'string' ? x.localeCompare(y,'sq') : x-y)*dir; });
+  rows.sort((a,b) => { const x = col.val(a), y = col.val(b);return (typeof x === 'string' ? x.localeCompare(y,LOCALE) : x-y)*dir; });
   const sel = state.unitLevel === 'cadastral' ? ZONE : MUN, limit = 400;
   $('unitTable').tHead.innerHTML = '<tr><th class="l"></th>'+cols.map(c => `<th data-key="${c.key}" class="${c.l ? 'l' : ''} ${c === col ? 'sorted' : ''}">${esc(c.label)}${c === col ? (dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')+'</tr>';
-  $('unitTable').tBodies[0].innerHTML = rows.slice(0,limit).map(u => `<tr data-id="${u.id}" class="${sel.has(u.id) ? 'sel' : ''}"><td class="l"><input type="checkbox" ${sel.has(u.id) ? 'checked' : ''} aria-label="Zgjidh ${esc(u.name)}"></td>`+cols.map(c => `<td class="${c.l ? 'l' : ''}" title="${c.l ? esc(c.show(u)) : ''}">${c.show(u)}</td>`).join('')+'</tr>').join('');
-  $('tableNote').textContent = rows.length > limit ? `Shfaqen ${limit} nga ${rows.length} njësi. Përdor kërkimin ose filtrin për të ngushtuar listën; CSV-ja i përfshin të gjitha.` : `${rows.length} njësi · vlerat për ${yearLabel(last)}.`;
+  $('unitTable').tBodies[0].innerHTML = rows.slice(0,limit).map(u => L(`<tr data-id="${u.id}" class="${sel.has(u.id) ? 'sel' : ''}"><td class="l"><input type="checkbox" ${sel.has(u.id) ? 'checked' : ''} aria-label="Zgjidh ${esc(u.name)}"></td>`,`<tr data-id="${u.id}" class="${sel.has(u.id) ? 'sel' : ''}"><td class="l"><input type="checkbox" ${sel.has(u.id) ? 'checked' : ''} aria-label="Select ${esc(u.name)}"></td>`)+cols.map(c => `<td class="${c.l ? 'l' : ''}" title="${c.l ? esc(c.show(u)) : ''}">${c.show(u)}</td>`).join('')+'</tr>').join('');
+  $('tableNote').textContent = rows.length > limit ? L(`Shfaqen ${limit} nga ${rows.length} njësi. Përdor kërkimin ose filtrin për të ngushtuar listën; CSV-ja i përfshin të gjitha.`,`Showing ${limit} of ${rows.length} units. Use the search or the filter to narrow the list; the CSV includes them all.`) : L(`${rows.length} njësi · vlerat për ${yearLabel(last)}.`,`${rows.length} units · values for ${yearLabel(last)}.`);
 }
 function renderUnits() {
   if (!units) return;
   const cad = state.unitLevel === 'cadastral';
   renderPickers();
   const n = filteredUnits().length, mNames = pickedMunicipalities().map(m => m.name).join(', ');
-  $('tableTitle').innerHTML = `Renditja <small>${cad ? `${n} ${esc(C.unit2.many)} · ${esc(mNames)}` : `${n} ${esc(C.unit1.many)} · kliko për ta shtuar në filtër`} · kliko titullin e kolonës për renditje</small>`;  $('metricNote').textContent = METRICS[state.unitMetric].note;
+  $('tableTitle').innerHTML = L(`Renditja <small>${cad ? `${n} ${esc(C.unit2.many)} · ${esc(mNames)}` : `${n} ${esc(C.unit1.many)} · kliko për ta shtuar në filtër`} · kliko titullin e kolonës për renditje</small>`,`Ranking <small>${cad ? `${n} ${esc(C.unit2.many)} · ${esc(mNames)}` : `${n} ${esc(C.unit1.many)} · click to add to the filter`} · click a column title to sort</small>`);  $('metricNote').textContent = METRICS[state.unitMetric].note;
   renderChoropleth();
   const picked = selectedUnits(), p = state.period, i = state.index, metric = METRICS[state.unitMetric];
   const chosen = filterUnits();
-  $('selCount').textContent = chosen.length ? `${chosen.length} njësi në filtër` : `pa filtër · zgjidh ${C.unit1.the} lart, ose kliko në hartë`;
-  const group = chosen.length ? aggregate(chosen,chosen.length === 1 ? chosen[0].name : 'Përzgjedhja') : null;
+  $('selCount').textContent = chosen.length ? L(`${chosen.length} njësi në filtër`,`${chosen.length} units in the filter`) : L(`pa filtër · zgjidh ${C.unit1.the} lart, ose kliko në hartë`,`no filter · choose ${C.unit1.the} above, or click on the map`);
+  const group = chosen.length ? aggregate(chosen,chosen.length === 1 ? chosen[0].name : L('Përzgjedhja','Selection')) : null;
   if (group) {
     const s = group[p], share = s[i]/group.areaKm2*100, kShare = units.kosovo[p][i]/units.kosovo.areaKm2*100;
-    let story = `${chosen.length === 1 ? `<b>${esc(unitLabel(chosen[0]))}</b>` : `<b>${chosen.length} njësitë e zgjedhura</b>`} kanë territor ${areaFmt(group.areaKm2)}. Në ${esc(yearLabel(i))} ishin të ndërtuara <b>${areaFmt(s[i])}</b>, pra <b>${METRICS.share.fmt(share)}</b> e territorit (mesatarja: ${METRICS.share.fmt(kShare)} · ${esc(C.name)}).`;
-    if (i > 0) story += ` Nga ${esc(yearLabel(0))}: <b>${METRICS.growth.fmt(metricOf(group,i,'growth'))}</b>, ose <b>+${areaFmt(s[i]-s[0])}</b>.`;
+    let story = L(`${chosen.length === 1 ? `<b>${esc(unitLabel(chosen[0]))}</b>` : `<b>${chosen.length} njësitë e zgjedhura</b>`} kanë territor ${areaFmt(group.areaKm2)}. Në ${esc(yearLabel(i))} ishin të ndërtuara <b>${areaFmt(s[i])}</b>, pra <b>${METRICS.share.fmt(share)}</b> e territorit (mesatarja: ${METRICS.share.fmt(kShare)} · ${esc(C.name)}).`,`${chosen.length === 1 ? `<b>${esc(unitLabel(chosen[0]))}</b>` : `<b>The ${chosen.length} selected units</b>`} cover ${areaFmt(group.areaKm2)}. In ${esc(yearLabel(i))}, <b>${areaFmt(s[i])}</b> was built up, that is <b>${METRICS.share.fmt(share)}</b> of the territory (average: ${METRICS.share.fmt(kShare)} · ${esc(C.name)}).`);
+    if (i > 0) story += L(` Nga ${esc(yearLabel(0))}: <b>${METRICS.growth.fmt(metricOf(group,i,'growth'))}</b>, ose <b>+${areaFmt(s[i]-s[0])}</b>.`,` Since ${esc(yearLabel(0))}: <b>${METRICS.growth.fmt(metricOf(group,i,'growth'))}</b>, or <b>+${areaFmt(s[i]-s[0])}</b>.`);
     if (chosen.length > 1 && i > 0) {
       const ranked = chosen.map(u => [u,metricOf(u,i,'growth')]).filter(r => r[1] != null).sort((a,b) => b[1]-a[1]);
-      if (ranked.length) story += ` Rritja më e shpejtë: <b>${esc(ranked[0][0].name)}</b> (${METRICS.growth.fmt(ranked[0][1])}).`;
+      if (ranked.length) story += L(` Rritja më e shpejtë: <b>${esc(ranked[0][0].name)}</b> (${METRICS.growth.fmt(ranked[0][1])}).`,` Fastest growth: <b>${esc(ranked[0][0].name)}</b> (${METRICS.growth.fmt(ranked[0][1])}).`);
     }
     $('selStory').innerHTML = story;
-  } else $('selStory').innerHTML = `Pa përzgjedhje, grafiku tregon gjithë territorin (${esc(C.name)}). Zgjidh një ose më shumë ${cad ? C.unit2.many : C.unit1.many} për t'i krahasuar.`;
+  } else $('selStory').innerHTML = L(`Pa përzgjedhje, grafiku tregon gjithë territorin (${esc(C.name)}). Zgjidh një ose më shumë ${cad ? C.unit2.many : C.unit1.many} për t'i krahasuar.`,`With no selection, the chart shows the whole territory (${esc(C.name)}). Choose one or more ${cad ? C.unit2.many : C.unit1.many} to compare them.`);
   const years = period().steps.map(s => s.year), labels = period().steps.map(s => s.label);
   const seriesOf = (u,color,extra={}) => ({name:u === units.kosovo ? C.name : unitLabel(u),color,values:labels.map((_,k) => metricOf(u,k)),...extra});
   let series;
   if (!chosen.length) series = [seriesOf(units.kosovo,'#66e0d1')];
   else if (chosen.length <= 8) series = chosen.map((u,k) => seriesOf(u,UNIT_COLORS[k]));
-  else series = [seriesOf(group,'#66e0d1',{name:`Përzgjedhja (${chosen.length})`})];
-  if (picked.length && MUN.size === 1) series.push(seriesOf(pickedMunicipalities()[0],'#c8d3e0',{ref:true,name:pickedMunicipalities()[0].name+' (e plotë)'}));
-  if (chosen.length && ['share','growth','intensity'].includes(state.unitMetric)) series.push(seriesOf(units.kosovo,'#8a98ab',{ref:true,name:C.name+' (referencë)'}));
-  $('unitChartTitle').innerHTML = `${metric.label} <small>${chosen.length > 8 ? 'përzgjedhja si një e tërë' : 'çdo vijë një njësi'}${series.some(s => s.ref) ? ` · vijat e ndërprera: ${picked.length && MUN.size === 1 ? 'komuna dhe ' : ''}Kosova` : ''}</small>`;
+  else series = [seriesOf(group,'#66e0d1',{name:L(`Përzgjedhja (${chosen.length})`,`Selection (${chosen.length})`)})];
+  if (picked.length && MUN.size === 1) series.push(seriesOf(pickedMunicipalities()[0],'#c8d3e0',{ref:true,name:pickedMunicipalities()[0].name+L(' (e plotë)',' (whole)')}));
+  if (chosen.length && ['share','growth','intensity'].includes(state.unitMetric)) series.push(seriesOf(units.kosovo,'#8a98ab',{ref:true,name:C.name+L(' (referencë)',' (reference)')}));
+  $('unitChartTitle').innerHTML = L(`${metric.label} <small>${chosen.length > 8 ? 'përzgjedhja si një e tërë' : 'çdo vijë një njësi'}${series.some(s => s.ref) ? ` · vijat e ndërprera: ${picked.length && MUN.size === 1 ? 'komuna dhe ' : ''}Kosova` : ''}</small>`,`${metric.label} <small>${chosen.length > 8 ? 'the selection as a whole' : 'one line per unit'}${series.some(s => s.ref) ? ` · dashed lines: ${picked.length && MUN.size === 1 ? C.unit1.one+' and ' : ''}${C.name}` : ''}</small>`);
   multiLine($('chartUnits'),series,{years,labels,active:i,label:metric.label,fmt:metric.fmt,tick:v => state.unitMetric === 'built' || state.unitMetric === 'added' ? number(Math.round(v*100)/100) : number(Math.round(v*10)/10)});
   renderUnitTable();
 }
@@ -1488,17 +1539,17 @@ function zoomToUnits(chosen,label) {
   const wKm = (e-w)*111.32*Math.cos(lat*Math.PI/180), hKm = (n-s)*111.132;
   // With the radial diagram on, the whole unit must fit inside the lens circle.
   const km = state.radial ? Math.hypot(wKm,hKm)/(2*RADIAL.lens)*1.04 : Math.max(wKm,hKm)*1.15;
-  Object.assign(state,{lat,lon,span:Math.max(2,Math.min(190,Math.round(km*10)/10)),name:label || (chosen.length === 1 ? chosen[0].name : 'Përzgjedhja')});
+  Object.assign(state,{lat,lon,span:Math.max(2,Math.min(190,Math.round(km*10)/10)),name:label || (chosen.length === 1 ? chosen[0].name : L('Përzgjedhja','Selection'))});
   $('search').value = state.name;
   loadView();
 }
 function exportCsv() {
   const chosen = filterUnits(), list = chosen.length ? chosen : filteredUnits();
   const cad = state.unitLevel === 'cadastral', ev = period('evolution'), tr = period('tracker');
-  const head = ['niveli','id','emri',...(cad ? ['njesia_1'] : []),'territori_ha',...ev.steps.map(s => 'evolution_'+s.label.replace(' ','_')+'_ha'),...tr.steps.map(s => 'tracker_'+s.label.replace(' ','_')+'_ha')];
+  const head = [L('niveli','level'),'id',L('emri','name'),...(cad ? [L('njesia_1','unit_1')] : []),L('territori_ha','territory_ha'),...ev.steps.map(s => 'evolution_'+s.label.replace(' ','_')+'_ha'),...tr.steps.map(s => 'tracker_'+s.label.replace(' ','_')+'_ha')];
   const toHa = (v,d = 2) => Math.round(v*100*10**d)/10**d;  // km² → ha
   const q = v => /[",;\n]/.test(String(v)) ? '"'+String(v).replace(/"/g,'""')+'"' : String(v);
-  const lines = [head.join(',')].concat(list.map(u => [u.level === 'cadastral' ? 'niveli_2' : 'niveli_1',u.id,u.name,...(cad ? [u.level === 'cadastral' ? munName(u.municipality) : u.name] : []),toHa(u.areaKm2,1),...u.evolution.map(v => toHa(v)),...u.tracker.map(v => toHa(v))].map(q).join(',')));
+  const lines = [head.join(',')].concat(list.map(u => [u.level === 'cadastral' ? L('niveli_2','level_2') : L('niveli_1','level_1'),u.id,u.name,...(cad ? [u.level === 'cadastral' ? munName(u.municipality) : u.name] : []),toHa(u.areaKm2,1),...u.evolution.map(v => toHa(v)),...u.tracker.map(v => toHa(v))].map(q).join(',')));
   const blob = new Blob(['\ufeff'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
   download(blob,`atlasi-urban-${C.id.toLowerCase()}-${cad ? 'niveli-2' : 'niveli-1'}-${manifest.updated || 'te-dhenat'}.csv`);
 }
@@ -1524,34 +1575,34 @@ function renderPickers() {
   const short = list => list.length <= 2 ? list.map(u => u.name).join(', ') : `${list.length}: ${list.slice(0,2).map(u => u.name).join(', ')}…`;
   $('munBtnText').textContent = ms.length ? short(ms) : `${C.whole} · ${units.municipalities.length} ${C.unit1.many}`;
   $('zoneBtn').disabled = !ms.length;
-  $('zoneBtnText').textContent = !ms.length ? `Zgjidh fillimisht ${C.unit1.acc}` : zones.length ? short(zones) : `${C.unit1.Many} e plota · ${filteredUnits().length} ${C.unit2.many}`;
+  $('zoneBtnText').textContent = !ms.length ? L(`Zgjidh fillimisht ${C.unit1.acc}`,`Choose ${C.unit1.the} first`) : zones.length ? short(zones) : L(`${C.unit1.Many} e plota · ${filteredUnits().length} ${C.unit2.many}`,`Whole ${C.unit1.many} · ${filteredUnits().length} ${C.unit2.many}`);
   if (!ms.length) closePicker('zone');
   // Lists are rebuilt only when their content changes, so scrolling and typing are not interrupted.
   const mq = normalize($('munFilter').value.trim());
   if (pickers.mun.key !== mq) {
     pickers.mun.key = mq;
-    $('munList').innerHTML = [...units.municipalities].sort((a,b) => a.name.localeCompare(b.name,'sq')).filter(u => !mq || normalize(u.name).includes(mq))
-      .map(u => `<label class="zone-opt" role="option"><input type="checkbox" data-mun="${u.id}"><span>${esc(u.name)}</span><small>${areaFmt(u.areaKm2)}</small></label>`).join('') || '<div class="find-empty">Asnjë komunë me këtë emër.</div>';
+    $('munList').innerHTML = [...units.municipalities].sort((a,b) => a.name.localeCompare(b.name,LOCALE)).filter(u => !mq || normalize(u.name).includes(mq))
+      .map(u => `<label class="zone-opt" role="option"><input type="checkbox" data-mun="${u.id}"><span>${esc(u.name)}</span><small>${areaFmt(u.areaKm2)}</small></label>`).join('') || L('<div class="find-empty">Asnjë komunë me këtë emër.</div>','<div class="find-empty">No unit with this name.</div>');
   }
   const zq = normalize($('zoneFilter').value.trim()), zkey = [...MUN].sort().join('.')+'|'+zq;
   if (pickers.zone.key !== zkey) {
     pickers.zone.key = zkey;
-    const groups = ms.slice().sort((a,b) => a.name.localeCompare(b.name,'sq')).map(m => {
-      const list = units.cadastral.filter(u => u.municipality === m.id && (!zq || normalize(u.name).includes(zq))).sort((a,b) => a.name.localeCompare(b.name,'sq'));
+    const groups = ms.slice().sort((a,b) => a.name.localeCompare(b.name,LOCALE)).map(m => {
+      const list = units.cadastral.filter(u => u.municipality === m.id && (!zq || normalize(u.name).includes(zq))).sort((a,b) => a.name.localeCompare(b.name,LOCALE));
       if (!list.length) return '';
       return (ms.length > 1 ? `<div class="ms-group">${esc(m.name)}</div>` : '')+list.map(u => `<label class="zone-opt" role="option"><input type="checkbox" data-zone="${u.id}"><span>${esc(u.name)}</span><small>${areaFmt(u.areaKm2)}</small></label>`).join('');
     }).join('');
-    $('zoneList').innerHTML = groups || '<div class="find-empty">Asnjë zonë me këtë emër.</div>';
+    $('zoneList').innerHTML = groups || L('<div class="find-empty">Asnjë zonë me këtë emër.</div>','<div class="find-empty">No zone with this name.</div>');
   }
   for (const box of $('munList').querySelectorAll('input')) box.checked = MUN.has(box.dataset.mun);
   for (const box of $('zoneList').querySelectorAll('input')) box.checked = ZONE.has(box.dataset.zone);
   // Active filter, as removable chips.
   const chips = ms.map(m => {
     const own = zones.filter(z => z.municipality === m.id);
-    return `<button class="chip mun" data-rm-mun="${m.id}" title="Hiqe ${esc(C.unit1.acc)} nga filtri">${esc(m.name)}${own.length ? ` <span>· ${own.length} ${esc(C.unit2.many)}</span>` : ' <span>· e plotë</span>'} <span>×</span></button>`+
-      own.map(z => `<button class="chip" data-rm-zone="${z.id}" title="Hiqe zonën nga filtri">${esc(z.name)} <span>×</span></button>`).join('');
+    return L(`<button class="chip mun" data-rm-mun="${m.id}" title="Hiqe ${esc(C.unit1.acc)} nga filtri">${esc(m.name)}${own.length ? ` <span>· ${own.length} ${esc(C.unit2.many)}</span>` : ' <span>· e plotë</span>'} <span>×</span></button>`,`<button class="chip mun" data-rm-mun="${m.id}" title="Remove the ${esc(C.unit1.one)} from the filter">${esc(m.name)}${own.length ? ` <span>· ${own.length} ${esc(C.unit2.many)}</span>` : ' <span>· whole</span>'} <span>×</span></button>`)+
+      own.map(z => L(`<button class="chip" data-rm-zone="${z.id}" title="Hiqe zonën nga filtri">${esc(z.name)} <span>×</span></button>`,`<button class="chip" data-rm-zone="${z.id}" title="Remove the zone from the filter">${esc(z.name)} <span>×</span></button>`)).join('');
   }).join('');
-  $('activeFilter').innerHTML = chips ? chips+'<button class="clear" data-clear>Hiq filtrin</button>' : '';
+  $('activeFilter').innerHTML = chips ? chips+L('<button class="clear" data-clear>Hiq filtrin</button>','<button class="clear" data-clear>Clear filter</button>') : '';
 }
 function openPicker(name) {
   const p = pickers[name];
@@ -1603,11 +1654,11 @@ $('activeFilter').onclick = event => {
 function showFilterState() {
   const fm = filterMask, byUnits = fm?.kind === 'units' || fm?.kind === 'aoi';
   $('filterChip').hidden = !byUnits;
-  $('filterChip').title = fm?.kind === 'aoi' ? 'Hiq zonën e interesit' : 'Hiq filtrin e njësive';
+  $('filterChip').title = fm?.kind === 'aoi' ? L('Hiq zonën e interesit','Remove the zone of interest') : L('Hiq filtrin e njësive','Clear the unit filter');
   if (byUnits) $('filterName').textContent = fm.label;
   const away = byUnits && fm.inside === 0;
   $('filterAway').hidden = !away;
-  if (away) $('filterAwayText').innerHTML = fm.kind === 'aoi' ? `Zona e interesit <b>${esc(fm.label)}</b> nuk ndodhet në këtë pamje.` : `Filtri <b>${esc(fm.label)}</b> nuk ndodhet ${fm.circle ? 'brenda rrethit' : 'në këtë pamje'}.`;
+  if (away) $('filterAwayText').innerHTML = fm.kind === 'aoi' ? L(`Zona e interesit <b>${esc(fm.label)}</b> nuk ndodhet në këtë pamje.`,`The zone of interest <b>${esc(fm.label)}</b> is not in this view.`) : L(`Filtri <b>${esc(fm.label)}</b> nuk ndodhet ${fm.circle ? 'brenda rrethit' : 'në këtë pamje'}.`,`The filter <b>${esc(fm.label)}</b> is not ${fm.circle ? 'inside the circle' : 'in this view'}.`);
 }
 $('filterGo').onclick = () => state.aoi ? zoomToUnits([{bbox:state.aoi.bbox}],state.aoi.name) : zoomToUnits(filterUnits());
 $('filterOff').onclick = () => state.aoi ? clearAoi() : clearFilter();
@@ -1647,16 +1698,16 @@ function zoneStatistics() {
 }
 const fmt1 = v => v == null ? '—' : number(Math.round(v*10)/10);
 const fmt2 = v => v == null ? '—' : number(Math.round(v*100)/100);
-const modeText = (d,unit) => !d || !d.modes.length ? 'pa përsëritje' : d.modes.slice(0,2).map(m => fmt1(m)+unit).join(', ')+(d.modes.length > 2 ? '…' : '')+` (${d.modeCount}×)`;
-const DESC_ROWS = [['Mesatarja','mean'],['Mediana','median'],['Modusi','mode'],['Devijimi standard','sd'],['Kuartili i parë (Q1)','q1'],['Kuartili i tretë (Q3)','q3'],['Minimumi','min'],['Maksimumi','max']];
+const modeText = (d,unit) => !d || !d.modes.length ? L('pa përsëritje','no repeats') : d.modes.slice(0,2).map(m => fmt1(m)+unit).join(', ')+(d.modes.length > 2 ? '…' : '')+` (${d.modeCount}×)`;
+const DESC_ROWS = [[L('Mesatarja','Mean'),'mean'],[L('Mediana','Median'),'median'],[L('Modusi','Mode'),'mode'],[L('Devijimi standard','Standard deviation'),'sd'],[L('Kuartili i parë (Q1)','First quartile (Q1)'),'q1'],[L('Kuartili i tretë (Q3)','Third quartile (Q3)'),'q3'],[L('Minimumi','Minimum'),'min'],[L('Maksimumi','Maximum'),'max']];
 function renderZoneStatistics() {
   const z = zoneStatistics();
   if (!z) { $('descStats').innerHTML = '';$('yearTable').innerHTML = '';return; }
   const cell = (d,key,unit) => !d ? '—' : key === 'mode' ? modeText(d,unit) : fmt1(d[key])+unit;
-  $('descStats').innerHTML = `<table class="desc"><thead><tr><th></th><th>Shtesa vjetore</th><th>Rritja vjetore</th></tr></thead><tbody>`+
+  $('descStats').innerHTML = L(`<table class="desc"><thead><tr><th></th><th>Shtesa vjetore</th><th>Rritja vjetore</th></tr></thead><tbody>`,`<table class="desc"><thead><tr><th></th><th>Annual addition</th><th>Annual growth</th></tr></thead><tbody>`)+
     DESC_ROWS.map(([label,key]) => `<tr><td>${label}</td><td>${cell(z.add,key,' ha')}</td><td>${cell(z.rate,key,'%')}</td></tr>`).join('')+
-    `</tbody></table><p class="note">${z.add?.n || 0} vlera vjetore · zona e analizuar: ${fmt1(z.landHa)} ha. Rritja vjetore = shtesa e vitit ndaj sipërfaqes së ndërtuar një vit më parë.</p>`;
-  $('yearTable').innerHTML = `<table class="years"><thead><tr><th>Viti</th><th>Ndërtuar (ha)</th><th>% e zonës</th><th>Shtesa (ha)</th><th>Rritja (%)</th></tr></thead><tbody>`+
+    L(`</tbody></table><p class="note">${z.add?.n || 0} vlera vjetore · zona e analizuar: ${fmt1(z.landHa)} ha. Rritja vjetore = shtesa e vitit ndaj sipërfaqes së ndërtuar një vit më parë.</p>`,`</tbody></table><p class="note">${z.add?.n || 0} annual values · analysed area: ${fmt1(z.landHa)} ha. Annual growth = the year's addition relative to the built-up area one year earlier.</p>`);
+  $('yearTable').innerHTML = L(`<table class="years"><thead><tr><th>Viti</th><th>Ndërtuar (ha)</th><th>% e zonës</th><th>Shtesa (ha)</th><th>Rritja (%)</th></tr></thead><tbody>`,`<table class="years"><thead><tr><th>Year</th><th>Built (ha)</th><th>% of area</th><th>Added (ha)</th><th>Growth (%)</th></tr></thead><tbody>`)+
     z.rows.map((r,k) => `<tr class="${k === state.index ? 'now' : ''}"><td>${esc(r.label)}</td><td>${fmt1(r.builtHa)}</td><td>${fmt2(r.share)}</td><td>${r.addHa == null ? '—' : '+'+fmt1(r.addHa)}</td><td>${r.rate == null ? '—' : '+'+fmt1(r.rate)}</td></tr>`).join('')+'</tbody></table>';
 }
 // ---------- Export the current view as SVG or PNG, with legend, statistics and authorship ----------
@@ -1664,7 +1715,7 @@ const AUTHOR = 'Rizah Murseli';
 const xml = text => String(text).replace(/[&<>"']/g,ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[ch]));
 const clip = (text,max) => text.length > max ? text.slice(0,max-1)+'…' : text;
 function exportSvg() {
-  if (!sample || !view || !viewStats) throw new Error('Harta nuk është ngarkuar ende.');
+  if (!sample || !view || !viewStats) throw new Error(L('Harta nuk është ngarkuar ende.','The map has not loaded yet.'));
   const r = canvas.width/canvas.clientWidth;
   const S = Math.max(640,Math.round(view.size/r)), sx = S/(view.size/r), ox = view.x/r, oy = view.y/r;
   const P = 640, W = S+P, H = S;
@@ -1673,9 +1724,9 @@ function exportSvg() {
   crop.getContext('2d').drawImage(canvas,view.x,view.y,view.size,view.size,0,0,view.size,view.size);
   let mapImage;
   try { mapImage = crop.toDataURL('image/png'); }
-  catch { throw new Error('Harta bazë nuk lejon eksportin. Fikni "Harta OSM" dhe provoni përsëri.'); }
+  catch { throw new Error(L('Harta bazë nuk lejon eksportin. Fikni "Harta OSM" dhe provoni përsëri.','The base map does not allow export. Turn off the base map and try again.')); }
   const palette = colors(), i = state.index, steps = period().steps, fm = viewStats.filter, z = zoneStatistics();
-  const scope = !fm ? 'në pamje' : fm.kind === 'aoi' ? 'brenda zonës së interesit' : fm.kind === 'circle' ? 'brenda rrethit' : fm.circle ? 'brenda rrethit dhe filtrit' : 'brenda filtrit';
+  const scope = !fm ? L('në pamje','in view') : fm.kind === 'aoi' ? L('brenda zonës së interesit','inside the zone of interest') : fm.kind === 'circle' ? L('brenda rrethit','inside the circle') : fm.circle ? L('brenda rrethit dhe filtrit','inside the circle and filter') : L('brenda filtrit','inside the filter');
   const kmPerPx = state.span/S, nice = [.25,.5,1,2,5,10,20,50].find(k => k/kmPerPx >= S/6) || 50, barPx = nice/kmPerPx;
   let out = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 <style>
@@ -1700,14 +1751,14 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   const ax = S+24, aw = 280, aRight = ax+aw;
   let y = 36;
   const text = (t,size,cls='',weight=400,dy=0,x=ax,anchor='start') => { y += dy;out += `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" class="${cls}" text-anchor="${anchor}">${xml(t)}</text>`; };
-  text('ATLASI URBAN · KOSOVË',9.5,'accent mono',700);
+  text(L('ATLASI URBAN · KOSOVË','URBAN ATLAS · '+C.short),9.5,'accent mono',700);
   text(clip(state.name.toUpperCase(),24),20,'',700,26);
   text(period().source,9.5,'muted mono',400,17);
   const yearColor = 'rgb('+palette[i].join(',')+')';
   y += 50;
-  out += `<text x="${ax}" y="${y}" font-size="46" class="mono" style="fill:${yearColor}">${xml(steps[i].label.replace(/^Janar /,''))}</text>`;
+  out += `<text x="${ax}" y="${y}" font-size="46" class="mono" style="fill:${yearColor}">${xml(yearOnly(steps[i].label))}</text>`;
   if (steps[i].epoch) text(steps[i].epoch,8.5,'muted',400,15);
-  text('Viti kur u identifikua ndërtimi',11,'',700,26);
+  text(L('Viti kur u identifikua ndërtimi','Year the construction was detected'),11,'',700,26);
   const bw = aw/steps.length;
   y += 8;
   steps.forEach((s,k) => { out += `<rect x="${(ax+k*bw).toFixed(1)}" y="${y}" width="${Math.max(1,bw-1).toFixed(1)}" height="10" fill="rgb(${palette[k].join(',')})" opacity="${k > i ? .3 : 1}"/>`; });
@@ -1716,10 +1767,10 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   y += 22;
   out += `<rect x="${ax}" y="${y+11}" width="11" height="9" fill="rgb(${palette[0].join(',')})"/>`;
   y += 19;
-  out += `<text x="${ax+17}" y="${y}" font-size="9.5" class="muted">${xml('gri: ndërtuar deri në '+steps[0].label.toLowerCase())}</text>`;
-  text('Përmbledhje',11,'',700,26);
-  if (fm?.kind === 'units') text(clip('Filtri: '+fm.label,44),9.5,'accent',600,15);
-  if (fm?.circle || fm?.kind === 'circle') text(`Rrethi: rreze ${number(Math.round(viewStats.lensKm*10)/10)} km`,9.5,'muted',400,14);
+  out += L(`<text x="${ax+17}" y="${y}" font-size="9.5" class="muted">${xml('gri: ndërtuar deri në '+steps[0].label.toLowerCase())}</text>`,`<text x="${ax+17}" y="${y}" font-size="9.5" class="muted">${xml('grey: built by '+steps[0].label)}</text>`);
+  text(L('Përmbledhje','Summary'),11,'',700,26);
+  if (fm?.kind === 'units') text(clip(L('Filtri: ','Filter: ')+fm.label,44),9.5,'accent',600,15);
+  if (fm?.circle || fm?.kind === 'circle') text(L(`Rrethi: rreze ${number(Math.round(viewStats.lensKm*10)/10)} km`,`Circle: radius ${number(Math.round(viewStats.lensKm*10)/10)} km`),9.5,'muted',400,14);
   // A row whose label and value would collide puts the value on its own line.
   const row = (label,value) => {
     y += 17;
@@ -1728,31 +1779,31 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     out += `<text x="${aRight}" y="${y}" font-size="10.5" text-anchor="end" class="mono">${xml(value)}</text>`;
   };
   const cur = z.rows[i], base = z.rows[0];
-  row('Zona e analizuar',fmt1(z.landHa)+' ha');
-  row(`Ndërtuar ${scope}, ${steps[i].short}`,`${fmt1(cur.builtHa)} ha · ${fmt2(cur.share)}%`);
-  row(`Ndërtuar në ${steps[0].label.toLowerCase()}`,`${fmt1(base.builtHa)} ha · ${fmt2(base.share)}%`);
-  if (i > 0) row('Rritja nga gjendja fillestare',`+${fmt1(cur.builtHa-base.builtHa)} ha · +${base.builtHa > 0 ? fmt1((cur.builtHa/base.builtHa-1)*100) : '—'}%`);
+  row(L('Zona e analizuar','Analysed area'),fmt1(z.landHa)+' ha');
+  row(L(`Ndërtuar ${scope}, ${steps[i].short}`,`Built ${scope}, ${steps[i].short}`),`${fmt1(cur.builtHa)} ha · ${fmt2(cur.share)}%`);
+  row(L(`Ndërtuar në ${steps[0].label.toLowerCase()}`,`Built in ${steps[0].label}`),`${fmt1(base.builtHa)} ha · ${fmt2(base.share)}%`);
+  if (i > 0) row(L('Rritja nga gjendja fillestare','Growth since the baseline'),`+${fmt1(cur.builtHa-base.builtHa)} ha · +${base.builtHa > 0 ? fmt1((cur.builtHa/base.builtHa-1)*100) : '—'}%`);
   if (state.radial && viewStats.radial) {
     const dirs = viewStats.radial.map(d => d.reduce((a,band) => a+band.slice(2,i+2).reduce((p,q) => p+q,0),0)*100);
-    row('Shtesat sipas drejtimit (ha)',DIRS.map((d,k) => d[0]+' '+fmt1(dirs[k])).join(' · '));
+    row(L('Shtesat sipas drejtimit (ha)','Additions by direction (ha)'),DIRS.map((d,k) => d[0]+' '+fmt1(dirs[k])).join(' · '));
   }
   const yA = y;
   // Column B (top right): descriptive statistics of the yearly series.
   const bx = ax+aw+30, bRight = S+P-22;
   y = 36;
-  text('Statistikat përshkruese',11,'',700,0,bx);
-  text(`${steps[1].short}–${steps[i].short} · ${Math.max(0,i)} vlera vjetore`,8.5,'muted',400,14,bx);
+  text(L('Statistikat përshkruese','Descriptive statistics'),11,'',700,0,bx);
+  text(L(`${steps[1].short}–${steps[i].short} · ${Math.max(0,i)} vlera vjetore`,`${steps[1].short}–${steps[i].short} · ${Math.max(0,i)} annual values`),8.5,'muted',400,14,bx);
   const zi = {add:describe(z.rows.slice(1,i+1).map(r => r.addHa),1),rate:describe(z.rows.slice(1,i+1).map(r => r.rate),1)};
   const c1 = bx+180, c2 = bRight;
   y += 20;
-  out += `<text x="${c1}" y="${y}" font-size="8.5" text-anchor="end" class="muted">Shtesa vjetore</text><text x="${c2}" y="${y}" font-size="8.5" text-anchor="end" class="muted">Rritja vjetore</text>`;
+  out += L(`<text x="${c1}" y="${y}" font-size="8.5" text-anchor="end" class="muted">Shtesa vjetore</text><text x="${c2}" y="${y}" font-size="8.5" text-anchor="end" class="muted">Rritja vjetore</text>`,`<text x="${c1}" y="${y}" font-size="8.5" text-anchor="end" class="muted">Annual addition</text><text x="${c2}" y="${y}" font-size="8.5" text-anchor="end" class="muted">Annual growth</text>`);
   for (const [label,key] of DESC_ROWS) {
     y += 16;
     const v = (d,unit) => !d ? '—' : key === 'mode' ? modeText(d,unit) : fmt1(d[key])+unit;
     out += `<text x="${bx}" y="${y}" font-size="9.5" class="muted">${xml(label)}</text><text x="${c1}" y="${y}" font-size="9.5" text-anchor="end" class="mono">${xml(v(zi.add,' ha'))}</text><text x="${c2}" y="${y}" font-size="9.5" text-anchor="end" class="mono">${xml(v(zi.rate,'%'))}</text>`;
   }
   y += 14;
-  out += `<text x="${bx}" y="${y}" font-size="8" class="muted">Rritja vjetore = shtesa e vitit ndaj sipërfaqes</text><text x="${bx}" y="${y+11}" font-size="8" class="muted">së ndërtuar një vit më parë.</text>`;
+  out += L(`<text x="${bx}" y="${y}" font-size="8" class="muted">Rritja vjetore = shtesa e vitit ndaj sipërfaqes</text><text x="${bx}" y="${y+11}" font-size="8" class="muted">së ndërtuar një vit më parë.</text>`,`<text x="${bx}" y="${y}" font-size="8" class="muted">Annual growth = the year's addition relative to</text><text x="${bx}" y="${y+11}" font-size="8" class="muted">the built-up area one year earlier.</text>`);
   y += 11;
   const yB = y;
   // Two linked panels over the same years: the total (with this year's addition as a coloured cap) and the
@@ -1770,10 +1821,10 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   // The reading of the chart goes in column B, under the descriptive statistics.
   const wrap = (t,max) => t.split(' ').reduce((lines,word) => { const l = lines[lines.length-1];if ((l+' '+word).trim().length > max) lines.push(word);else lines[lines.length-1] = (l+' '+word).trim();return lines; },['']);
   y = yB+30;
-  text('Si u rrit zona e ndërtuar',11,'',700,0,bx);
+  text(L('Si u rrit zona e ndërtuar','How the built-up area grew'),11,'',700,0,bx);
   const times = first.builtHa > 0 ? last.builtHa/first.builtHa : null;
-  const line1 = i ? `Nga ${steps[0].short} në ${steps[i].short}: ${label(first.builtHa)} → ${label(last.builtHa)} ha${times ? `, ${number(Math.round(times*10)/10)} herë më shumë` : ''} (+${label(last.builtHa-first.builtHa)} ha).` : 'Gjendja fillestare: zgjidhni një vit të mëvonshëm për të parë rritjen.';
-  const line2 = i > 1 ? `Kulmi: ${peak.short} me +${label(peak.addHa)} ha. `+(after.length && before.length ? (splitYear ? `Para 1999 mesatarisht ${label(avg(before))} ha/vit, pas 1999 ${label(avg(after))} ha/vit (${avg(before) > 0 ? '×'+number(Math.round(avg(after)/avg(before)*10)/10) : ''}).` : `Gjysma e parë ${label(avg(before))} ha/vit, e dyta ${label(avg(after))} ha/vit.`) : '') : '';
+  const line1 = i ? L(`Nga ${steps[0].short} në ${steps[i].short}: ${label(first.builtHa)} → ${label(last.builtHa)} ha${times ? `, ${number(Math.round(times*10)/10)} herë më shumë` : ''} (+${label(last.builtHa-first.builtHa)} ha).`,`From ${steps[0].short} to ${steps[i].short}: ${label(first.builtHa)} → ${label(last.builtHa)} ha${times ? `, ${number(Math.round(times*10)/10)} times as much` : ''} (+${label(last.builtHa-first.builtHa)} ha).`) : L('Gjendja fillestare: zgjidhni një vit të mëvonshëm për të parë rritjen.','Baseline: choose a later year to see the growth.');
+  const line2 = i > 1 ? L(`Kulmi: ${peak.short} me +${label(peak.addHa)} ha. `,`Peak: ${peak.short} with +${label(peak.addHa)} ha. `)+(after.length && before.length ? (splitYear ? L(`Para 1999 mesatarisht ${label(avg(before))} ha/vit, pas 1999 ${label(avg(after))} ha/vit (${avg(before) > 0 ? '×'+number(Math.round(avg(after)/avg(before)*10)/10) : ''}).`,`Before 1999 on average ${label(avg(before))} ha/yr, after 1999 ${label(avg(after))} ha/yr (${avg(before) > 0 ? '×'+number(Math.round(avg(after)/avg(before)*10)/10) : ''}).`) : L(`Gjysma e parë ${label(avg(before))} ha/vit, e dyta ${label(avg(after))} ha/vit.`,`First half ${label(avg(before))} ha/yr, second half ${label(avg(after))} ha/yr.`)) : '') : '';
   let dy = 17;
   for (const t of [line1,line2].filter(Boolean)) { for (const ln of wrap(t,54)) { text(ln,9.5,'muted',400,dy,bx);dy = 13; } dy = 17; }
   const gTop = Math.max(yA,y)+30, axisW = 34, px0 = gx+axisW, pw = gRight-px0, slot = pw/m, barW = Math.max(2,slot*.66);
@@ -1817,7 +1868,7 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   // Panel A: total built-up area, the cap is the addition of that year.
   const tmax = niceMax(Math.max(...bars.map(b => b.builtHa || 0),1e-6)*1.22);
   const ya = v => aBottom-v/tmax*(aBottom-aTop);
-  out += `<text x="${gx}" y="${gTop+2}" font-size="9" font-weight="700">Gjithsej e ndërtuar (ha)</text>`;
+  out += L(`<text x="${gx}" y="${gTop+2}" font-size="9" font-weight="700">Gjithsej e ndërtuar (ha)</text>`,`<text x="${gx}" y="${gTop+2}" font-size="9" font-weight="700">Total built-up (ha)</text>`);
   for (const t of [tmax/2,tmax]) out += `<line x1="${px0}" x2="${gRight}" y1="${ya(t)}" y2="${ya(t)}" stroke="#1e2a3a"/><text x="${px0-4}" y="${ya(t)+3}" font-size="7.5" text-anchor="end" class="muted mono">${label(t)}</text>`;
   out += `<line x1="${px0}" x2="${gRight}" y1="${aBottom}" y2="${aBottom}" stroke="#34445c"/>`;
   bars.forEach((b,k) => {
@@ -1829,7 +1880,7 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   // Panel B: the addition of each year on its own scale, with mean, median and peak.
   const amax = niceMax(Math.max(...bars.map(b => b.addHa || 0),1e-6)*1.3);
   const yb = v => bBottom-v/amax*(bBottom-bTop);
-  out += `<text x="${gx}" y="${bTop-14}" font-size="9" font-weight="700">Shtesa e çdo viti (ha)</text>`;
+  out += L(`<text x="${gx}" y="${bTop-14}" font-size="9" font-weight="700">Shtesa e çdo viti (ha)</text>`,`<text x="${gx}" y="${bTop-14}" font-size="9" font-weight="700">Added each year (ha)</text>`);
   for (const t of [amax/2,amax]) out += `<line x1="${px0}" x2="${gRight}" y1="${yb(t)}" y2="${yb(t)}" stroke="#1e2a3a"/><text x="${px0-4}" y="${yb(t)+3}" font-size="7.5" text-anchor="end" class="muted mono">${label(t)}</text>`;
   out += `<line x1="${px0}" x2="${gRight}" y1="${bBottom}" y2="${bBottom}" stroke="#34445c"/>`;
   bars.forEach((b,k) => {
@@ -1843,15 +1894,15 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     const guide = (v,dash) => `<line x1="${px0}" x2="${gRight}" y1="${yb(v).toFixed(1)}" y2="${yb(v).toFixed(1)}" stroke="#66e0d1" stroke-dasharray="${dash}" opacity=".85"/>`;
     out += guide(zi.add.mean,'5 3')+guide(zi.add.median,'1.5 2.5');
     const kx = px0, ky = bBottom+46;
-    out += `<line x1="${kx}" x2="${kx+16}" y1="${ky-3}" y2="${ky-3}" stroke="#66e0d1" stroke-dasharray="5 3"/><text x="${kx+20}" y="${ky}" font-size="8" class="accent">${xml('mesatarja '+label(zi.add.mean)+' ha')}</text>`+
-      `<line x1="${kx+112}" x2="${kx+128}" y1="${ky-3}" y2="${ky-3}" stroke="#66e0d1" stroke-dasharray="1.5 2.5"/><text x="${kx+132}" y="${ky}" font-size="8" class="accent">${xml('mediana '+label(zi.add.median)+' ha')}</text>`;
+    out += L(`<line x1="${kx}" x2="${kx+16}" y1="${ky-3}" y2="${ky-3}" stroke="#66e0d1" stroke-dasharray="5 3"/><text x="${kx+20}" y="${ky}" font-size="8" class="accent">${xml('mesatarja '+label(zi.add.mean)+' ha')}</text>`,`<line x1="${kx}" x2="${kx+16}" y1="${ky-3}" y2="${ky-3}" stroke="#66e0d1" stroke-dasharray="5 3"/><text x="${kx+20}" y="${ky}" font-size="8" class="accent">${xml('mean '+label(zi.add.mean)+' ha')}</text>`)+
+      L(`<line x1="${kx+112}" x2="${kx+128}" y1="${ky-3}" y2="${ky-3}" stroke="#66e0d1" stroke-dasharray="1.5 2.5"/><text x="${kx+132}" y="${ky}" font-size="8" class="accent">${xml('mediana '+label(zi.add.median)+' ha')}</text>`,`<line x1="${kx+112}" x2="${kx+128}" y1="${ky-3}" y2="${ky-3}" stroke="#66e0d1" stroke-dasharray="1.5 2.5"/><text x="${kx+132}" y="${ky}" font-size="8" class="accent">${xml('median '+label(zi.add.median)+' ha')}</text>`);
   }
   // Authorship and sources across the bottom of the panel.
   y = H-62;
   out += `<line x1="${ax}" x2="${bRight}" y1="${y}" y2="${y}" stroke="#263244"/>`;
-  text(`Autori: ${AUTHOR}`,12.5,'',700,22);
-  text('Të dhënat: DLR World Settlement Footprint (Evolution, Tracker) · Kufijtë: KOSOVAREF01'+(state.basemap ? ' · '+BASEMAP_CREDIT[state.basemapSource].text : ''),8.5,'muted',400,16);
-  text(`Kuartilet me interpolim linear; devijimi standard i mostrës; modusi mbi vlerat e rrumbullakosura në 0,1 · ${(d => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`)(new Date())}`,8,'muted',400,12);
+  text(L(`Autori: ${AUTHOR}`,`Author: ${AUTHOR}`),12.5,'',700,22);
+  text(L('Të dhënat: DLR World Settlement Footprint (Evolution, Tracker) · Kufijtë: KOSOVAREF01','Data: DLR World Settlement Footprint (Evolution, Tracker) · Boundaries: KOSOVAREF01')+(state.basemap ? ' · '+BASEMAP_CREDIT[state.basemapSource].text : ''),8.5,'muted',400,16);
+  text(L(`Kuartilet me interpolim linear; devijimi standard i mostrës; modusi mbi vlerat e rrumbullakosura në 0,1 · ${(d => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`)(new Date())}`,`Quartiles by linear interpolation; sample standard deviation; mode over values rounded to 0.1 · ${(d => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`)(new Date())}`),8,'muted',400,12);
   return {svg:out+'</svg>',width:W,height:H};
 }
 let viewerDownloads = null;
@@ -1859,7 +1910,7 @@ if (window.claude?.use) window.claude.use('downloads').then(d => { viewerDownloa
 async function download(blob,name) {
   if (viewerDownloads) {
     try { await viewerDownloads.save({filename:name,data:blob});return; }
-    catch (error) { if (error?.code === 'declined') return;alertExport('Shkarkimi nuk u lejua këtu: '+(error?.message || error?.code || ''));return; }
+    catch (error) { if (error?.code === 'declined') return;alertExport(L('Shkarkimi nuk u lejua këtu: ','The download was not allowed here: ')+(error?.message || error?.code || ''));return; }
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1868,21 +1919,21 @@ async function download(blob,name) {
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href);a.remove(); },1500);
 }
-const exportName = ext => `atlasi-urban-${normalize(state.name).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'pamja'}-${period().steps[state.index].short}.${ext}`;
+const exportName = ext => `${L('atlasi-urban','urban-atlas')}-${normalize(state.name).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'pamja'}-${period().steps[state.index].short}.${ext}`;
 async function exportView(kind) {
   try {
     const {svg,width,height} = exportSvg();
     if (kind === 'svg') return download(new Blob([svg],{type:'image/svg+xml'}),exportName('svg'));
     const image = new Image();
     const url = URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
-    await new Promise((resolve,reject) => { image.onload = resolve;image.onerror = () => reject(new Error('Imazhi nuk u krijua.'));image.src = url; });
+    await new Promise((resolve,reject) => { image.onload = resolve;image.onerror = () => reject(new Error(L('Imazhi nuk u krijua.','The image could not be created.')));image.src = url; });
     const scale = 2, out = document.createElement('canvas');
     out.width = width*scale;out.height = height*scale;
     const ctx = out.getContext('2d');
     ctx.scale(scale,scale);
     ctx.drawImage(image,0,0,width,height);
     URL.revokeObjectURL(url);
-    out.toBlob(blob => blob ? download(blob,exportName('png')) : alertExport('PNG nuk u krijua; provoni SVG.'),'image/png');
+    out.toBlob(blob => blob ? download(blob,exportName('png')) : alertExport(L('PNG nuk u krijua; provoni SVG.','PNG could not be created; try SVG.')),'image/png');
   } catch (error) { alertExport(error.message); }
 }
 function alertExport(message) {
@@ -1896,14 +1947,41 @@ document.addEventListener('click',event => {
   exportView(b.dataset.export);
 });
 window.atlasExport = exportSvg;   // for testing from the console
+// Static page text, translated on load when the page is in English.
+const EN_STATIC = {"ATLASI URBAN":"URBAN ATLAS","Zgjerimi urban në Kosovë": "Urban expansion in Kosovo", "Zgjerimi urban": "Urban expansion", "në Kosovë": "in Kosovo", "Një atlas nga": "An atlas by", "Zgjidh vendbanimin dhe ndiq ndryshimin e tij në kohë.": "Pick a settlement and follow how it changed over time.", "Shteti": "Country", "Vendbanimi": "Settlement", "Periudha": "Period", "Viti bazë": "Base year", "nga cili vit nis analiza": "the year the analysis starts", "Ndërtimi deri në vitin bazë shfaqet gri; shtesat, grafikët dhe CSV-të llogariten që nga ky vit.": "Construction up to the base year is shown in grey; additions, charts and CSVs are computed from this year on.", "Mbulimi i hartës": "Map extent", "Shfaq gjithë Kosovën": "Show all of Kosovo", "Zona e interesit": "Zone of interest", "Vizatoni një zonë në hartë ose ngarkoni kufirin e saj. Statistikat, grafikët, harta dhe CSV-të llogariten vetëm për të.": "Draw a zone on the map or upload its boundary. Statistics, charts, the map and CSVs are computed for it alone.", "✎ Vizato në hartë": "✎ Draw on the map", "⤒ Ngarko skedar": "⤒ Upload file", "SHP (në .zip, ose .shp + .shx + .dbf + .prj), KML, KMZ, GeoJSON. Pranohen WGS84, UTM, KOSOVAREF01 dhe Gauss-Krüger. Skedari mund të tërhiqet edhe mbi hartë.": "SHP (in a .zip, or .shp + .shx + .dbf + .prj), KML, KMZ, GeoJSON. WGS84, UTM, KOSOVAREF01 and Gauss-Krüger are accepted. You can also drag the file onto the map.", "Shfaq": "Show", "✕ Hiq": "✕ Remove", "Harta bazë": "Base map", "Burimi": "Source", "Asnjë": "None", "Esri · imazh satelitor": "Esri · satellite imagery", "Paraqitja e sfondit": "Background style", "E errët · thekson ngjyrat e viteve": "Dark · highlights the year colours", "RGB · ngjyrat natyrale": "RGB · natural colours", "Pankromatike · bardhë e zi": "Panchromatic · black and white", "Transparenca": "Transparency", "Zonë e ndërtuar në pamje": "Built-up area in view", "Shtesa nga kuadri i mëparshëm": "Added since the previous frame", "Shkarko hartën e kësaj zone": "Download the map of this area", "Pamja aktuale, me legjendë, statistika dhe autorësi": "Current view, with legend, statistics and credits", "Rreth të dhënave": "About the data", "WSF identifikon zonat e ndërtuara në imazhe satelitore. Ngjyra tregon periudhën kur zona u identifikua.": "WSF detects built-up areas in satellite imagery. The colour shows the period in which an area was detected.", "Evolution ka rezolucion burimor rreth 30 m. Tracker ka rezolucion burimor 10 m. Pamja në ekran përshtatet sipas zmadhimit.": "Evolution has a source resolution of about 30 m. Tracker has a source resolution of 10 m. The on-screen view adapts to the zoom level.", "Tracker nis me gjendjen e korrikut 2016. Kuadrot e mëvonshme paraqesin janarin e vitit përkatës. Periudhat shfaqen veçmas sepse produktet përdorin metoda të ndryshme.": "Tracker starts with the state of July 2016. Later frames show January of each year. The periods are shown separately because the products use different methods.", "Sipërfaqet janë vlerësime brenda pamjes dhe kufirit të shtetit. Katalogu i emrave vjen nga GeoNames, me variante të emrave për kërkim. Harta bazë vjen nga OpenStreetMap.": "Areas are estimates within the view and the country boundary. The place-name catalogue comes from GeoNames, with name variants for search. The base map comes from OpenStreetMap.", "Kufijtë e komunave dhe të zonave kadastrale janë në sistemin KOSOVAREF01 (EPSG:9141).": "Municipal and cadastral zone boundaries are in KOSOVAREF01 (EPSG:9141).", "Të dhënat e Tracker përditësohen automatikisht sapo DLR publikon një hap të ri": "Tracker data update automatically as soon as DLR publishes a new step", "Shkarko versionin offline (një skedar HTML)": "Download the offline version (one HTML file)", "Si ta citoni": "How to cite", "Kopjo": "Copy", "© Rizah Murseli · Atlasi urban i Kosovës": "© Rizah Murseli · Urban Atlas of Kosovo", "GJENDJA FILLESTARE": "BASELINE", "↶ Kthe": "↶ Undo", "✓ Përfundo": "✓ Finish", "Anulo": "Cancel", "Filtri:": "Filter:", "◎ Diagrami radial": "◎ Radial diagram", "▢ Kufijtë": "▢ Boundaries", "Diagrami radial": "Radial diagram", "Shtesat vjetore brenda rrethit (rrezja": "Annual additions inside the circle (radius", "), sipas drejtimit.": "), by direction.", "Çdo shtyllë është një vit, me ngjyrën e vitit në hartë; koha ecën në drejtim të akrepave të orës.": "Each bar is one year, in that year's map colour; time runs clockwise.", "afër qendrës": "near the centre", "në mes": "middle", "në skaj": "outer edge", "kontribuuesit e OpenStreetMap": "OpenStreetMap contributors", "Gjendja": "State", "Shtesat e vitit": "Year's additions", "Krahaso": "Compare", "Majtas": "Left", "Djathtas 2015": "Right 2015", "Shko te filtri": "Go to the filter", "Hiq filtrin": "Clear filter", "Duke ngarkuar të dhënat…": "Loading data…", "Tërhiq hartën · Rrota për zmadhim": "Drag the map · Wheel to zoom", "Luaj": "Play", "Çdo ngjyrë i përket një viti. Grija tregon gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.": "Each colour belongs to one year. Grey shows the baseline. Shortcuts: ← → for the year, space to play.", "Kjo zonë": "This area", "Njësitë": "Units", "Qëndrueshmëria": "Sustainability", "Gara 5 km": "5 km race", "Kosova": "Kosovo", "Rritja": "Growth", "Viti më aktiv": "Most active year", "Mesatarja vjetore": "Annual average", "Zona e ndërtuar, kumulative": "Built-up area, cumulative", "Shtesa sipas vitit": "Added area by year", "Statistikat përshkruese": "Descriptive statistics", "shtesat dhe rritja vjetore, pa gjendjen fillestare": "annual additions and growth, excluding the baseline", "Tabela për çdo vit": "Table for every year", "ha dhe %": "ha and %", "Shkarko CSV të zonës": "Download the area's CSV", "Qendër apo periferi?": "Centre or periphery?", "% e tokës së ndërtuar sipas largësisë nga qendra e pamjes": "% of land built up by distance from the centre of the view", "1 · Komunat": "1 · Municipalities", "një ose disa": "one or more", "Gjithë Kosova · 38 komunat": "All of Kosovo · 38 municipalities", "Gjithë Kosova": "All of Kosovo", "Mbyll": "Close", "2 · Zonat kadastrale": "2 · Cadastral zones", "opsionale · pa zgjedhje = njësitë e plota": "optional · none chosen = whole units", "Zgjidh fillimisht komunën": "Choose the municipality first", "Komunat e plota": "Whole municipalities", "Treguesi": "Indicator", "Pjesa e territorit të ndërtuar (%)": "Share of territory built up (%)", "Sipërfaqja e ndërtuar": "Built-up area", "Rritja nga gjendja fillestare (%)": "Growth since the baseline (%)", "Shtesa nga gjendja fillestare": "Added since the baseline", "Shtesa për km² territor (ha/km²)": "Added per km² of territory (ha/km²)", "Përzgjedhja": "Selection", "kliko njësitë në hartë, në hartën tematike ose në tabelë": "click units on the map, the thematic map or the table", "Shfaq në hartë": "Show on map", "Shkarko CSV": "Download CSV", "Ecuria në kohë": "Change over time", "Renditja": "Ranking", "Burimi i popullsisë": "Population source", "Harta e efikasitetit të tokës": "Land-use efficiency map", "SDG 11.3.1 · kliko për ta shtuar ose hequr nga filtri": "SDG 11.3.1 · click to add or remove from the filter", "Toka kundrejt popullsisë": "Land versus population", "rritja vjetore": "annual growth", "Zonë e ndërtuar për banor, 2024": "Built-up area per inhabitant, 2024", "m² sipas WSF Tracker": "m² from WSF Tracker", "Lidhja me objektivat e zhvillimit të qëndrueshëm": "Link to the Sustainable Development Goals", "Ndërtimet sipas përshtatshmërisë së tokës bujqësore": "Construction by agricultural land suitability", "Mbi çfarë u ndërtua?": "What was built on?", "Metoda dhe kufizimet": "Method and limitations", ": zona e ndërtuar nga WSF Tracker, janar 2017 → janar 2024.": ": built-up area from WSF Tracker, January 2017 → January 2024.", "Kur popullsia bie, raporti nuk ka kuptim dhe njësia renditet te \"zgjerim me popullsi në rënie\".": "When population falls, the ratio is meaningless and the unit is listed under \"expansion with declining population\".", "Periudhat e popullsisë dhe të tokës nuk përputhen plotësisht; krahasohen shpejtësitë vjetore. Për katër komunat veriore të dy vitet janë vlerësime: ato janë jashtë totalit. Bojkoti i pjesshëm i 2011 në disa komuna me shumicë serbe mund ta fryjë rritjen e tyre. Diaspora nuk numërohet si popullsi rezidente, por shtëpitë e saj e rrisin zonën e ndërtuar.": "The population and land periods do not match exactly; annual rates are compared. For the four northern municipalities both years are estimates: they are left out of the total. The partial 2011 boycott in some Serb-majority municipalities may inflate their growth. The diaspora is not counted as resident population, but its houses do add to the built-up area.", "Popullsia jepet për njësitë e nivelit të parë. Zonat më të vogla dhe rrethi radial nuk përdoren këtu.": "Population is given for first-level units. Smaller zones and the radial circle are not used here.", "Shkarko CSV (SDG 11.3.1)": "Download CSV (SDG 11.3.1)", "38 qendrat komunale, krahasuar në rreze të njëjtë prej 5 km nga qendra. Renditja ndjek vitin në kohëzgjatje; luaje animacionin për ta parë garën.": "38 municipal centres, compared within the same 5 km radius of the centre. The ranking follows the timeline; play the animation to watch the race.", "Rendit sipas": "Sort by", "Sipërfaqes së ndërtuar": "Built-up area", "Rritjes nga viti bazë (%)": "Growth since the base year (%)", "Shtesës së vitit": "Year's addition", "Gjithë Kosova · 1985–2015": "All of Kosovo · 1985–2015", "Gjithë Kosova · 2016–2026": "All of Kosovo · 2016–2026", "Dy produktet maten ndryshe (30 m kundrejt 10 m), ndaj vlerat e tyre nuk vazhdojnë njëra-tjetrën. Krahasoni ritmin, jo nivelin.": "The two products measure differently (30 m versus 10 m), so their values do not continue each other. Compare the pace, not the level.", "Vendbanimet me shtesën më të madhe": "Settlements with the largest additions", "Koncepti, analiza dhe zhvillimi:": "Concept, analysis and development:", "· Harta bazë ©": "· Base map ©", "Analiza": "Analysis", "Diagrami radial i shtesave sipas drejtimit": "Radial diagram of additions by direction", "Eksploro historinë e zgjerimit urban të çdo vendbanimi në Kosovë, nga të dhënat satelitore të DLR.": "Explore the history of urban expansion of every settlement in Kosovo, from DLR satellite data.", "Filtro komunat": "Filter municipalities", "Filtro komunat…": "Filter municipalities…", "Filtro zonat kadastrale": "Filter cadastral zones", "Filtro zonat sipas emrit…": "Filter zones by name…", "Harta e zonave të ndërtuara. Tërhiq për lëvizje, përdor rrotën për zmadhim dhe kliko dy herë për qendrim.": "Map of built-up areas. Drag to move, use the wheel to zoom and double-click to centre.", "Harta interaktive": "Interactive map", "Hiq filtrin e njësive": "Clear the unit filter", "Hiq kulmin e fundit (Backspace)": "Remove the last vertex (Backspace)", "Kliko për të zgjedhur një pikë në Kosovë": "Click to pick a point in Kosovo", "Kërko qytet ose fshat…": "Search for a town or village…", "Legjenda e viteve": "Year legend", "Luaj animacionin": "Play the animation", "Mënyra e shfaqjes": "Display mode", "Ndarësi i krahasimit": "Comparison divider", "Rikthe pamjen e vendbanimit": "Return to the settlement view", "Shpejtësia": "Speed", "Transparenca e hartës bazë": "Base map transparency", "Viti": "Year", "Viti në anën e majtë": "Year on the left side", "Zgjidh shtetin": "Choose the country", "Zmadho hartën": "Zoom in", "Zvogëlo hartën": "Zoom out", "Murseli, R. (2026). Zgjerimi urban në Kosovë: atlas interaktiv i zonave të ndërtuara, 1985–2026. Të dhënat: DLR World Settlement Footprint.": "Murseli, R. (2026). Urban expansion in Kosovo: an interactive atlas of built-up areas, 1985–2026. Data: DLR World Settlement Footprint.", "Esc": "Esc"};
+function translateStatic() {
+  if (LANG !== 'en') return;
+  const walker = document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode();n;n = walker.nextNode()) {
+    const t = n.nodeValue.trim();
+    if (t && EN_STATIC[t]) n.nodeValue = n.nodeValue.replace(t,EN_STATIC[t]);
+  }
+  for (const el of document.querySelectorAll('[placeholder],[aria-label],[title],meta[name=description]')) for (const a of ['placeholder','aria-label','title','content']) {
+    const v = el.getAttribute(a);
+    if (v && EN_STATIC[v.trim()]) el.setAttribute(a,EN_STATIC[v.trim()]);
+  }
+  document.title = EN_STATIC[document.title] || document.title;
+}
+translateStatic();
+for (const b of document.querySelectorAll('[data-lang]')) {
+  b.setAttribute('aria-pressed',String(b.dataset.lang === LANG));
+  b.onclick = () => {
+    if (b.dataset.lang === LANG) return;
+    try { localStorage.setItem('atlas-lang',b.dataset.lang); } catch {}
+    const h = new URLSearchParams(location.hash.slice(1));
+    if (b.dataset.lang === 'en') h.set('l','en'); else h.delete('l');
+    location.hash = h.toString();
+    location.reload();
+  };
+}
 start();
 // ---------- Sustainability: SDG 11.3.1 (land consumption vs population growth) ----------
 // Population is known per municipality only (census 2011 and 2024). Land uses WSF Tracker, Jan 2017 → Jan 2024.
 const SDG_CAT = {
-  eff:{c:'#3987e5',t:'Rritje efikase',d:'Popullsia rritet më shpejt se zona e ndërtuar.'},
-  spr:{c:'#c98500',t:'Shpërndarje',d:'Zona e ndërtuar rritet më shpejt se popullsia.'},
-  dec:{c:'#d55181',t:'Zgjerim me popullsi në rënie',d:'Popullsia bie, ndërsa zona e ndërtuar rritet.'},
-  na:{c:'#5b6675',t:'Të dhëna të pasigurta',d:'Popullsia në veri është vlerësim, jo regjistrim.'}
+  eff:{c:'#3987e5',t:L('Rritje efikase','Efficient growth'),d:L('Popullsia rritet më shpejt se zona e ndërtuar.','Population grows faster than the built-up area.')},
+  spr:{c:'#c98500',t:L('Shpërndarje','Sprawl'),d:L('Zona e ndërtuar rritet më shpejt se popullsia.','The built-up area grows faster than the population.')},
+  dec:{c:'#d55181',t:L('Zgjerim me popullsi në rënie','Expansion with declining population'),d:L('Popullsia bie, ndërsa zona e ndërtuar rritet.','Population falls while the built-up area grows.')},
+  na:{c:'#5b6675',t:L('Të dhëna të pasigurta','Uncertain data'),d:L('Popullsia në veri është vlerësim, jo regjistrim.','Population in the north is an estimate, not a census count.')}
 };
 const SDG_T0 = 2017, SDG_T1 = 2024;
 let population = null, popSource = null;
@@ -1939,7 +2017,7 @@ function sdgMetrics(list,name) {
   r.m2pc = r.b24*1e6/r.p24;r.dpop = r.p24-r.p11;r.dha = (r.b24-r.b17)*100;
   r.cat = list.length === 1 && r.estimate ? 'na' : r.pgr <= 0 ? 'dec' : r.lcr > r.pgr ? 'spr' : 'eff';
   if (!(r.b17 > 0) || !(r.p11 > 0) || !(r.p24 > 0)) {
-    Object.assign(r,{cat:'na',ratio:null,reason:'Pa zonë të ndërtuar ose pa popullsi në vitin bazë: shpejtësitë nuk llogariten.'});
+    Object.assign(r,{cat:'na',ratio:null,reason:L('Pa zonë të ndërtuar ose pa popullsi në vitin bazë: shpejtësitë nuk llogariten.','No built-up area or no population in the base year: rates cannot be computed.')});
     if (!(r.b17 > 0)) r.lcr = null;
     if (!(r.p11 > 0) || !(r.p24 > 0)) r.pgr = null;
   }
@@ -1954,9 +2032,9 @@ function sdgAll() {
   kosovo.count = ms.filter(u => popSource !== 'census' || !u.pop.estimate).length;kosovo.excluded = ms.length-kosovo.count;
   return sdgCache = {rows,kosovo,byId:new Map(rows.map(r => [r.id,r]))};
 }
-const sgn = (v,d=1) => v == null || !isFinite(v) ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '')+new Intl.NumberFormat('sq',{minimumFractionDigits:d,maximumFractionDigits:d}).format(Math.abs(v));
-const int = v => new Intl.NumberFormat('sq',{maximumFractionDigits:0}).format(v);
-const dec = (v,d) => new Intl.NumberFormat('sq',{minimumFractionDigits:d,maximumFractionDigits:d}).format(v);
+const sgn = (v,d=1) => v == null || !isFinite(v) ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '')+new Intl.NumberFormat(LOCALE,{minimumFractionDigits:d,maximumFractionDigits:d}).format(Math.abs(v));
+const int = v => new Intl.NumberFormat(LOCALE,{maximumFractionDigits:0}).format(v);
+const dec = (v,d) => new Intl.NumberFormat(LOCALE,{minimumFractionDigits:d,maximumFractionDigits:d}).format(v);
 const hatch = id => `<pattern id="${id}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#3a4350"/><line x1="0" y1="0" x2="0" y2="6" stroke="#6b7685" stroke-width="2"/></pattern>`;
 function sdgFocus() {
   const {kosovo} = sdgAll(), ms = pickedMunicipalities().filter(u => u.pop && unitPop(u));
@@ -1964,7 +2042,7 @@ function sdgFocus() {
   return Object.assign(sdgMetrics(ms,ms.length === 1 ? ms[0].name : filterLabel(ms)),{ids:new Set(ms.map(u => u.id))});
 }
 function sdgTipHtml(r) {
-  return `<b>${esc(r.name)}</b> <span style="color:${SDG_CAT[r.cat].c}">· ${SDG_CAT[r.cat].t}</span><br>Popullsia ${popPeriod().y0}–${popPeriod().y1}: ${int(r.p11)} → ${int(r.p24)} (${sgn(r.pgr,2)} %/vit)<br>Zona e ndërtuar: ${sgn(r.dha,0)} ha (${sgn(r.lcr,2)} %/vit)<br>SDG 11.3.1: <b>${r.ratio == null ? '—' : dec(r.ratio,2)}</b> · ${int(r.m2pc)} m²/banor${r.estimate ? '<br><small>popullsia e vlerësuar</small>' : ''}`;
+  return L(`<b>${esc(r.name)}</b> <span style="color:${SDG_CAT[r.cat].c}">· ${SDG_CAT[r.cat].t}</span><br>Popullsia ${popPeriod().y0}–${popPeriod().y1}: ${int(r.p11)} → ${int(r.p24)} (${sgn(r.pgr,2)} %/vit)<br>Zona e ndërtuar: ${sgn(r.dha,0)} ha (${sgn(r.lcr,2)} %/vit)<br>SDG 11.3.1: <b>${r.ratio == null ? '—' : dec(r.ratio,2)}</b> · ${int(r.m2pc)} m²/banor${r.estimate ? '<br><small>popullsia e vlerësuar</small>' : ''}`,`<b>${esc(r.name)}</b> <span style="color:${SDG_CAT[r.cat].c}">· ${SDG_CAT[r.cat].t}</span><br>Population ${popPeriod().y0}–${popPeriod().y1}: ${int(r.p11)} → ${int(r.p24)} (${sgn(r.pgr,2)} %/yr)<br>Built-up area: ${sgn(r.dha,0)} ha (${sgn(r.lcr,2)} %/yr)<br>SDG 11.3.1: <b>${r.ratio == null ? '—' : dec(r.ratio,2)}</b> · ${int(r.m2pc)} m²/inhabitant${r.estimate ? '<br><small>estimated population</small>' : ''}`);
 }
 function renderSdg() {
   if (!units || !population) return;
@@ -1975,27 +2053,31 @@ function renderSdg() {
   $('sdgSourceNote').textContent = P.src.note || '';
   $('sdgFormula').innerHTML = `LCR = ln(T<sub>${SDG_T1}</sub>/T<sub>${SDG_T0}</sub>) / ${SDG_T1-SDG_T0} · PGR = ln(P<sub>${P.y1}</sub>/P<sub>${P.y0}</sub>) / ${Math.round(P.years)} · LCRPGR = LCR / PGR`;
   $('sdgPopNote').innerHTML = popSource === 'census'
-    ? `<b>P</b>: popullsia rezidente sipas regjistrimeve ${P.y0} dhe ${P.y1}. ${esc(P.src.source || '')}`
-    : `<b>P</b>: popullsia sipas GHS-POP R2023A, e interpoluar në ${SDG_T0} dhe ${SDG_T1} nga epokat ${P.src.years.join(', ')}. ${esc(P.src.note || '')}`;
+    ? L(`<b>P</b>: popullsia rezidente sipas regjistrimeve ${P.y0} dhe ${P.y1}. ${esc(P.src.source || '')}`,`<b>P</b>: resident population from the ${P.y0} and ${P.y1} censuses. ${esc(tx(P.src.source || ''))}`)
+    : L(`<b>P</b>: popullsia sipas GHS-POP R2023A, e interpoluar në ${SDG_T0} dhe ${SDG_T1} nga epokat ${P.src.years.join(', ')}. ${esc(P.src.note || '')}`,`<b>P</b>: population from GHS-POP R2023A, interpolated to ${SDG_T0} and ${SDG_T1} from the epochs ${P.src.years.join(', ')}. ${esc(tx(P.src.note || ''))}`);
   $('sdgEstimateNote').hidden = !kosovo.excluded;
-  $('sdgScatterNote').textContent = `rritja vjetore · popullsia ${P.y0}–${P.y1}, zona e ndërtuar ${SDG_T0}–${SDG_T1}`;
-  $('sdgBarsNote').textContent = `m² sipas WSF Tracker · vija = ${C.name}`;
+  $('sdgScatterNote').textContent = L(`rritja vjetore · popullsia ${P.y0}–${P.y1}, zona e ndërtuar ${SDG_T0}–${SDG_T1}`,`annual growth · population ${P.y0}–${P.y1}, built-up area ${SDG_T0}–${SDG_T1}`);
+  $('sdgBarsNote').textContent = L(`m² sipas WSF Tracker · vija = ${C.name}`,`m² from WSF Tracker · line = ${C.name}`);
   // Verdict and scope
   $('sdgStory').innerHTML = f.cat === 'na' ? `<b>${esc(f.name)}</b>: ${f.reason || c.d}`
-    : f.cat === 'dec' ? `<b>${esc(f.name)}</b>: popullsia ra <b>${int(-f.dpop)}</b> banorë nga ${P.y0}, por u shtuan <b>${int(f.dha)} ha</b> zonë e ndërtuar nga 2017.`
-    : f.pgr < .25 && f.lcr > f.pgr ? `<b>${esc(f.name)}</b>: popullsia është pothuajse e pandryshuar (${sgn(f.pgr,2)} %/vit), ndërsa zona e ndërtuar rritet ${sgn(f.lcr,2)} %/vit. Raporti del shumë i lartë sepse pjesëtohet me një numër afër zeros.`
-    : f.ratio > 1 ? `<b>${esc(f.name)}</b>: toka konsumohet <b>${dec(f.ratio,1)} herë</b> më shpejt se rritet popullsia.`
-    : `<b>${esc(f.name)}</b>: popullsia rritet më shpejt se toka e ndërtuar (raporti <b>${dec(f.ratio,2)}</b>).`;
+    : f.cat === 'dec' ? L(`<b>${esc(f.name)}</b>: popullsia ra <b>${int(-f.dpop)}</b> banorë nga ${P.y0}, por u shtuan <b>${int(f.dha)} ha</b> zonë e ndërtuar nga 2017.`,`<b>${esc(f.name)}</b>: population fell by <b>${int(-f.dpop)}</b> since ${P.y0}, yet <b>${int(f.dha)} ha</b> of built-up area were added since 2017.`)
+    : f.pgr < .25 && f.lcr > f.pgr ? L(`<b>${esc(f.name)}</b>: popullsia është pothuajse e pandryshuar (${sgn(f.pgr,2)} %/vit), ndërsa zona e ndërtuar rritet ${sgn(f.lcr,2)} %/vit. Raporti del shumë i lartë sepse pjesëtohet me një numër afër zeros.`,`<b>${esc(f.name)}</b>: population is almost unchanged (${sgn(f.pgr,2)} %/yr) while the built-up area grows ${sgn(f.lcr,2)} %/yr. The ratio comes out very high because it divides by a number close to zero.`)
+    : f.ratio > 1 ? L(`<b>${esc(f.name)}</b>: toka konsumohet <b>${dec(f.ratio,1)} herë</b> më shpejt se rritet popullsia.`,`<b>${esc(f.name)}</b>: land is consumed <b>${dec(f.ratio,1)} times</b> faster than the population grows.`)
+    : L(`<b>${esc(f.name)}</b>: popullsia rritet më shpejt se toka e ndërtuar (raporti <b>${dec(f.ratio,2)}</b>).`,`<b>${esc(f.name)}</b>: population grows faster than built-up land (ratio <b>${dec(f.ratio,2)}</b>).`);
   $('sdgPill').innerHTML = `<i style="background:${c.c}"></i>${c.t}`;
   $('sdgPill').style.cssText = `color:${c.c};border-color:${c.c}`;
-  $('sdgScope').innerHTML = (picked ? `Filtri: ${f.list.length} ${f.list.length === 1 ? C.unit1.one : C.unit1.many} si një e tërë${f.estimate ? ' · <b>përfshin popullsi të vlerësuar</b>' : ''}` : `${esc(C.whole)}: ${kosovo.count} ${esc(C.unit1.many)}${kosovo.excluded ? `, pa ${kosovo.excluded} me popullsi të vlerësuar` : ''} · zgjidh ${esc(C.unit1.many)} në hartë ose te "Njësitë"`)
-    + (ZONE.size ? ` · ${esc(C.unit2.Many)} nuk kanë popullsi, ndaj tregohen ${esc(C.unit1.the)} e tyre` : '')
-    + (state.radial && !picked ? ' · rrethi radial nuk përdoret këtu' : '');
-  $('sdgKpis').innerHTML = `
+  $('sdgScope').innerHTML = (picked ? L(`Filtri: ${f.list.length} ${f.list.length === 1 ? C.unit1.one : C.unit1.many} si një e tërë${f.estimate ? ' · <b>përfshin popullsi të vlerësuar</b>' : ''}`,`Filter: ${f.list.length} ${f.list.length === 1 ? C.unit1.one : C.unit1.many} as a whole${f.estimate ? ' · <b>includes estimated population</b>' : ''}`) : L(`${esc(C.whole)}: ${kosovo.count} ${esc(C.unit1.many)}${kosovo.excluded ? `, pa ${kosovo.excluded} me popullsi të vlerësuar` : ''} · zgjidh ${esc(C.unit1.many)} në hartë ose te "Njësitë"`,`${esc(C.whole)}: ${kosovo.count} ${esc(C.unit1.many)}${kosovo.excluded ? `, without ${kosovo.excluded} with estimated population` : ''} · pick ${esc(C.unit1.many)} on the map or under "Units"`))
+    + (ZONE.size ? L(` · ${esc(C.unit2.Many)} nuk kanë popullsi, ndaj tregohen ${esc(C.unit1.the)} e tyre`,` · ${esc(C.unit2.Many)} have no population data, so their ${esc(C.unit1.many)} are shown`) : '')
+    + (state.radial && !picked ? L(' · rrethi radial nuk përdoret këtu',' · the radial circle is not used here') : '');
+  $('sdgKpis').innerHTML = L(`
     <div><span>Popullsia ${P.y1}${popSource === 'census' ? '' : ' (e modeluar)'}</span><strong>${int(f.p24)}</strong><em>${sgn(f.dpop,0)} nga ${P.y0} (${sgn((f.p24/f.p11-1)*100)} %)</em></div>
     <div><span>Zona e ndërtuar, janar 2024</span><strong>${int(f.b24*100)} ha</strong><em>${sgn(f.dha,0)} ha nga 2017 (${sgn((f.b24/f.b17-1)*100)} %)</em></div>
     <div><span>Zonë e ndërtuar për banor</span><strong>${int(f.m2pc)} m²</strong><em>${picked ? `${esc(C.name)}: ${int(kosovo.m2pc)} m²` : 'mesatarja e territorit'}</em></div>
-    <div class="sdg-k"><span>SDG 11.3.1 · LCRPGR</span><strong style="color:${c.c}">${f.ratio == null ? '—' : dec(f.ratio,2)}</strong><em>toka ${sgn(f.lcr,2)} %/vit · popullsia ${sgn(f.pgr,2)} %/vit</em></div>`;
+    <div class="sdg-k"><span>SDG 11.3.1 · LCRPGR</span><strong style="color:${c.c}">${f.ratio == null ? '—' : dec(f.ratio,2)}</strong><em>toka ${sgn(f.lcr,2)} %/vit · popullsia ${sgn(f.pgr,2)} %/vit</em></div>`,`
+    <div><span>Population ${P.y1}${popSource === 'census' ? '' : ' (modelled)'}</span><strong>${int(f.p24)}</strong><em>${sgn(f.dpop,0)} since ${P.y0} (${sgn((f.p24/f.p11-1)*100)} %)</em></div>
+    <div><span>Built-up area, January 2024</span><strong>${int(f.b24*100)} ha</strong><em>${sgn(f.dha,0)} ha since 2017 (${sgn((f.b24/f.b17-1)*100)} %)</em></div>
+    <div><span>Built-up area per inhabitant</span><strong>${int(f.m2pc)} m²</strong><em>${picked ? `${esc(C.name)}: ${int(kosovo.m2pc)} m²` : 'territory average'}</em></div>
+    <div class="sdg-k"><span>SDG 11.3.1 · LCRPGR</span><strong style="color:${c.c}">${f.ratio == null ? '—' : dec(f.ratio,2)}</strong><em>land ${sgn(f.lcr,2)} %/yr · population ${sgn(f.pgr,2)} %/yr</em></div>`);
   renderSdgMap(rows,f);
   renderSdgScatter(rows,kosovo,f);
   renderSdgBars(rows,kosovo,f);
@@ -2055,8 +2137,8 @@ function renderSdgScatter(rows,kosovo,f) {
   for (let v = 0;v <= y1;v++) s += `<line class="grid" y1="${Y(v)}" y2="${Y(v)}" x1="${m.l}" x2="${W-m.r}"/><text x="${m.l-5}" y="${Y(v)+3}" text-anchor="end">+${v}%</text>`;
   s += `<line class="axis" x1="${X(0)}" x2="${X(0)}" y1="${m.t}" y2="${H-m.b}"/>`;
   s += `<line x1="${X(0)}" y1="${Y(0)}" x2="${X(dEnd)}" y2="${Y(dEnd)}" stroke="#b4c0cd" stroke-dasharray="4 3"/><text x="${X(dEnd*.6)+6}" y="${Y(dEnd*.6)+3}" style="fill:#b4c0cd">raporti = 1</text>`;
-  s += `<text x="${m.l+5}" y="${m.t+11}" style="fill:#d55181;font-weight:700">popullsia bie, toka rritet</text><text x="${X(0)+5}" y="${m.t+11}" style="fill:#c98500;font-weight:700">shpërndarje</text><text x="${W-m.r-4}" y="${H-m.b-6}" text-anchor="end" style="fill:#3987e5;font-weight:700">efikase</text>`;
-  s += `<text x="${(m.l+W-m.r)/2}" y="${H-4}" text-anchor="middle">popullsia, %/vit (${popPeriod().y0}–${popPeriod().y1}) →</text><text transform="translate(9 ${(m.t+H-m.b)/2}) rotate(-90)" text-anchor="middle">toka e ndërtuar, %/vit (2017–2024) →</text></svg><div class="chart-tip" hidden></div>`;
+  s += L(`<text x="${m.l+5}" y="${m.t+11}" style="fill:#d55181;font-weight:700">popullsia bie, toka rritet</text><text x="${X(0)+5}" y="${m.t+11}" style="fill:#c98500;font-weight:700">shpërndarje</text><text x="${W-m.r-4}" y="${H-m.b-6}" text-anchor="end" style="fill:#3987e5;font-weight:700">efikase</text>`,`<text x="${m.l+5}" y="${m.t+11}" style="fill:#d55181;font-weight:700">population falls, land grows</text><text x="${X(0)+5}" y="${m.t+11}" style="fill:#c98500;font-weight:700">sprawl</text><text x="${W-m.r-4}" y="${H-m.b-6}" text-anchor="end" style="fill:#3987e5;font-weight:700">efficient</text>`);
+  s += L(`<text x="${(m.l+W-m.r)/2}" y="${H-4}" text-anchor="middle">popullsia, %/vit (${popPeriod().y0}–${popPeriod().y1}) →</text><text transform="translate(9 ${(m.t+H-m.b)/2}) rotate(-90)" text-anchor="middle">toka e ndërtuar, %/vit (2017–2024) →</text></svg><div class="chart-tip" hidden></div>`,`<text x="${(m.l+W-m.r)/2}" y="${H-4}" text-anchor="middle">population, %/yr (${popPeriod().y0}–${popPeriod().y1}) →</text><text transform="translate(9 ${(m.t+H-m.b)/2}) rotate(-90)" text-anchor="middle">built-up land, %/yr (2017–2024) →</text></svg><div class="chart-tip" hidden></div>`);
   host.innerHTML = s;
   const svg = host.querySelector('svg'), NS = 'http://www.w3.org/2000/svg';
   for (const r of [...pts].sort((a,b) => sel.has(a.id)-sel.has(b.id))) {
@@ -2071,7 +2153,7 @@ function renderSdgScatter(rows,kosovo,f) {
   sdgHover(host,g,kosovo);svg.appendChild(g);
   if (f.ids && f.list.length > 1) {
     const fx = X(f.pgr), fy = Y(f.lcr), a = document.createElementNS(NS,'g');
-    a.innerHTML = `<circle cx="${fx}" cy="${fy}" r="7" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2"/><text x="${fx+10}" y="${fy+16}" style="fill:#fff;font-weight:700">përzgjedhja</text>`;
+    a.innerHTML = L(`<circle cx="${fx}" cy="${fy}" r="7" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2"/><text x="${fx+10}" y="${fy+16}" style="fill:#fff;font-weight:700">përzgjedhja</text>`,`<circle cx="${fx}" cy="${fy}" r="7" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2"/><text x="${fx+10}" y="${fy+16}" style="fill:#fff;font-weight:700">selection</text>`);
     sdgHover(host,a,f);svg.appendChild(a);
   }
   const labels = new Set([...pts].sort((a,b) => b.p24-a.p24).slice(0,3).map(r => r.id).concat([...sel]));
@@ -2115,9 +2197,9 @@ function lcSum(rows) {
 // Same scope as the map filter: picked zones, else picked level-1 units, else the whole country.
 function lcFocus() {
   const list = filterUnits();
-  const L = !list.length ? Object.assign({name:C.name,whole:true},landcover.national) : Object.assign({name:filterLabel(list),whole:false},lcSum(list.map(u => landcover[u.level]?.[u.id])));
-  L.total = landcover.classes.map((_,k) => L.newBuilt.reduce((a,row) => a+row[k],0));
-  return L;
+  const LC = !list.length ? Object.assign({name:C.name,whole:true},landcover.national) : Object.assign({name:filterLabel(list),whole:false},lcSum(list.map(u => landcover[u.level]?.[u.id])));
+  LC.total = landcover.classes.map((_,k) => LC.newBuilt.reduce((a,row) => a+row[k],0));
+  return LC;
 }
 const lcIndex = key => landcover.classes.findIndex(c => c.key === key);
 function lcBar(total) {
@@ -2126,9 +2208,9 @@ function lcBar(total) {
   return `<div class="lc-bar">${landcover.classes.map((c,i) => total[i] > 0 ? `<span style="flex:${total[i]};background:${c.color}" title="${esc(c.label)}: ${haFmt(total[i])} (${pct1(total[i]/sum)})"></span>` : '').join('')}</div>`;
 }
 // Stacked bars: what each Tracker step's new construction replaced, by class.
-function lcYearChart(L) {
+function lcYearChart(LC) {
   const st = landcover.steps, W = Math.max(300,$('sdgCards').clientWidth || 480), H = 190, m = {l:44,r:8,t:10,b:40};
-  const sums = L.newBuilt.map(r => r.reduce((a,b) => a+b,0)), max = Math.max(1,...sums);
+  const sums = LC.newBuilt.map(r => r.reduce((a,b) => a+b,0)), max = Math.max(1,...sums);
   const step = (W-m.l-m.r)/st.length, bw = Math.min(26,step*.66), Y = v => m.t+(1-v/max)*(H-m.t-m.b);
   const nice = [1,2,5,10,20,50,100,200,500,1000,2000,5000,10000].find(v => max/v <= 4) || max/4;
   let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="lc-years">`;
@@ -2137,64 +2219,64 @@ function lcYearChart(L) {
     const x = m.l+i*step+(step-bw)/2;
     let y = H-m.b;
     landcover.classes.forEach((c,k) => {
-      const v = L.newBuilt[i][k];
+      const v = LC.newBuilt[i][k];
       if (v <= 0) return;
       const h = Math.max(0,(H-m.t-m.b)*v/max);
       y -= h;
       svg += `<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${c.color}" opacity="${s.exact ? 1 : .5}"><title>${esc(s.label)} · ${esc(c.label)}: ${haFmt(v)}</title></rect>`;
     });
-    svg += `<text x="${x+bw/2}" y="${H-m.b+12}" text-anchor="middle">${String(s.label).replace(/^(Janar|Korrik) /,'').replace(/^20/,'’')}${s.label.startsWith('Korrik') ? '·VII' : ''}${s.exact ? '' : '*'}</text>`;
+    svg += `<text x="${x+bw/2}" y="${H-m.b+12}" text-anchor="middle">${String(s.label).replace(/^(Janar|Korrik|January|July) /,'').replace(/^20/,'’')}${/^(Korrik|July)/.test(s.label) ? '·VII' : ''}${s.exact ? '' : '*'}</text>`;
   });
-  svg += `<text x="${m.l}" y="${H-6}">ha të ndërtuara në hapin e Tracker, sipas mbulesës një vit para ndërtimit</text></svg>`;
+  svg += L(`<text x="${m.l}" y="${H-6}">ha të ndërtuara në hapin e Tracker, sipas mbulesës një vit para ndërtimit</text></svg>`,`<text x="${m.l}" y="${H-6}">ha built in each Tracker step, by land cover one year before construction</text></svg>`);
   return svg;
 }
 function soilCardText() {
   if (!soil) return '';
   const S = soilFocus(), b = soil.best, best = rows => rows.reduce((a,r) => a+r.slice(0,b).reduce((x,y) => x+y,0),0);
-  return ` Në tokë të klasave I–IV u ndërtuan <b>${haFmt(best(S.evolution.slice(1)))}</b> në 1986–2015 dhe <b>${haFmt(best(S.tracker.slice(1)))}</b> pas korrikut 2016.`;
+  return L(` Në tokë të klasave I–IV u ndërtuan <b>${haFmt(best(S.evolution.slice(1)))}</b> në 1986–2015 dhe <b>${haFmt(best(S.tracker.slice(1)))}</b> pas korrikut 2016.`,` On land of classes I–IV, <b>${haFmt(best(S.evolution.slice(1)))}</b> were built in 1986–2015 and <b>${haFmt(best(S.tracker.slice(1)))}</b> after July 2016.`);
 }
 function renderSdgCards(f) {
-  const L = landcover ? lcFocus() : null;
+  const LC = landcover ? lcFocus() : null;
   let cards;
-  if (L) {
+  if (LC) {
     const fo = lcIndex('forest'), cr = lcIndex('crop'), ys = landcover.years, Y0 = ys[0], Y1 = ys[ys.length-1];
-    const land = row => row.reduce((a,b) => a+b,0), sum = L.total.reduce((a,b) => a+b,0);
-    const sh0 = L.cover[0][fo]/land(L.cover[0]), sh1 = L.cover.at(-1)[fo]/land(L.cover.at(-1));
-    const per = `${landcover.steps[0].label.replace(/^(Janar|Korrik) /,'')}–${landcover.steps.at(-1).label.replace(/^(Janar|Korrik) /,'')}`;
+    const land = row => row.reduce((a,b) => a+b,0), sum = LC.total.reduce((a,b) => a+b,0);
+    const sh0 = LC.cover[0][fo]/land(LC.cover[0]), sh1 = LC.cover.at(-1)[fo]/land(LC.cover.at(-1));
+    const per = `${landcover.steps[0].label.replace(/^(Janar|Korrik|January|July) /,'')}–${landcover.steps.at(-1).label.replace(/^(Janar|Korrik|January|July) /,'')}`;
     const pp = (sh1-sh0)*100;
     cards = [
-      ['15.1.1','Pyjet',`Pyjet zënë <b>${pct1(sh1)}</b> të territorit në ${Y1} (${pp >= 0 ? '+' : '−'}${dec(Math.abs(pp),1)} pikë nga ${Y0}). Ndërtimet e ${per} zunë <b>${haFmt(L.total[fo])}</b> pyje.`,true],
-      ['2.4.1 · 15.3.1','Toka bujqësore',`<b>${haFmt(L.total[cr])}</b> tokë bujqësore u mbulua me ndërtime në ${per}: ${pct1(sum ? L.total[cr]/sum : NaN)} e ndërtimeve të reja. Toka e mbuluar humbet përgjithmonë.${soilCardText()}`,true],
-      ['11.7.1','Gjelbërimi urban',`<b>${pct1(L.green/L.urban)}</b> e zonës urbane (deri në ${landcover.urbanBufferM} m nga ndërtimet) është pyll, kullotë ose shkurre (${Y1}). Tregues i përafërt: nuk dallon hapësirën publike.`,true]
+      ['15.1.1',L('Pyjet','Forests'),L(`Pyjet zënë <b>${pct1(sh1)}</b> të territorit në ${Y1} (${pp >= 0 ? '+' : '−'}${dec(Math.abs(pp),1)} pikë nga ${Y0}). Ndërtimet e ${per} zunë <b>${haFmt(LC.total[fo])}</b> pyje.`,`Forests cover <b>${pct1(sh1)}</b> of the territory in ${Y1} (${pp >= 0 ? '+' : '−'}${dec(Math.abs(pp),1)} points since ${Y0}). Construction in ${per} took <b>${haFmt(LC.total[fo])}</b> of forest.`),true],
+      ['2.4.1 · 15.3.1',L('Toka bujqësore','Farmland'),L(`<b>${haFmt(LC.total[cr])}</b> tokë bujqësore u mbulua me ndërtime në ${per}: ${pct1(sum ? LC.total[cr]/sum : NaN)} e ndërtimeve të reja. Toka e mbuluar humbet përgjithmonë.${soilCardText()}`,`<b>${haFmt(LC.total[cr])}</b> of farmland was covered by construction in ${per}: ${pct1(sum ? LC.total[cr]/sum : NaN)} of new construction. Covered land is lost for good.${soilCardText()}`),true],
+      ['11.7.1',L('Gjelbërimi urban','Urban green'),L(`<b>${pct1(LC.green/LC.urban)}</b> e zonës urbane (deri në ${landcover.urbanBufferM} m nga ndërtimet) është pyll, kullotë ose shkurre (${Y1}). Tregues i përafërt: nuk dallon hapësirën publike.`,`<b>${pct1(LC.green/LC.urban)}</b> of the urban area (up to ${landcover.urbanBufferM} m from buildings) is forest, grassland or shrubland (${Y1}). An approximate indicator: it does not distinguish public space.`),true]
     ];
   } else cards = [
-    ['15.1.1','Pyjet','Pyje të kthyera në zonë të ndërtuar, viti pas viti. Burimi: Esri 10m Land Cover.',false],
-    soil ? ['2.4.1 · 15.3.1','Toka bujqësore',`Ndërtime mbi tokë bujqësore sipas klasave të përshtatshmërisë.${soilCardText()}`,true] : ['2.4.1 · 15.3.1','Toka bujqësore','Toka bujqësore e mbuluar përgjithmonë. Burimi: Esri 10m Land Cover.',false],
-    ['11.7.1','Gjelbërimi urban','Gjelbërimi brenda zonës urbane. Burimi: Esri 10m Land Cover.',false]
+    ['15.1.1',L('Pyjet','Forests'),L('Pyje të kthyera në zonë të ndërtuar, viti pas viti. Burimi: Esri 10m Land Cover.','Forest turned into built-up area, year by year. Source: Esri 10m Land Cover.'),false],
+    soil ? ['2.4.1 · 15.3.1',L('Toka bujqësore','Farmland'),L(`Ndërtime mbi tokë bujqësore sipas klasave të përshtatshmërisë.${soilCardText()}`,`Construction on farmland by suitability class.${soilCardText()}`),true] : ['2.4.1 · 15.3.1',L('Toka bujqësore','Farmland'),L('Toka bujqësore e mbuluar përgjithmonë. Burimi: Esri 10m Land Cover.','Farmland covered for good. Source: Esri 10m Land Cover.'),false],
+    ['11.7.1',L('Gjelbërimi urban','Urban green'),L('Gjelbërimi brenda zonës urbane. Burimi: Esri 10m Land Cover.','Green space inside the urban area. Source: Esri 10m Land Cover.'),false]
   ];
-  $('sdgCards').innerHTML = [['11.3.1','Toka kundrejt popullsisë',f.ratio == null ? `${SDG_CAT[f.cat].t}: toka ${sgn(f.lcr,2)} %/vit, popullsia ${sgn(f.pgr,2)} %/vit.` : `LCRPGR = ${dec(f.ratio,2)}. ${SDG_CAT[f.cat].d}`,true],...cards]
-    .map(([n,h,t,on]) => `<div><b>SDG ${n}</b><strong>${h}</strong><span>${t}</span><em class="${on ? 'live' : 'todo'}">${on ? 'LLOGARITUR' : 'KËRKON TË DHËNA'}</em></div>`).join('');
-  $('sdgLandState').textContent = L ? `Esri 10m Land Cover · ${landcover.years[0]}–${landcover.years.at(-1)}` : 'pa të dhëna ende';
-  if (L && !$('sdgLandBox').dataset.touched) $('sdgLandBox').open = true;
-  if (!L) {
-    $('sdgLand').innerHTML = `<p class="note">Kjo pjesë aktivizohet pasi të ndërtohet <code>landcover.json</code> nga harta vjetore e mbulesës së tokës (Esri / Impact Observatory): në GitHub, <i>Actions → Build land cover → Run workflow</i>.</p>`;
+  $('sdgCards').innerHTML = [['11.3.1',L('Toka kundrejt popullsisë','Land versus population'),f.ratio == null ? L(`${SDG_CAT[f.cat].t}: toka ${sgn(f.lcr,2)} %/vit, popullsia ${sgn(f.pgr,2)} %/vit.`,`${SDG_CAT[f.cat].t}: land ${sgn(f.lcr,2)} %/yr, population ${sgn(f.pgr,2)} %/yr.`) : `LCRPGR = ${dec(f.ratio,2)}. ${SDG_CAT[f.cat].d}`,true],...cards]
+    .map(([n,h,t,on]) => L(`<div><b>SDG ${n}</b><strong>${h}</strong><span>${t}</span><em class="${on ? 'live' : 'todo'}">${on ? 'LLOGARITUR' : 'KËRKON TË DHËNA'}</em></div>`,`<div><b>SDG ${n}</b><strong>${h}</strong><span>${t}</span><em class="${on ? 'live' : 'todo'}">${on ? 'COMPUTED' : 'NEEDS DATA'}</em></div>`)).join('');
+  $('sdgLandState').textContent = LC ? `Esri 10m Land Cover · ${landcover.years[0]}–${landcover.years.at(-1)}` : L('pa të dhëna ende','no data yet');
+  if (LC && !$('sdgLandBox').dataset.touched) $('sdgLandBox').open = true;
+  if (!LC) {
+    $('sdgLand').innerHTML = L(`<p class="note">Kjo pjesë aktivizohet pasi të ndërtohet <code>landcover.json</code> nga harta vjetore e mbulesës së tokës (Esri / Impact Observatory): në GitHub, <i>Actions → Build land cover → Run workflow</i>.</p>`,`<p class="note">This section is enabled once <code>landcover.json</code> is built from the annual land cover map (Esri / Impact Observatory): on GitHub, <i>Actions → Build land cover → Run workflow</i>.</p>`);
     return;
   }
   const N = landcover.national, Ntot = landcover.classes.map((_,k) => N.newBuilt.reduce((a,row) => a+row[k],0));
-  const sum = L.total.reduce((a,b) => a+b,0), nSum = Ntot.reduce((a,b) => a+b,0);
-  const ranked = landcover.classes.map((c,i) => ({c,v:L.total[i]})).filter(x => x.v > 0 && x.c.key !== 'built').sort((a,b) => b.v-a.v);
-  const top = ranked.slice(0,2).map(x => `<b>${haFmt(x.v)}</b> ${x.c.label.toLowerCase()}`).join(' dhe ');
+  const sum = LC.total.reduce((a,b) => a+b,0), nSum = Ntot.reduce((a,b) => a+b,0);
+  const ranked = landcover.classes.map((c,i) => ({c,v:LC.total[i]})).filter(x => x.v > 0 && x.c.key !== 'built').sort((a,b) => b.v-a.v);
+  const top = ranked.slice(0,2).map(x => `<b>${haFmt(x.v)}</b> ${x.c.label.toLowerCase()}`).join(L(' dhe ',' and '));
   const first = landcover.steps[0].label.toLowerCase(), last = landcover.steps.at(-1).label.toLowerCase();
-  const inBuilt = L.total[lcIndex('built')] || 0;
-  $('sdgLand').innerHTML = `<p class="story-small"><b>${esc(L.name)}</b>: nga korriku 2016 deri në ${last} u shtuan <b>${haFmt(sum)}</b> zonë e ndërtuar. <b>${pct1(sum ? inBuilt/sum : NaN)}</b> u ndërtua brenda vendbanimeve ekzistuese (mbushje e oborreve dhe e hapësirave të lira)${top ? `; jashtë tyre u zunë kryesisht ${top}` : ''}.</p>`
-    + `<div class="chart lc-chart">${lcYearChart(L)}</div>`
+  const inBuilt = LC.total[lcIndex('built')] || 0;
+  $('sdgLand').innerHTML = L(`<p class="story-small"><b>${esc(LC.name)}</b>: nga korriku 2016 deri në ${last} u shtuan <b>${haFmt(sum)}</b> zonë e ndërtuar. <b>${pct1(sum ? inBuilt/sum : NaN)}</b> u ndërtua brenda vendbanimeve ekzistuese (mbushje e oborreve dhe e hapësirave të lira)${top ? `; jashtë tyre u zunë kryesisht ${top}` : ''}.</p>`,`<p class="story-small"><b>${esc(LC.name)}</b>: from July 2016 to ${last}, <b>${haFmt(sum)}</b> of built-up area were added. <b>${pct1(sum ? inBuilt/sum : NaN)}</b> was built inside existing settlements (infill of yards and open plots)${top ? `; outside them it took mainly ${top}` : ''}.</p>`)
+    + `<div class="chart lc-chart">${lcYearChart(LC)}</div>`
     + `<div class="choro-legend">${landcover.classes.map(c => `<span><i style="background:${c.color}"></i>${esc(c.label)}</span>`).join('')}</div>`
-    + `<div class="lc-row"><span>${esc(L.whole ? C.name : 'Përzgjedhja')}</span>${lcBar(L.total)}</div>`
-    + (L.whole ? '' : `<div class="lc-row ref"><span>${esc(C.name)}</span>${lcBar(Ntot)}</div>`)
-    + `<table class="lc-table"><thead><tr><th>Mbulesa para ndërtimit</th><th>ha</th><th>%</th>${L.whole ? '' : `<th>${esc(C.name)} %</th>`}</tr></thead><tbody>`
-    + landcover.classes.map((c,i) => L.total[i] > 0 || (!L.whole && Ntot[i] > 0) ? `<tr><td><i style="background:${c.color}"></i>${esc(c.label)}</td><td>${int(L.total[i])}</td><td>${pct1(sum ? L.total[i]/sum : NaN)}</td>${L.whole ? '' : `<td>${pct1(Ntot[i]/nSum)}</td>`}</tr>` : '').join('')
+    + L(`<div class="lc-row"><span>${esc(LC.whole ? C.name : 'Përzgjedhja')}</span>${lcBar(LC.total)}</div>`,`<div class="lc-row"><span>${esc(LC.whole ? C.name : 'Selection')}</span>${lcBar(LC.total)}</div>`)
+    + (LC.whole ? '' : `<div class="lc-row ref"><span>${esc(C.name)}</span>${lcBar(Ntot)}</div>`)
+    + L(`<table class="lc-table"><thead><tr><th>Mbulesa para ndërtimit</th><th>ha</th><th>%</th>${LC.whole ? '' : `<th>${esc(C.name)} %</th>`}</tr></thead><tbody>`,`<table class="lc-table"><thead><tr><th>Cover before construction</th><th>ha</th><th>%</th>${LC.whole ? '' : `<th>${esc(C.name)} %</th>`}</tr></thead><tbody>`)
+    + landcover.classes.map((c,i) => LC.total[i] > 0 || (!LC.whole && Ntot[i] > 0) ? `<tr><td><i style="background:${c.color}"></i>${esc(c.label)}</td><td>${int(LC.total[i])}</td><td>${pct1(sum ? LC.total[i]/sum : NaN)}</td>${LC.whole ? '' : `<td>${pct1(Ntot[i]/nSum)}</td>`}</tr>` : '').join('')
     + `</tbody></table>`
-    + `<p class="note">Çdo piksel që WSF Tracker e shton në një hap krahasohet me hartën vjetore të mbulesës së tokës të vitit para se të nisë ndërtimi (p.sh. ndërtimet deri në janar 2020 me hartën e 2018). Hapat me * nuk kanë hartë për vitin e duhur (seria mbulon ${landcover.years[0]}–${landcover.years.at(-1)}) dhe përdorin vitin më të afërt: për hapat e parë një pjesë del si "brenda vendbanimit ekzistues". Kjo klasë përfshin ndërtimet e reja në hapësira që harta e Esri i kishte tashmë pjesë të zonës së banuar (oborre, kopshte, parcela brenda fshatrave dhe qyteteve). Vitet e reja të hartës shtohen vetë në përditësimin mujor. ${esc(landcover.source)}.</p>`;
+    + L(`<p class="note">Çdo piksel që WSF Tracker e shton në një hap krahasohet me hartën vjetore të mbulesës së tokës të vitit para se të nisë ndërtimi (p.sh. ndërtimet deri në janar 2020 me hartën e 2018). Hapat me * nuk kanë hartë për vitin e duhur (seria mbulon ${landcover.years[0]}–${landcover.years.at(-1)}) dhe përdorin vitin më të afërt: për hapat e parë një pjesë del si "brenda vendbanimit ekzistues". Kjo klasë përfshin ndërtimet e reja në hapësira që harta e Esri i kishte tashmë pjesë të zonës së banuar (oborre, kopshte, parcela brenda fshatrave dhe qyteteve). Vitet e reja të hartës shtohen vetë në përditësimin mujor. ${esc(landcover.source)}.</p>`,`<p class="note">Every pixel that WSF Tracker adds in a step is compared with the annual land cover map of the year before construction began (e.g. construction up to January 2020 with the 2018 map). Steps marked * have no map for the right year (the series covers ${landcover.years[0]}–${landcover.years.at(-1)}) and use the nearest year: for the first steps some of it appears as "inside existing settlement". This class covers new construction in places the Esri map already counted as part of the settled area (yards, gardens, plots inside villages and towns). New map years are added automatically in the monthly update. ${esc(tx(landcover.source))}.</p>`);
 }
 $('sdgLandBox').addEventListener('toggle',() => { $('sdgLandBox').dataset.touched = '1'; });
 
@@ -2218,10 +2300,10 @@ function soilChart(S,product) {
   rows.forEach((r,i) => {
     const x = m.l+i*step+(step-bw)/2;let y = H-m.b;
     r.forEach((v,k) => { if (v <= 0) return;const h = (H-m.t-m.b)*v/max;y -= h;
-      svg += `<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${soil.colors[k]}"><title>${esc(st[i+1].label)} · klasa ${soil.labels[k]}: ${haFmt(v)}</title></rect>`; });
-    if (i % every === 0 || i === rows.length-1) svg += `<text x="${x+bw/2}" y="${H-m.b+12}" text-anchor="middle">${String(st[i+1].short || st[i+1].label).replace(/^(Janar|Korrik) /,'')}</text>`;
+      svg += L(`<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${soil.colors[k]}"><title>${esc(st[i+1].label)} · klasa ${soil.labels[k]}: ${haFmt(v)}</title></rect>`,`<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${soil.colors[k]}"><title>${esc(st[i+1].label)} · class ${soil.labels[k]}: ${haFmt(v)}</title></rect>`); });
+    if (i % every === 0 || i === rows.length-1) svg += `<text x="${x+bw/2}" y="${H-m.b+12}" text-anchor="middle">${String(st[i+1].short || st[i+1].label).replace(/^(Janar|Korrik|January|July) /,'')}</text>`;
   });
-  return svg+`<text x="${m.l}" y="${H-4}">ha të shtuara në çdo hap, sipas klasës së tokës</text></svg>`;
+  return svg+L(`<text x="${m.l}" y="${H-4}">ha të shtuara në çdo hap, sipas klasës së tokës</text></svg>`,`<text x="${m.l}" y="${H-4}">ha added in each step, by land class</text></svg>`);
 }
 function renderSoil() {
   const box = $('soilBox');
@@ -2236,19 +2318,19 @@ function renderSoil() {
   const tot = a => a.reduce((x,y) => x+y,0), bestOf = a => a.slice(0,best).reduce((x,y) => x+y,0);
   const first = pe.steps[0].label, last = pe.steps.at(-1).label;
   $('soilState').textContent = `${product === 'tracker' ? 'WSF Tracker' : 'WSF Evolution'} · ${first} → ${last}`;
-  $('soilStory').innerHTML = `<b>${esc(S.name)}</b>: pas ${first.toLowerCase().replace(/^korrik/,'korrikut').replace(/^janar/,'janarit')} u ndërtuan <b>${haFmt(tot(added))}</b>, nga të cilat <b>${haFmt(bestOf(added))}</b> (${pct1(bestOf(added)/tot(added))}) në tokë të klasave I–IV, më të mirat për bujqësi. Deri në ${last.toLowerCase()} është ndërtuar <b>${pct1(bestOf(built)/bestOf(S.area))}</b> e tokës së klasave I–IV.`;
+  $('soilStory').innerHTML = L(`<b>${esc(S.name)}</b>: pas ${first.toLowerCase().replace(/^korrik/,'korrikut').replace(/^janar/,'janarit')} u ndërtuan <b>${haFmt(tot(added))}</b>, nga të cilat <b>${haFmt(bestOf(added))}</b> (${pct1(bestOf(added)/tot(added))}) në tokë të klasave I–IV, më të mirat për bujqësi. Deri në ${last.toLowerCase()} është ndërtuar <b>${pct1(bestOf(built)/bestOf(S.area))}</b> e tokës së klasave I–IV.`,`<b>${esc(S.name)}</b>: after ${first}, <b>${haFmt(tot(added))}</b> were built, of which <b>${haFmt(bestOf(added))}</b> (${pct1(bestOf(added)/tot(added))}) on land of classes I–IV, the best for farming. By ${last}, <b>${pct1(bestOf(built)/bestOf(S.area))}</b> of class I–IV land had been built on.`);
   $('soilChart').innerHTML = soilChart(S,product);
-  $('soilLegend').innerHTML = soil.labels.map((l,k) => `<span><i style="background:${soil.colors[k]}"></i>${l}</span>`).join('')+'<span style="color:var(--muted)">I = më e përshtatshmja</span>';
-  $('soilTable').innerHTML = `<thead><tr><th>Klasa</th><th>Sipërfaqja ha</th><th>E ndërtuar ${esc(last.replace(/^(Janar|Korrik) /,''))} ha</th><th>% e klasës</th><th>Shtuar ha</th></tr></thead><tbody>`
+  $('soilLegend').innerHTML = soil.labels.map((l,k) => `<span><i style="background:${soil.colors[k]}"></i>${l}</span>`).join('')+L('<span style="color:var(--muted)">I = më e përshtatshmja</span>','<span style="color:var(--muted)">I = most suitable</span>');
+  $('soilTable').innerHTML = L(`<thead><tr><th>Klasa</th><th>Sipërfaqja ha</th><th>E ndërtuar ${esc(last.replace(/^(Janar|Korrik|January|July) /,''))} ha</th><th>% e klasës</th><th>Shtuar ha</th></tr></thead><tbody>`,`<thead><tr><th>Class</th><th>Area ha</th><th>Built ${esc(yearOnly(last))} ha</th><th>% of class</th><th>Added ha</th></tr></thead><tbody>`)
     + soil.labels.map((l,k) => `<tr${k < best ? ' class="best"' : ''}><td><i style="background:${soil.colors[k]}"></i>${l}</td><td>${int(S.area[k])}</td><td>${int(built[k])}</td><td>${pct1(built[k]/S.area[k])}</td><td>${int(added[k])}</td></tr>`).join('')
     + `<tr class="sum"><td>I–IV</td><td>${int(bestOf(S.area))}</td><td>${int(bestOf(built))}</td><td>${pct1(bestOf(built)/bestOf(S.area))}</td><td>${int(bestOf(added))}</td></tr></tbody>`;
-  $('soilNote').textContent = `Grafiku ndjek periudhën e zgjedhur në panelin e majtë. WSF Evolution dhe WSF Tracker matin ndryshe, ndaj shifrat e tyre nuk mblidhen. Klasa e tokës merret nga rasteri 50 m në qendrën e çdo pikseli të ndërtuar; vlerat jashtë kufirit maskohen. ${soil.source}`;
+  $('soilNote').textContent = L(`Grafiku ndjek periudhën e zgjedhur në panelin e majtë. WSF Evolution dhe WSF Tracker matin ndryshe, ndaj shifrat e tyre nuk mblidhen. Klasa e tokës merret nga rasteri 50 m në qendrën e çdo pikseli të ndërtuar; vlerat jashtë kufirit maskohen. ${soil.source}`,`The chart follows the period chosen in the left panel. WSF Evolution and WSF Tracker measure differently, so their figures are not added together. The land class is taken from the 50 m raster at the centre of each built-up pixel; values outside the boundary are masked. ${tx(soil.source)}`);
 }
 function exportSdgCsv() {
   const {rows,kosovo} = sdgAll(), f = sdgFocus();
   const P = popPeriod();
-  const head = ['njesia',`pop_${P.y0}`,`pop_${P.y1}`,'popullsia_pct_vit','ha_2017','ha_2024','toka_pct_vit','lcrpgr','m2_per_banor','kategoria','shenim'];
-  const line = r => [r.name,r.p11,r.p24,r.pgr.toFixed(3),(r.b17*100).toFixed(1),(r.b24*100).toFixed(1),r.lcr.toFixed(3),r.ratio == null ? '' : r.ratio.toFixed(3),r.m2pc.toFixed(1),SDG_CAT[r.cat].t,r.estimate ? 'popullsi e vleresuar' : ''];
+  const head = [L('njesia','unit'),`pop_${P.y0}`,`pop_${P.y1}`,L('popullsia_pct_vit','population_pct_yr'),'ha_2017','ha_2024',L('toka_pct_vit','land_pct_yr'),'lcrpgr',L('m2_per_banor','m2_per_inhabitant'),L('kategoria','category'),L('shenim','note')];
+  const line = r => [r.name,r.p11,r.p24,r.pgr.toFixed(3),(r.b17*100).toFixed(1),(r.b24*100).toFixed(1),r.lcr.toFixed(3),r.ratio == null ? '' : r.ratio.toFixed(3),r.m2pc.toFixed(1),SDG_CAT[r.cat].t,r.estimate ? L('popullsi e vleresuar','estimated population') : ''];
   const out = [head,line(kosovo)].concat(f !== kosovo && f.list.length > 1 ? [line(f)] : [],rows.map(line));
   download(new Blob(['﻿'+out.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')],{type:'text/csv'}),`${C.id.toLowerCase()}-sdg-11-3-1-${popSource}.csv`);
 }
@@ -2276,14 +2358,14 @@ function ringAreaKm2(ring) {
 function partAreaKm2(part) { return part.reduce((acc,ring,k) => acc+(k ? -1 : 1)*ringAreaKm2(ring),0); }
 function makeAoi(parts,name,source,note='') {
   parts = parts.map(part => part.filter(r => r.length >= 6)).filter(p => p.length);
-  if (!parts.length) throw new Error('Skedari nuk përmban asnjë poligon.');
+  if (!parts.length) throw new Error(L('Skedari nuk përmban asnjë poligon.','The file contains no polygon.'));
   const bbox = aoiBbox(parts), [bw,bs,be,bn] = manifest.bounds;
-  if (bbox[0] < -180 || bbox[2] > 180 || bbox[1] < -90 || bbox[3] > 90) throw new Error('Koordinatat nuk janë gjeografike pas shndërrimit; kontrolloni sistemin koordinativ (.prj).');
-  if (bbox[2] < bw || bbox[0] > be || bbox[3] < bs || bbox[1] > bn) throw new Error(`Zona ndodhet jashtë territorit të atlasit (${C.name}).`);
+  if (bbox[0] < -180 || bbox[2] > 180 || bbox[1] < -90 || bbox[3] > 90) throw new Error(L('Koordinatat nuk janë gjeografike pas shndërrimit; kontrolloni sistemin koordinativ (.prj).','The coordinates are not geographic after conversion; check the coordinate system (.prj).'));
+  if (bbox[2] < bw || bbox[0] > be || bbox[3] < bs || bbox[1] > bn) throw new Error(L(`Zona ndodhet jashtë territorit të atlasit (${C.name}).`,`The zone lies outside the atlas territory (${C.name}).`));
   // Sort rings so the outer one comes first in every part (needed for the area sign).
   for (const part of parts) part.sort((a,b) => ringAreaKm2(b)-ringAreaKm2(a));
   const areaHa = parts.reduce((acc,p) => acc+partAreaKm2(p),0)*100;
-  return {name:name || 'Zona e interesit',parts,bbox,areaHa,source,note};
+  return {name:name || L('Zona e interesit','Zone of interest'),parts,bbox,areaHa,source,note};
 }
 function setAoi(aoi) {
   state.aoi = aoi;
@@ -2368,7 +2450,7 @@ function renderAoiDraft() {
   pts.forEach((p,k) => { out += `<circle cx="${p[0]}" cy="${p[1]}" r="${k === 0 && pts.length >= 3 ? 7 : 4.5}" class="aoi-vertex${k === 0 ? ' first' : ''}"/>`; });
   svg.innerHTML = out;
   const n = pts.length;
-  $('aoiBarText').textContent = n < 3 ? `Kliko në hartë për të shtuar kulmet e zonës (${n} deri tani, duhen të paktën 3).` : `${n} kulme · ${number(Math.round(partAreaKm2([Float64Array.from(aoiDraft.points.flat())])*1000)/10)} ha. Kliko kulmin e parë, dy herë klik ose Enter për ta mbyllur.`;
+  $('aoiBarText').textContent = n < 3 ? L(`Kliko në hartë për të shtuar kulmet e zonës (${n} deri tani, duhen të paktën 3).`,`Click on the map to add the zone's vertices (${n} so far, at least 3 needed).`) : L(`${n} kulme · ${number(Math.round(partAreaKm2([Float64Array.from(aoiDraft.points.flat())])*1000)/10)} ha. Kliko kulmin e parë, dy herë klik ose Enter për ta mbyllur.`,`${n} vertices · ${number(Math.round(partAreaKm2([Float64Array.from(aoiDraft.points.flat())])*1000)/10)} ha. Click the first vertex, double-click or press Enter to close it.`);
   $('aoiFinish').disabled = n < 3;
   $('aoiUndo').disabled = !n;
 }
@@ -2390,7 +2472,7 @@ function endDraw(commit) {
     const ring = Float64Array.from([...pts,pts[0]].flat());
     const k = Number(localStorage.getItem?.('atlas-aoi-n') || 0)+1;
     try { localStorage.setItem('atlas-aoi-n',String(k)); } catch {}
-    try { setAoi(makeAoi([[ring]],`Zona e vizatuar ${k}`,'vizatuar në hartë')); }
+    try { setAoi(makeAoi([[ring]],L(`Zona e vizatuar ${k}`,`Drawn zone ${k}`),L('vizatuar në hartë','drawn on the map'))); }
     catch(error) { aoiMessage(error.message,true); }
   } else paint(true);
 }
@@ -2426,7 +2508,7 @@ async function unzip(buffer) {
   const bytes = new Uint8Array(buffer), dv = new DataView(buffer), files = new Map();
   let eocd = -1;
   for (let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--) if (dv.getUint32(i,true) === 0x06054b50) { eocd = i;break; }
-  if (eocd < 0) throw new Error('Arkivi .zip nuk lexohet.');
+  if (eocd < 0) throw new Error(L('Arkivi .zip nuk lexohet.','The .zip archive cannot be read.'));
   let p = dv.getUint32(eocd+16,true);
   const total = dv.getUint16(eocd+10,true);
   for (let k=0;k<total;k++) {
@@ -2477,7 +2559,7 @@ function projectionFromPrj(wkt) {
   const datum = (/DATUM\[\s*"([^"]*)"/i.exec(wkt) || [,''])[1];
   let towgs = /TOWGS84\[([^\]]+)\]/i.exec(wkt)?.[1].split(',').map(Number);
   let note = '';
-  if (!towgs && /MGI|Hermannskogel/i.test(datum)) { towgs = [682,-203,480];note = 'Datumi MGI 1901 u shndërrua me parametrat e përafërt 682, −203, 480 m (saktësi rreth 5 m).'; }
+  if (!towgs && /MGI|Hermannskogel/i.test(datum)) { towgs = [682,-203,480];note = L('Datumi MGI 1901 u shndërrua me parametrat e përafërt 682, −203, 480 m (saktësi rreth 5 m).','The MGI 1901 datum was converted with the approximate parameters 682, −203, 480 m (accuracy about 5 m).'); }
   if (towgs && towgs.every(v => !v)) towgs = null;
   const shift = towgs ? (lon,lat) => helmert(lon,lat,ell,towgs) : (lon,lat) => [lon,lat];
   if (!/^\s*PROJ(CS|CRS)/i.test(wkt)) {
@@ -2497,25 +2579,25 @@ function projectionFromPrj(wkt) {
     const R = 6378137;
     return {name,note,fn:(x,y) => [x*unit/R/deg,(2*Math.atan(Math.exp(y*unit/R))-Math.PI/2)/deg]};
   }
-  throw new Error(`Projeksioni "${proj || name}" nuk mbështetet. Ruajeni skedarin në WGS84 (EPSG:4326) ose në një sistem Transverse Mercator (p.sh. UTM, KOSOVAREF01).`);
+  throw new Error(L(`Projeksioni "${proj || name}" nuk mbështetet. Ruajeni skedarin në WGS84 (EPSG:4326) ose në një sistem Transverse Mercator (p.sh. UTM, KOSOVAREF01).`,`The projection "${proj || name}" is not supported. Save the file in WGS84 (EPSG:4326) or in a Transverse Mercator system (e.g. UTM, KOSOVAREF01).`));
 }
 // Without a .prj, guess from the coordinate range.
 function guessProjection(x,y) {
   const deg = Math.PI/180;
   if (Math.abs(x) <= 180 && Math.abs(y) <= 90) return null;
   if (x > 7.2e6 && x < 7.8e6 && y > 4.3e6 && y < 4.9e6)
-    return {name:'KOSOVAREF01 / Balkans zone 7 (EPSG:9141), i supozuar',fn:(a,b) => tmInverse(a,b,{a:ELL.grs80[0],f:ELL.grs80[1],lon0:21*deg,lat0:0,k0:.9999,fe:7500000,fn:0}).map(v => v/deg)};
+    return {name:'KOSOVAREF01 / Balkans zone 7 (EPSG:9141)'+L(', i supozuar',', assumed'),fn:(a,b) => tmInverse(a,b,{a:ELL.grs80[0],f:ELL.grs80[1],lon0:21*deg,lat0:0,k0:.9999,fe:7500000,fn:0}).map(v => v/deg)};
   if (x > 1e5 && x < 9e5 && y > 4.3e6 && y < 4.9e6)
-    return {name:'WGS 84 / UTM 34N (EPSG:32634), i supozuar',fn:(a,b) => tmInverse(a,b,{a:ELL.wgs84[0],f:ELL.wgs84[1],lon0:21*deg,lat0:0,k0:.9996,fe:5e5,fn:0}).map(v => v/deg)};
+    return {name:'WGS 84 / UTM 34N (EPSG:32634)'+L(', i supozuar',', assumed'),fn:(a,b) => tmInverse(a,b,{a:ELL.wgs84[0],f:ELL.wgs84[1],lon0:21*deg,lat0:0,k0:.9996,fe:5e5,fn:0}).map(v => v/deg)};
   if (x > 1.5e6 && x < 3.2e6 && y > 4.7e6 && y < 5.7e6)
-    return {name:'Web Mercator (EPSG:3857), i supozuar',fn:(a,b) => [a/6378137/deg,(2*Math.atan(Math.exp(b/6378137))-Math.PI/2)/deg]};
-  throw new Error('Sistemi koordinativ nuk njihet dhe skedari .prj mungon. Shtoni .prj në zip ose ruajeni në WGS84.');
+    return {name:'Web Mercator (EPSG:3857)'+L(', i supozuar',', assumed'),fn:(a,b) => [a/6378137/deg,(2*Math.atan(Math.exp(b/6378137))-Math.PI/2)/deg]};
+  throw new Error(L('Sistemi koordinativ nuk njihet dhe skedari .prj mungon. Shtoni .prj në zip ose ruajeni në WGS84.','The coordinate system is unknown and the .prj file is missing. Add the .prj to the zip or save in WGS84.'));
 }
 function parseShp(buffer) {
   const dv = new DataView(buffer);
-  if (dv.getInt32(0,false) !== 9994) throw new Error('Skedari .shp nuk është i vlefshëm.');
+  if (dv.getInt32(0,false) !== 9994) throw new Error(L('Skedari .shp nuk është i vlefshëm.','The .shp file is not valid.'));
   const type = dv.getInt32(32,true);
-  if (![5,15,25].includes(type)) throw new Error('Shapefile duhet të jetë me poligone (jo pika ose vija).');
+  if (![5,15,25].includes(type)) throw new Error(L('Shapefile duhet të jetë me poligone (jo pika ose vija).','The shapefile must contain polygons (not points or lines).'));
   const parts = [];
   let p = 100;
   while (p+8 <= buffer.byteLength) {
@@ -2559,7 +2641,7 @@ function projectParts(parts,proj) {
 }
 function parseKml(text) {
   const doc = new DOMParser().parseFromString(text,'application/xml');
-  if (doc.querySelector('parsererror')) throw new Error('Skedari KML nuk lexohet.');
+  if (doc.querySelector('parsererror')) throw new Error(L('Skedari KML nuk lexohet.','The KML file cannot be read.'));
   const coords = el => Float64Array.from((el?.textContent || '').trim().split(/\s+/).filter(Boolean).flatMap(t => t.split(',').slice(0,2).map(Number)));
   const parts = [];
   for (const poly of doc.getElementsByTagNameNS('*','Polygon')) {
@@ -2600,28 +2682,28 @@ async function readAoiFiles(fileList) {
     const stem = shp[0].replace(/\.shp$/i,''), prjName = [...files.keys()].find(n => n.toLowerCase() === stem.toLowerCase()+'.prj') || find('.prj')[0];
     const d = files.get(shp[0]).data;
     let parts = parseShp(d.buffer.slice(d.byteOffset,d.byteOffset+d.byteLength));
-    if (!parts.length) throw new Error('Shapefile nuk përmban poligone.');
+    if (!parts.length) throw new Error(L('Shapefile nuk përmban poligone.','The shapefile contains no polygons.'));
     const proj = prjName ? projectionFromPrj(text(files.get(prjName).data)) : guessProjection(parts[0][0][0],parts[0][0][1]);
     parts = projectParts(parts,proj);
     const dbf = [...files.keys()].find(n => n.toLowerCase() === stem.toLowerCase()+'.dbf');
     const label = (dbf && dbfName(files.get(dbf).data,1)) || base(shp[0]);
-    return makeAoi(parts,label,`Shapefile · ${proj ? proj.name : 'WGS84'}`,[!prjName && proj ? 'Skedari .prj mungon: sistemi u përcaktua nga vlerat e koordinatave.' : '',proj?.note || ''].filter(Boolean).join(' '));
+    return makeAoi(parts,label,`Shapefile · ${proj ? proj.name : 'WGS84'}`,[!prjName && proj ? L('Skedari .prj mungon: sistemi u përcaktua nga vlerat e koordinatave.','The .prj file is missing: the system was inferred from the coordinate values.') : '',proj?.note || ''].filter(Boolean).join(' '));
   }
   if (kml.length) {
     const r = parseKml(text(files.get(kml[0]).data));
-    if (!r.parts.length) throw new Error('KML nuk përmban poligone (Polygon).');
+    if (!r.parts.length) throw new Error(L('KML nuk përmban poligone (Polygon).','The KML contains no polygons (Polygon).'));
     return makeAoi(r.parts,r.name || base(files.get(kml[0]).from),'KML · WGS84');
   }
   if (gj.length) {
     const r = parseGeoJson(JSON.parse(text(files.get(gj[0]).data)));
-    if (!r.parts.length) throw new Error('GeoJSON nuk përmban poligone.');
+    if (!r.parts.length) throw new Error(L('GeoJSON nuk përmban poligone.','The GeoJSON contains no polygons.'));
     let proj = null;
     const m = /EPSG::?(\d+)/i.exec(r.crs);
     if (m && m[1] !== '4326' && m[1] !== '4258') proj = guessProjection(r.parts[0][0][0],r.parts[0][0][1]);
     return makeAoi(projectParts(r.parts,proj),r.name || base(gj[0]),`GeoJSON · ${proj ? proj.name : 'WGS84'}`);
   }
-  if (find('.dbf').length || find('.shx').length) throw new Error('Mungon skedari .shp. Zgjidhni .shp, .shx, .dbf dhe .prj së bashku, ose një .zip me to.');
-  throw new Error('Formati nuk njihet. Përdorni .zip me shapefile, .shp (me .prj), .kml, .kmz ose .geojson.');
+  if (find('.dbf').length || find('.shx').length) throw new Error(L('Mungon skedari .shp. Zgjidhni .shp, .shx, .dbf dhe .prj së bashku, ose një .zip me to.','The .shp file is missing. Select .shp, .shx, .dbf and .prj together, or a .zip containing them.'));
+  throw new Error(L('Formati nuk njihet. Përdorni .zip me shapefile, .shp (me .prj), .kml, .kmz ose .geojson.','Unknown format. Use a .zip with a shapefile, .shp (with .prj), .kml, .kmz or .geojson.'));
 }
 function aoiMessage(text,error=false) {
   $('aoiMsg').hidden = !text;
@@ -2642,23 +2724,23 @@ function exportAoiGeoJson() {
   if (!a) return;
   const ring = r => { const out = [];for (let i=0;i<r.length;i+=2) out.push([Math.round(r[i]*1e7)/1e7,Math.round(r[i+1]*1e7)/1e7]);return out; };
   const gj = {type:'FeatureCollection',name:a.name,features:[{type:'Feature',properties:{name:a.name,area_ha:Math.round(a.areaHa*100)/100,source:a.source},geometry:{type:'MultiPolygon',coordinates:a.parts.map(p => p.map(ring))}}]};
-  download(new Blob([JSON.stringify(gj)],{type:'application/geo+json'}),`zona-${normalize(a.name).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'interesi'}.geojson`);
+  download(new Blob([JSON.stringify(gj)],{type:'application/geo+json'}),L(`zona-${normalize(a.name).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'interesi'}.geojson`,`zone-${normalize(a.name).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'of-interest'}.geojson`));
 }
 // CSV for the analysed zone: every step, plus the direction split of the radial diagram.
 function exportZoneCsv() {
   const z = zoneStatistics(), s = viewStats;
   if (!z || !s) return;
   const fm = s.filter, steps = period().steps;
-  const zone = !fm ? 'pamja e hartës' : fm.kind === 'aoi' ? fm.label : fm.kind === 'circle' ? `rrethi ${number(Math.round(s.lensKm*10)/10)} km rreth ${state.name}` : fm.label;
-  const dirs = ['veri','lindje','jug','perendim'];
-  const head = ['zona','periudha','viti_baze','siperfaqja_e_zones_ha','hapi','viti','ndertuar_ha','perqindja_e_zones','shtesa_ha','rritja_perqind',...dirs.map(d => 'shtesa_'+d+'_ha')];
+  const zone = !fm ? L('pamja e hartës','map view') : fm.kind === 'aoi' ? fm.label : fm.kind === 'circle' ? L(`rrethi ${number(Math.round(s.lensKm*10)/10)} km rreth ${state.name}`,`circle ${number(Math.round(s.lensKm*10)/10)} km around ${state.name}`) : fm.label;
+  const dirs = [L('veri','north'),L('lindje','east'),L('jug','south'),L('perendim','west')];
+  const head = [L('zona','zone'),L('periudha','period'),L('viti_baze','base_year'),L('siperfaqja_e_zones_ha','zone_area_ha'),L('hapi','step'),L('viti','year'),L('ndertuar_ha','built_ha'),L('perqindja_e_zones','share_of_zone_pct'),L('shtesa_ha','added_ha'),L('rritja_perqind','growth_pct'),...dirs.map(d => L('shtesa_','added_')+d+'_ha')];
   const r2 = v => v == null ? '' : Math.round(v*100)/100;
   const lines = z.rows.map((r,k) => [zone,period().source,steps[0].label,r2(z.landHa),r.label,steps[k].year,r2(r.builtHa),r2(r.share),k ? r2(r.addHa) : '',k ? r2(r.rate) : '',
     ...s.radial.map(dir => k ? r2(dir.reduce((acc,band) => acc+band[k+1],0)*100) : '')]);
   const q = v => /[",;\n]/.test(String(v)) ? '"'+String(v).replace(/"/g,'""')+'"' : String(v);
   const body = [head,...lines].map(r => r.map(q).join(',')).join('\n');
-  const slug = normalize(zone).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50) || 'zona';
-  download(new Blob(['﻿'+body],{type:'text/csv;charset=utf-8'}),`atlasi-urban-${slug}-${state.period}-${steps[0].short}-${steps.at(-1).short}.csv`);
+  const slug = normalize(zone).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50) || L('zona','zone');
+  download(new Blob(['﻿'+body],{type:'text/csv;charset=utf-8'}),`${L('atlasi-urban','urban-atlas')}-${slug}-${state.period}-${steps[0].short}-${steps.at(-1).short}.csv`);
 }
 $('aoiDrawBtn').onclick = () => aoiDraft ? endDraw(false) : startDraw();
 $('aoiFinish').onclick = () => endDraw(true);
@@ -2669,9 +2751,9 @@ $('aoiFile').onchange = async () => {
   const list = [...$('aoiFile').files];
   $('aoiFile').value = '';
   if (!list.length) return;
-  aoiMessage('Duke lexuar skedarin…');
+  aoiMessage(L('Duke lexuar skedarin…','Reading the file…'));
   try { const aoi = await readAoiFiles(list);aoiMessage('');setAoi(aoi); }
-  catch(error) { console.error(error);aoiMessage(error.message || 'Skedari nuk u lexua.',true); }
+  catch(error) { console.error(error);aoiMessage(error.message || L('Skedari nuk u lexua.','The file could not be read.'),true); }
 };
 $('aoiZoom').onclick = () => state.aoi && zoomToUnits([{bbox:state.aoi.bbox}],state.aoi.name);
 $('aoiClear').onclick = () => clearAoi();
@@ -2685,7 +2767,7 @@ document.querySelector('.map-wrap').addEventListener('drop',async event => {
   document.querySelector('.map-wrap').classList.remove('dropping');
   const list = [...event.dataTransfer.files];
   if (!list.length) return;
-  aoiMessage('Duke lexuar skedarin…');
+  aoiMessage(L('Duke lexuar skedarin…','Reading the file…'));
   try { const aoi = await readAoiFiles(list);aoiMessage('');setAoi(aoi); }
-  catch(error) { console.error(error);aoiMessage(error.message || 'Skedari nuk u lexua.',true); }
+  catch(error) { console.error(error);aoiMessage(error.message || L('Skedari nuk u lexua.','The file could not be read.'),true); }
 });

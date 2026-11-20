@@ -273,3 +273,10 @@ table.years tr.now td{background:#16303a;color:var(--text)}
 .map-wrap.dropping{outline:2px dashed #ffd666;outline-offset:-6px}
 .zone-actions{margin:12px 0 4px}
 .aoi-active[hidden],.aoi-msg[hidden],.aoi-note[hidden]{display:none}
+/* Language switch */
+.header-right{display:flex;align-items:center;gap:18px}
+.lang-switch{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.lang-switch button{background:transparent;border:0;color:var(--muted);font:700 11px 'Space Mono',monospace;padding:6px 10px;letter-spacing:1px}
+.lang-switch button+button{border-left:1px solid var(--border)}
+.lang-switch button[aria-pressed=true]{background:var(--accent);color:#08221e}
+.lang-switch button:hover:not([aria-pressed=true]){color:var(--text)}
