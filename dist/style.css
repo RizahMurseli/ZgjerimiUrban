@@ -280,3 +280,22 @@ table.years tr.now td{background:#16303a;color:var(--text)}
 .lang-switch button+button{border-left:1px solid var(--border)}
 .lang-switch button[aria-pressed=true]{background:var(--accent);color:#08221e}
 .lang-switch button:hover:not([aria-pressed=true]){color:var(--text)}
+/* Time-series video */
+.download-buttons button#videoToggle{background:transparent;color:var(--accent);border:1px solid #2f6f6a}
+.download-buttons button#videoToggle[aria-expanded=true]{background:#2f6f6a55}
+.video-box{display:flex;flex-direction:column;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid #2f6f6a}
+.video-box[hidden]{display:none}
+.video-title{font-size:12.5px;font-weight:700;color:var(--text)}
+.video-box label{font-size:11px;color:var(--muted);margin:4px 0 0}
+.video-box select{padding:8px 10px;font-size:12px}
+.video-box .video-check{display:flex;gap:8px;align-items:center;color:var(--text);font-size:12px;margin-top:6px;cursor:pointer}
+#videoStart{margin-top:8px;border:0;background:var(--accent);color:#08221e;font-weight:700;font-size:13px;padding:10px;border-radius:7px}
+#videoStart:disabled{opacity:.45;cursor:default}
+.video-progress{display:flex;flex-direction:column;gap:6px}.video-progress[hidden]{display:none}
+.video-progress div{height:6px;background:#0b1620;border-radius:3px;overflow:hidden}
+.video-progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.video-progress span{font:11px 'Space Mono',monospace;color:var(--text)}
+.video-progress button{background:transparent;border:1px solid #2f6f6a;color:var(--accent);border-radius:6px;padding:6px;font-size:12px}
+body.recording .map-wrap,body.recording .playback,body.recording .tabs,body.recording #period,body.recording #baseYear,body.recording .data-export-lock{pointer-events:none}
+body.recording .map-wrap{outline:2px solid #ff5d5d88;outline-offset:-2px}
+.download-buttons button{white-space:nowrap;padding:9px 6px;font-size:12px}

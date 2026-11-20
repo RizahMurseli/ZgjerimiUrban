@@ -53,7 +53,19 @@
       <div class="download-box">
         <span class="download-title">Shkarko hartën e kësaj zone</span>
         <span class="download-note">Pamja aktuale, me legjendë, statistika dhe autorësi</span>
-        <div class="download-buttons"><button data-export="png" type="button">⤓ PNG</button><button data-export="svg" type="button">⤓ SVG</button></div>
+        <div class="download-buttons"><button data-export="png" type="button">⤓ PNG</button><button data-export="svg" type="button">⤓ SVG</button><button id="videoToggle" type="button" aria-expanded="false" aria-controls="videoBox">▶ Video</button></div>
+        <div id="videoBox" class="video-box" hidden>
+          <span class="video-title">Animacion me seri kohore</span>
+          <span class="download-note">I njëjti shabllon si harta e printuar, një kuadër për çdo vit, nga viti bazë deri në vitin e fundit.</span>
+          <label for="videoStep">Kohëzgjatja e çdo viti</label>
+          <select id="videoStep"><option value="500">0,5 sekonda</option><option value="800" selected>0,8 sekonda</option><option value="1200">1,2 sekonda</option><option value="2000">2 sekonda</option></select>
+          <label for="videoSize">Madhësia</label>
+          <select id="videoSize"><option value="1920" selected>1920 px · Full HD</option><option value="1280">1280 px · HD</option><option value="2560">2560 px · 2K</option></select>
+          <label class="video-check"><input id="videoFade" type="checkbox" checked> Kalim i butë mes viteve</label>
+          <button id="videoStart" type="button">● Krijo videon</button>
+          <div id="videoProgress" class="video-progress" hidden><div><i id="videoBar"></i></div><span id="videoText"></span><button id="videoStop" type="button">Ndalo</button></div>
+          <span id="videoNote" class="download-note"></span>
+        </div>
       </div>
       <div class="methods"><button id="aboutToggle" aria-expanded="false">Rreth të dhënave <span>+</span></button><div id="about" hidden><p>WSF identifikon zonat e ndërtuara në imazhe satelitore. Ngjyra tregon periudhën kur zona u identifikua.</p><p>Evolution ka rezolucion burimor rreth 30 m. Tracker ka rezolucion burimor 10 m. Pamja në ekran përshtatet sipas zmadhimit.</p><p>Tracker nis me gjendjen e korrikut 2016. Kuadrot e mëvonshme paraqesin janarin e vitit përkatës. Periudhat shfaqen veçmas sepse produktet përdorin metoda të ndryshme.</p><p>Sipërfaqet janë vlerësime brenda pamjes dhe kufirit të shtetit. Katalogu i emrave vjen nga GeoNames, me variante të emrave për kërkim. Harta bazë vjen nga OpenStreetMap. <span id="unitsNote">Kufijtë e komunave dhe të zonave kadastrale janë në sistemin KOSOVAREF01 (EPSG:9141).</span> Të dhënat e Tracker përditësohen automatikisht sapo DLR publikon një hap të ri<span id="dataUpdated"></span>.</p><p><a href="kosova-urban.html" id="offlineLink" download>Shkarko versionin offline (një skedar HTML)</a></p><p class="cite"><b>Si ta citoni</b><span id="citeText">Murseli, R. (2026). Zgjerimi urban në Kosovë: atlas interaktiv i zonave të ndërtuara, 1985–2026. Të dhënat: DLR World Settlement Footprint.</span><button id="copyCite">Kopjo</button></p></div></div>
     </aside>
