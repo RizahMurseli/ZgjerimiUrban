@@ -2581,6 +2581,7 @@ function startDraw() {
   aoiDraft = {points:[],hover:null};
   $('aoiBar').hidden = false;
   canvas.classList.add('drawing');
+  document.querySelector('.map-wrap').classList.add('aoi-drawing');
   $('aoiDrawBtn').setAttribute('aria-pressed','true');
   renderAoiDraft();
 }
@@ -2589,6 +2590,7 @@ function endDraw(commit) {
   aoiDraft = null;
   $('aoiBar').hidden = true;
   canvas.classList.remove('drawing');
+  document.querySelector('.map-wrap').classList.remove('aoi-drawing');
   $('aoiDrawBtn').setAttribute('aria-pressed','false');
   renderAoiDraft();
   if (commit && pts.length >= 3) {

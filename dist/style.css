@@ -299,3 +299,6 @@ table.years tr.now td{background:#16303a;color:var(--text)}
 body.recording .map-wrap,body.recording .playback,body.recording .tabs,body.recording #period,body.recording #baseYear,body.recording .data-export-lock{pointer-events:none}
 body.recording .map-wrap{outline:2px solid #ff5d5d88;outline-offset:-2px}
 .download-buttons button{white-space:nowrap;padding:9px 6px;font-size:12px}
+
+/* While drawing a zone, clicks on the radial bars must reach the map. */
+.map-wrap.aoi-drawing #radial,.map-wrap.aoi-drawing #radial *{pointer-events:none!important}
