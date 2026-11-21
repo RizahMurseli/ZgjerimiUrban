@@ -111,6 +111,7 @@
         <section id="sprawlBox" class="sprawl-box" hidden>
           <h3>Zgjerimi i shpërndarë <small>(Urban Sprawl) · <span id="sprawlMeta"></span></small></h3>
           <label class="sprawl-mode" for="sprawlMode">Krahasimi <select id="sprawlMode"><option value="steps">Hap pas hapi: çdo vit me vitin paraprak</option><option value="two">Dy data: viti bazë me vitin e zgjedhur</option></select></label>
+          <label class="sprawl-mode" for="sprawlShow">Shfaq në hartë <select id="sprawlShow"><option value="class">Klasën kur u ndërtua</option><option value="year">Vetëm shtesat e vitit</option><option value="status">Statusin në vitin e zgjedhur</option></select></label>
           <div id="sprawlBody"></div>
           <details class="sdg-more"><summary>Metoda e klasifikimit</summary>
             <p class="note">Klasifikimi bëhet në rezolucionin burimor të WSF (10 m Tracker, rreth 30 m Evolution), në një dritare që e kalon zonën me 700 m për kontekst. «Hap pas hapi» krahason ndërtimin e ri të çdo viti me gjurmën e vitit paraprak dhe i mbledh rezultatet nga viti bazë deri në vitin e zgjedhur; kështu ruhet radha kohore e rritjes. «Dy data» krahason gjurmën e vitit bazë me gjithë ndërtimin e ri deri në vitin e zgjedhur, si te Angel et al. (2010), ku intervalet janë rreth 10 vjet; në intervale të gjata copat e njëpasnjëshme bashkohen.</p>
@@ -122,7 +123,7 @@
             <p class="note">Burimet: Angel, S., Parent, J. &amp; Civco, D. L. (2010). The Fragmentation of Urban Footprints: Global Evidence of Sprawl, 1990–2000. Lincoln Institute of Land Policy. · Wilson, E. H., Hurd, J. D., Civco, D. L., Prisloe, M. P. &amp; Arnold, C. (2003). Development of a geospatial model to quantify, describe and map urban growth. Remote Sensing of Environment, 86(3), 275–285.</p>
             <p class="note">Kufizime: pragjet e klasës lineare janë zgjedhje e këtij atlasi (Wilson et al. nuk japin vlera numerike të njëjta); rrugët nuk përdoren drejtpërdrejt. Ndërtimi jashtë kufirit të shtetit nuk është në të dhëna, prandaj dendësia afër kufirit mund të nënvlerësohet.</p>
           </details>
-          <div class="sel-actions"><button id="sprawlCsv" type="button">Shkarko CSV të copave</button></div>
+          <div class="sel-actions"><button id="sprawlCsv" type="button">Shkarko CSV të copave</button><button id="sprawlTimeCsv" type="button">Shkarko CSV të ndryshimeve në kohë</button></div>
         </section>
         <h3>Qendër apo periferi? <small>% e tokës së ndërtuar sipas largësisë nga qendra e pamjes</small></h3><div class="chart" id="chartRings"></div>
       </div>
