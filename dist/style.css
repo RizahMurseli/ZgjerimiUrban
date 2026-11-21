@@ -380,3 +380,15 @@ body.view-forms #legend button.active{border-top-color:var(--accent)}
 .sprawl-legend .leg-cuts{display:inline-flex;align-items:center;gap:6px;margin:2px 8px 2px 6px;pointer-events:auto}
 .sprawl-mode .stage-cuts{display:flex;margin-top:6px}
 .sprawl-legend .leg-items,.sprawl-legend .leg-items2{display:contents}
+#unitForms{display:none}
+body.view-forms #unitForms{display:block}
+body.view-forms #tab-units .unit-controls,body.view-forms #metricNote,body.view-forms #selStory,body.view-forms #unitChartTitle,body.view-forms #chartUnits,body.view-forms #tableTitle,body.view-forms #tab-units > .table-wrap,body.view-forms #tableNote{display:none}
+.uf-metric{display:block;margin:10px 0 6px}
+.uf-metric select{margin-top:6px}
+.uf-table{width:100%;border-collapse:collapse;font-size:11px}
+.uf-table th,.uf-table td{padding:5px 4px;text-align:right;border-bottom:1px solid #1e2a3a;font-family:'Space Mono',monospace}
+.uf-table th{color:var(--muted);font:600 10px 'DM Sans',sans-serif;vertical-align:bottom}
+.uf-table .l{text-align:left;font-family:'DM Sans',sans-serif}
+.uf-table tr[data-id]{cursor:pointer}
+.uf-table tr[data-id]:hover td{background:#142032}
+.uf-table tr.sel td{background:#123a3a}

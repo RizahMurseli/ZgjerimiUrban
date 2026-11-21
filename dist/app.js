@@ -1423,6 +1423,7 @@ function renderChoropleth() {
       tip.hidden = false;
       tip.style.left = Math.max(80,Math.min(r.width-80,event.clientX-r.left))+'px';
       tip.style.top = (event.clientY-r.top-10)+'px';
+      if (state.mapView === 'forms' && typeof unitFormsTip === 'function') { tip.innerHTML = unitFormsTip(u);return; }
       tip.innerHTML = L(`<b>${esc(unitLabel(u))}</b><br>${METRICS[state.unitMetric].label}: <b>${METRICS[state.unitMetric].fmt(metricOf(u))}</b><br><small>${yearLabel(state.index)} · territori ${areaFmt(u.areaKm2)}</small>`,`<b>${esc(unitLabel(u))}</b><br>${METRICS[state.unitMetric].label}: <b>${METRICS[state.unitMetric].fmt(metricOf(u))}</b><br><small>${yearLabel(state.index)} · territory ${areaFmt(u.areaKm2)}</small>`);
     };
     host.querySelector('svg').onpointerleave = () => { tip.hidden = true; };
@@ -1554,6 +1555,7 @@ function renderUnits() {
   $('unitChartTitle').innerHTML = L(`${metric.label} <small>${chosen.length > 8 ? 'përzgjedhja si një e tërë' : 'çdo vijë një njësi'}${series.some(s => s.ref) ? ` · vijat e ndërprera: ${picked.length && MUN.size === 1 ? 'komuna dhe ' : ''}Kosova` : ''}</small>`,`${metric.label} <small>${chosen.length > 8 ? 'the selection as a whole' : 'one line per unit'}${series.some(s => s.ref) ? ` · dashed lines: ${picked.length && MUN.size === 1 ? C.unit1.one+' and ' : ''}${C.name}` : ''}</small>`);
   multiLine($('chartUnits'),series,{years,labels,active:i,label:metric.label,fmt:metric.fmt,tick:v => state.unitMetric === 'built' || state.unitMetric === 'added' ? number(Math.round(v*100)/100) : number(Math.round(v*10)/10)});
   renderUnitTable();
+  if (state.mapView === 'forms') renderUnitForms();
 }
 function setUnitLevel(level) {
   state.unitLevel = level;
@@ -2728,6 +2730,7 @@ function sprawlSummary() {
   return {total,spr,share:total ? spr/total*100 : null,patches,rows:SPRAWL_CLASSES.map(c => ({...c,ha:ha[c.k],pct:total ? ha[c.k]/total*100 : 0,n:r.stats.patches[c.k],mean:r.stats.patches[c.k] ? ha[c.k]/r.stats.patches[c.k] : 0})),base:r.stats.base,res:Math.round((r.w.dx+r.w.dy)/2)};
 }
 function renderSprawlPanel(busy=false) {
+  if (state.tab === 'units' && state.mapView === 'forms') setTimeout(renderUnitForms,0);
   $('sprawlBox').hidden = !state.sprawl;
   sprawlLegendHtml();
   if (!state.sprawl) return;
@@ -2829,6 +2832,7 @@ function setMapView(v,repaint=true) {
   document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-selected',String(b.dataset.view === v)));
   renderSprawlPanel();
   if (v === 'forms') scheduleSprawl(true);
+  if (state.tab === 'units' && typeof renderUnits === 'function') renderUnits();
   if (repaint && view) { paint(true);if (sample) updateHash(); }
 }
 document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setMapView(b.dataset.view));
@@ -3317,6 +3321,107 @@ function stageHtml() {
     ${stageSeriesSvg(z)}
     ${traj ? `<div class="sprawl-chart-title">${L('Trajektoret e strukturave më të mëdha','Trajectories of the largest structures')}</div><ul class="corr-list">${traj}</ul>` : ''}
     <p class="note">${L(`Shkallët dhe pragjet ndryshohen në legjendën e hartës ose këtu lart. Parazgjedhjet ndjekin rregullin e dendësisë të Angel et al. (2010) në rrethin 1 km² (100 ha): një strukturë prej 10 ha e mbush vetë 10% të tij dhe arrin dendësinë suburbane (C), një prej 50 ha e mbush 50% dhe arrin dendësinë urbane (D); nën 1 ha janë ndërtime të izoluara (Wilson et al. 2003). E: brenda 100 m nga trupi urban e suburban i ${steps[0].short}. Struktura vetëm rritet, prandaj kalimi shkon vetëm përpara. Llogaritja: ${number(Math.round(z.S.ms))} ms.`,`Stages and thresholds can be changed in the map legend or above. The defaults follow the density rule of Angel et al. (2010) in the 1 km² circle (100 ha): a 10 ha structure fills 10% of it on its own and reaches suburban density (C), a 50 ha one fills 50% and reaches urban density (D); below 1 ha are isolated buildings (Wilson et al. 2003). E: within 100 m of the urban and suburban body of ${steps[0].short}. Structures only grow, so the stage only moves forward. Computed in ${number(Math.round(z.S.ms))} ms.`)}</p>`;
+}
+// ---------- Units tab in the forms view: the same forms statistics, per unit ----------
+// Each unit's polygons are drawn on the analysis window; its pixels inside the analysed domain carry the classes
+// and stages of the forms analysis. Units only partly inside the domain are marked with their coverage.
+state.unitFormMetric = 'sprawl';
+const UF = {
+  sprawl:{t:L('Sprawl: kërcim jashtë bërthamave (% e ndërtimit të ri)','Sprawl: leapfrog outside nuclei (% of new construction)'),v:x => x.pct(x.sprawl,x.nw)},
+  infill:{t:L('Mbushje, klasa aktuale (%)','Infill, current class (%)'),v:x => x.pct(x.inf,x.nw)},
+  edge:{t:L('Zgjerim në skaj, klasa aktuale (%)','Edge extension, current class (%)'),v:x => x.pct(x.edg,x.nw)},
+  leap:{t:L('Kërcim, klasa aktuale (%)','Leapfrog, current class (%)'),v:x => x.pct(x.lea,x.nw)},
+  detached:{t:L('Ndërtim i shkëputur nga qyteti (% e ndërtimit të ri)','Built detached from the city (% of new construction)'),v:x => x.pct(x.det,x.nw)},
+  joined:{t:L('U bashkua me qytetin (% e të shkëputurit)','Joined the city (% of detached)'),v:x => x.pct(x.joi,x.det)},
+  nuclei:{t:L('Bërthama dhe qyteza (% e të shkëputurit)','Nuclei and towns (% of detached)'),v:x => x.pct(x.nuc,x.det)},
+  scattered:{t:L('Mbetet i shpërndarë (% e të shkëputurit)','Still scattered (% of detached)'),v:x => x.pct(x.sca,x.det)},
+  newha:{t:L('Ndërtimi i ri (ha)','New construction (ha)'),v:x => x.nw,ha:true},
+};
+function unitFormsStats() {
+  const r = sprawlRes;
+  if (!sprawlCurrent() || state.index === 0 || r.mode !== 'steps') return null;
+  sprawlView();
+  const list = filteredUnits(), S = sprawlStages(r);
+  const key = `${r.viewKey}|${S?.key}|${list.length}|${list[0]?.id}|${list[list.length-1]?.id}`;
+  if (r.uf?.key === key) return r.uf;
+  const w = r.w, W = w.W, H = w.H, N = W*H, a = baseOff()+1, b = baseOff()+state.index+1;
+  const inWin = list.filter(u => !(u.bbox[2] < w.west || u.bbox[0] > w.east || u.bbox[3] < w.south || u.bbox[1] > w.north));
+  const cv = document.createElement('canvas');cv.width = W;cv.height = H;
+  const ctx = cv.getContext('2d',{willReadFrequently:true});
+  const X = lon => (lon-w.west)/w.dlon, Y = lat => (w.north-lat)/w.dlat;
+  inWin.forEach((u,k) => {
+    const id = k+1;ctx.fillStyle = `rgb(${id & 255},${id >> 8},0)`;ctx.beginPath();
+    for (const poly of u.polys) for (const ring of poly) { ctx.moveTo(X(ring[0]),Y(ring[1]));for (let i=2;i<ring.length;i+=2) ctx.lineTo(X(ring[i]),Y(ring[i+1]));ctx.closePath(); }
+    ctx.fill('evenodd');
+  });
+  const px = ctx.getImageData(0,0,W,H).data, n = inWin.length+1;
+  const z = () => new Float64Array(n);
+  const cov = z(), nw = z(), inf = z(), edg = z(), lea = z(), spr = z(), det = z(), joi = z(), nuc = z(), sca = z();
+  const pos = r.pos || (r.pos = new Int32Array(N).fill(-1));
+  if (S) for (let j=0;j<S.M;j++) pos[S.pix[j]] = j;
+  for (let i=0;i<N;i++) {
+    if (!r.domain[i] || px[i*4+3] < 128) continue;
+    const id = px[i*4]+(px[i*4+1] << 8);
+    if (!id || id >= n) continue;
+    const h = r.rowHa[(i-i%W)/W];
+    cov[id] += h;
+    const c = r.grid[i];
+    if (c <= a || c > b) continue;
+    nw[id] += h;
+    const k = sprawlNow(r,i,b);
+    if (k === 10) inf[id] += h; else if (k === 11) edg[id] += h; else lea[id] += h;
+    if (r.out[i] === 13 && r.szc?.[i] !== 3) spr[id] += h;
+    const j = S ? pos[i] : -1;
+    if (j >= 0 && S.built[j]) { det[id] += h;const s = stageAt(S,j,b);if (s === 5) joi[id] += h; else if (s >= 3) nuc[id] += h; else sca[id] += h; }
+  }
+  if (S) for (let j=0;j<S.M;j++) pos[S.pix[j]] = -1;
+  const rows = new Map(), pct = (x,y) => y > 0 ? x/y*100 : null;
+  inWin.forEach((u,k) => { const id = k+1;if (!(cov[id] >= u.areaKm2*100*.1)) return;   // at least 10 % of the unit inside the analysis
+   rows.set(u.id,{u,cov:Math.min(1,cov[id]/(u.areaKm2*100)),nw:nw[id],inf:inf[id],edg:edg[id],lea:lea[id],sprawl:spr[id],det:det[id],joi:joi[id],nuc:nuc[id],sca:sca[id],pct}); });
+  return r.uf = {key,rows,total:list.length};
+}
+function unitFormsTip(u) {
+  const x = sprawlRes?.uf?.rows.get(u.id), m = UF[state.unitFormMetric];
+  if (!x) return L(`<b>${esc(unitLabel(u))}</b><br><small>Jashtë analizës së formave: zgjidhe në filtër ose afro hartën.</small>`,`<b>${esc(unitLabel(u))}</b><br><small>Outside the forms analysis: add it to the filter or bring it into view.</small>`);
+  const v = m.v(x);
+  return `<b>${esc(unitLabel(u))}</b><br>${esc(m.t)}: <b>${v == null ? '—' : m.ha ? fmtHa(v)+' ha' : fmt1(v)+'%'}</b><br><small>${L('ndërtim i ri','new construction')} ${fmtHa(x.nw)} ha${x.cov < .98 ? ' · '+L(`mbulimi ${Math.round(x.cov*100)}%`,`coverage ${Math.round(x.cov*100)}%`) : ''}</small>`;
+}
+function renderUnitForms() {
+  const host = $('unitForms');
+  if (!host || state.mapView !== 'forms' || state.tab !== 'units') return;
+  const r = sprawlRes, steps = period().steps, i = state.index;
+  if (i === 0) { host.innerHTML = `<p class="note">${L('Zgjidhni një vit pas vitit bazë për të krahasuar format e zgjerimit sipas njësive.','Choose a year after the base year to compare the forms of expansion by unit.')}</p>`;return; }
+  const st = unitFormsStats();
+  if (!st) { host.innerHTML = `<p class="note sprawl-busy">${r?.tooBig ? L('Zona është shumë e madhe për analizë në rezolucionin burimor. Zgjidhni një komunë ose zvogëloni mbulimin.','The area is too large for analysis at the source resolution. Choose a municipality or reduce the extent.') : L('Duke llogaritur format e zgjerimit për njësitë…','Computing the forms of expansion for the units…')}</p>`;if (!sprawlPending && !r?.tooBig) scheduleSprawl(true);return; }
+  const m = UF[state.unitFormMetric], val = x => m.v(x), fmtV = v => v == null ? '—' : m.ha ? fmtHa(v) : fmt1(v);
+  const rows = [...st.rows.values()].filter(x => x.nw > 0).sort((p,q) => (val(q) ?? -1)-(val(p) ?? -1));
+  // Thematic map: the same quantile classes as the growth indicators.
+  const vals = rows.map(val).filter(v => v != null), br = quantileBreaks(vals), choro = $('choropleth');
+  for (const el of choro.querySelectorAll('path.u')) {
+    const x = st.rows.get(el.dataset.id), v = x && x.nw > 0 ? val(x) : null;
+    el.style.fill = v == null ? '#1b222d' : CHORO[br.filter(t => v > t).length];
+  }
+  const f = v => m.ha ? fmtHa(v) : fmt1(v)+'%', rg = [`≤ ${f(br[0])}`,`${f(br[0])} – ${f(br[1])}`,`${f(br[1])} – ${f(br[2])}`,`${f(br[2])} – ${f(br[3])}`,`> ${f(br[3])}`];
+  $('choroLegend').innerHTML = CHORO.map((c,k) => `<span><i style="background:${c}"></i>${rg[k]}</span>`).join('')+`<span><i style="background:#1b222d"></i>${L('jashtë analizës','outside the analysis')}</span>`;
+  const sel = state.unitLevel === 'cadastral' ? ZONE : MUN, partial = rows.some(x => x.cov < .98);
+  const hi = rows.find(x => val(x) != null), lo = [...rows].reverse().find(x => val(x) != null);
+  const story = rows.length > 1 && hi && lo ? L(`Nga ${rows.length} njësi të analizuara, ${esc(m.t.split(' (')[0].toLowerCase())} është më i lartë në <b>${esc(hi.u.name)}</b> (${fmtV(val(hi))}${m.ha ? ' ha' : '%'}) dhe më i ulët në <b>${esc(lo.u.name)}</b> (${fmtV(val(lo))}${m.ha ? ' ha' : '%'}).`,`Of ${rows.length} analysed units, ${esc(m.t.split(' (')[0].toLowerCase())} is highest in <b>${esc(hi.u.name)}</b> (${fmtV(val(hi))}${m.ha ? ' ha' : '%'}) and lowest in <b>${esc(lo.u.name)}</b> (${fmtV(val(lo))}${m.ha ? ' ha' : '%'}).`)
+    : rows.length === 1 ? L(`Analizohet vetëm <b>${esc(rows[0].u.name)}</b>. Për të krahasuar, zgjidhni zonat kadastrale të saj ose disa komuna.`,`Only <b>${esc(rows[0].u.name)}</b> is analysed. To compare, choose its cadastral zones or several municipalities.`) : '';
+  const p = v => v == null ? '—' : fmt1(v);
+  host.innerHTML = `<label class="uf-metric">${L('Treguesi i formave','Forms indicator')}<select id="unitFormMetric">${Object.entries(UF).map(([k,o]) => `<option value="${k}"${k === state.unitFormMetric ? ' selected' : ''}>${esc(o.t)}</option>`).join('')}</select></label>
+    <p class="story">${story}</p>
+    <p class="note">${L(`Format ${steps[0].short}–${steps[i].short}, të llogaritura në rezolucionin burimor për ${rows.length} nga ${st.total} ${state.unitLevel === 'cadastral' ? C.unit2.many : C.unit1.many}: ato brenda ${MUN.size ? 'filtrit' : 'pamjes'}${state.radial ? ' dhe rrethit' : ''}. Për njësi të tjera, zgjidhini në filtër.${partial ? ' * = njësia është vetëm pjesërisht brenda analizës.' : ''}`,`Forms ${steps[0].short}–${steps[i].short}, computed at the source resolution for ${rows.length} of ${st.total} ${state.unitLevel === 'cadastral' ? C.unit2.many : C.unit1.many}: those inside the ${MUN.size ? 'filter' : 'view'}${state.radial ? ' and the circle' : ''}. For other units, add them to the filter.${partial ? ' * = the unit is only partly inside the analysis.' : ''}`)}</p>
+    <div class="table-wrap"><table class="uf-table"><thead><tr><th class="l">${L('Njësia','Unit')}</th><th>${L('Ndërtim i ri, ha','New, ha')}</th><th>${L('Mbushje sot','Infill now')} %</th><th>${L('Skaj sot','Edge now')} %</th><th>${L('Kërcim sot','Leapfrog now')} %</th><th>${L('Sprawl kur u ndërtua','Sprawl when built')} %</th><th>${L('I shkëputur','Detached')} %</th><th>${L('Bashkuar','Joined')} %</th><th>${L('Bërthama','Nuclei')} %</th><th>${L('I shpërndarë','Scattered')} %</th></tr></thead><tbody>
+    ${rows.map(x => `<tr data-id="${x.u.id}" class="${sel.has(x.u.id) ? 'sel' : ''}"><td class="l">${esc(x.u.name)}${x.cov < .98 ? ' *' : ''}</td><td>${fmtHa(x.nw)}</td><td>${p(x.pct(x.inf,x.nw))}</td><td>${p(x.pct(x.edg,x.nw))}</td><td>${p(x.pct(x.lea,x.nw))}</td><td><b>${p(x.pct(x.sprawl,x.nw))}</b></td><td>${p(x.pct(x.det,x.nw))}</td><td>${p(x.pct(x.joi,x.det))}</td><td>${p(x.pct(x.nuc,x.det))}</td><td>${p(x.pct(x.sca,x.det))}</td></tr>`).join('')}</tbody></table></div>
+    <div class="sel-actions"><button id="unitFormsCsv" type="button">${L('Shkarko CSV të formave sipas njësive','Download the forms-by-unit CSV')}</button></div>`;
+  $('unitFormMetric').onchange = () => { state.unitFormMetric = $('unitFormMetric').value;renderUnitForms(); };
+  host.querySelector('tbody').onclick = e => { const tr = e.target.closest('tr[data-id]');if (tr) toggleUnit(units.byId[state.unitLevel].get(tr.dataset.id)); };
+  $('unitFormsCsv').onclick = () => {
+    const q = v => /[",;\n]/.test(String(v)) ? '"'+String(v).replace(/"/g,'""')+'"' : String(v), d = v => v == null ? '' : v.toFixed(2);
+    const head = L(['id','emri','mbulimi_perqind','ndertim_i_ri_ha','mbushje_perqind','skaj_perqind','kercim_perqind','sprawl_perqind','i_shkeputur_perqind','bashkuar_perqind','berthama_perqind','i_shperndare_perqind','nga','deri'],['id','name','coverage_pct','new_ha','infill_pct','edge_pct','leapfrog_pct','sprawl_pct','detached_pct','joined_pct','nuclei_pct','scattered_pct','from','to']);
+    const lines = [head.join(',')].concat(rows.map(x => [x.u.id,x.u.name,Math.round(x.cov*100),x.nw.toFixed(2),d(x.pct(x.inf,x.nw)),d(x.pct(x.edg,x.nw)),d(x.pct(x.lea,x.nw)),d(x.pct(x.sprawl,x.nw)),d(x.pct(x.det,x.nw)),d(x.pct(x.joi,x.det)),d(x.pct(x.nuc,x.det)),d(x.pct(x.sca,x.det)),steps[0].label,steps[i].label].map(q).join(',')));
+    download(new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8'}),`${L('format-sipas-njesive','forms-by-unit')}-${state.period}-${steps[0].short}-${steps[i].short}.csv`);
+  };
 }
 
 window.atlasExport = exportSvg;   // for testing from the console
