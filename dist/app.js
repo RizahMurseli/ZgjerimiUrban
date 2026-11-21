@@ -340,7 +340,7 @@ function paint(mapOnly=false) {
   // Over a dark base map the land tint is strong; over RGB or panchromatic imagery it stays light so the image shows.
   const tint = !state.basemap ? 255 : state.basemapMode === 'dark' ? 150 : 45, seaTint = !state.basemap ? 255 : state.basemapMode === 'dark' ? 215 : 120;
   const land = [13,23,39,tint], sea = [7,12,20,seaTint], dim = [52,64,84,255];
-  const sprawlOn = state.sprawl && sprawlCurrent() && state.index > 0;
+  const sprawlOn = state.index > 0 && ((state.mapView === 'forms' && sprawlCurrent()) || (state.mapView === 'corr' && corrCurrent()));
   for (let i=0;i<sample.length;i++) {
     const code = sample[i];
     const index = mode === 'compare' && i%size < split ? state.compareIndex : state.index;
@@ -367,6 +367,7 @@ function paint(mapOnly=false) {
   context.imageSmoothingEnabled = false;
   context.drawImage(layer,view.x,view.y);
   drawSprawl();
+  drawCorr();
   drawUnits();
   drawAoi();
   pathFor(context,(lon,lat) => [view.x+(lon-view.west)/(view.east-view.west)*view.size,view.y+(view.north-lat)/(view.north-view.south)*view.size]);
@@ -391,6 +392,7 @@ function paint(mapOnly=false) {
   renderRadial();
   renderAoiDraft();
   if (state.sprawl && (!sprawlRes || sprawlRes.key !== sprawlCalcKey())) { scheduleSprawl();renderSprawlPanel(); }
+  if (state.mapView === 'corr' && !corrCurrent() && state.index > 0) { scheduleCorr();renderCorrPanel(); }
   else if (state.sprawl && sprawlCurrent() && sprawlRes.viewKey !== `${baseOff()+1}|${baseOff()+state.index+1}|${state.sprawlShow}`) { sprawlView();if (sprawlRes.viewKey) { renderSprawlPanel();paint(true); } }
 }
 const layer = document.createElement('canvas');
@@ -512,7 +514,8 @@ function updateHash() {
   if (ZONE.size && ZONE.size <= 60) params.set('zk',[...ZONE].join('.'));
   if (state.aoi) params.set('aoi','1');
   if (LANG === 'en') params.set('l','en');
-  if (state.sprawl) params.set('sp',state.sprawlMode === 'two' ? '2' : '1');
+  if (state.mapView !== 'time') params.set('mv',state.mapView);
+  if (state.sprawl && state.sprawlMode === 'two') params.set('sp','2');
   if (state.sprawl && state.sprawlShow !== 'now') params.set('ss',state.sprawlShow);
   history.replaceState(null,'','#'+params.toString());
 }
@@ -667,7 +670,8 @@ async function start() {
     if (BASEMAP_FILTER[hash.get('bm')]) state.basemapMode = hash.get('bm');
     if (hash.has('bt') && Number(hash.get('bt')) >= 0 && Number(hash.get('bt')) <= 95) state.basemapTransp = Number(hash.get('bt'));
     if (hash.get('r') === '0') state.radial = false;
-    if (hash.get('sp') === '1' || hash.get('sp') === '2') { state.sprawl = true;state.sprawlMode = hash.get('sp') === '2' ? 'two' : 'steps'; }
+    if (hash.get('sp') === '1' || hash.get('sp') === '2') { state.mapView = 'forms';state.sprawlMode = hash.get('sp') === '2' ? 'two' : 'steps'; }
+    if (['forms','corr'].includes(hash.get('mv'))) state.mapView = hash.get('mv');
     if (['year','class'].includes(hash.get('ss'))) state.sprawlShow = hash.get('ss');
     if (['units','sdg','race','kosovo'].includes(hash.get('t'))) openTab = hash.get('t');
     if (hash.get('u') === '0') state.unitsOverlay = false;
@@ -678,7 +682,7 @@ async function start() {
     }
     $('toggleUnits').setAttribute('aria-pressed',String(state.unitsOverlay));
     $('toggleRadial').setAttribute('aria-pressed',String(state.radial));
-    $('toggleSprawl').setAttribute('aria-pressed',String(state.sprawl));
+    setMapView(state.mapView,false);
     $('toggleBasemap').setAttribute('aria-pressed',String(state.basemap));
     syncBasemapControls();
     $('period').value = state.period;
@@ -992,7 +996,7 @@ function renderKosovo() {
   }));
 }
 function updateAnalytics() {
-  if (state.tab === 'zone') { renderZone();renderSprawlPanel(); }
+  if (state.tab === 'zone') { renderZone();renderSprawlPanel();renderCorrPanel(); }
   else if (state.tab === 'units') renderUnits();
   else if (state.tab === 'sdg') renderSdg();
   else if (state.tab === 'race') renderRace();
@@ -1769,6 +1773,7 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   out += `<text x="${ax}" y="${y}" font-size="46" class="mono" style="fill:${yearColor}">${xml(yearOnly(steps[i].label))}</text>`;
   if (steps[i].epoch) text(steps[i].epoch,8.5,'muted',400,15);
   const spr = state.sprawl && i > 0 ? sprawlSummary() : null;
+  const cor = state.mapView === 'corr' && i > 0 ? corrSummary() : null;
   if (spr) {
     // With the sprawl layer the map shows classes, so the legend shows them too.
     const showNow = state.sprawlMode === 'steps' && state.sprawlShow === 'now', showYear = state.sprawlMode === 'steps' && state.sprawlShow === 'year';
@@ -1784,6 +1789,11 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     out += `<text x="${ax}" y="${y}" font-size="8.5" class="muted">${xml(L(`ndërtuar në ${steps[0].short}:`,`built in ${steps[0].short}:`))}</text>`;
     const bt = spr.base[1]+spr.base[2]+spr.base[3];
     bases.forEach(([k,t],n) => { const lx = ax+86+n*66;out += (state.sprawlMode === 'two' ? `<rect x="${lx}" y="${y-8}" width="10" height="9" fill="rgb(${SPRAWL_BASE[k].join(',')})"/>` : '')+`<text x="${lx+(state.sprawlMode === 'two' ? 14 : 0)}" y="${y}" font-size="8.5" class="muted">${xml(t+' '+(bt ? Math.round(spr.base[k]/bt*100) : 0)+'%')}</text>`; });
+  } else if (cor) {
+    text(L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: roli në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: role in ${steps[i].short}`),11,'',700,26);
+    CORR_CLASSES.forEach((c,k) => { const lx = ax+(k%2)*150, ly = y+16+Math.floor(k/2)*16;out += `<rect x="${lx}" y="${ly-9}" width="11" height="10" fill="rgb(${c.c.join(',')})"/><text x="${lx+17}" y="${ly}" font-size="9.5">${xml(c.t)}</text>`; });
+    y += 32+17;
+    out += `<rect x="${ax}" y="${y-9}" width="11" height="10" fill="rgb(${CORR_CONURB.join(',')})"/><text x="${ax+17}" y="${y}" font-size="9.5" class="muted">${xml(L(`vendbanime të ${steps[0].short} të bashkuara (konurbacion)`,`${steps[0].short} settlements now joined (conurbation)`))}</text>`;
   } else {
   text(L('Viti kur u identifikua ndërtimi','Year the construction was detected'),11,'',700,26);
     const bw = aw/steps.length;
@@ -1874,6 +1884,28 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     }
     y += 13;
     out += `<text x="${bx}" y="${y}" font-size="7.5" class="muted">${xml(L(`${state.sprawlMode === 'steps' ? 'hap pas hapi' : 'dy data'} · Angel et al. 2010; Wilson et al. 2003 · rezolucioni ${spr.res} m`,`${state.sprawlMode === 'steps' ? 'step by step' : 'two dates'} · Angel et al. 2010; Wilson et al. 2003 · resolution ${spr.res} m`))}</text>`;
+  } else if (cor) {
+    const st = cor.st;
+    text(L('Koridoret dhe nyjet','Corridors and nodes'),11,'',700,0,bx);
+    y += 26;
+    const kp = [[number(st.corridors),L(`korridore · ${fmt1(st.corridorKm)} km`,`corridors · ${fmt1(st.corridorKm)} km`)],[number(st.nodes),L('nyje bashkimi','coalescence nodes')],[number(st.conurbations),L(`konurbacione · ${number(st.merged)} vendb.`,`conurbations · ${number(st.merged)} settl.`)]];
+    kp.forEach(([v,t],k) => { const kx = bx+k*96;out += `<text x="${kx}" y="${y}" font-size="20" class="mono" style="fill:#ffcf66">${xml(v)}</text><text x="${kx}" y="${y+13}" font-size="7.5" class="muted">${xml(t)}</text>`; });
+    y += 24;
+    let bxp = bx;
+    const bwid = bRight-bx;
+    for (const c of cor.rows) { const wpx = c.pct/100*bwid;if (wpx > 0) out += `<rect x="${bxp.toFixed(1)}" y="${y}" width="${Math.max(.5,wpx-1).toFixed(1)}" height="8" fill="rgb(${c.c.join(',')})"/>`;bxp += wpx; }
+    y += 8;
+    const cHa = bx+200, cPct = bRight;
+    y += 15;
+    out += `<text x="${cHa}" y="${y}" font-size="8" text-anchor="end" class="muted">ha</text><text x="${cPct}" y="${y}" font-size="8" text-anchor="end" class="muted">%</text>`;
+    for (const c of cor.rows) {
+      y += 13;
+      out += `<rect x="${bx}" y="${y-8}" width="9" height="9" fill="rgb(${c.c.join(',')})"/><text x="${bx+14}" y="${y}" font-size="9.5">${xml(c.t)}</text><text x="${cHa}" y="${y}" font-size="9.5" text-anchor="end" class="mono">${xml(fmtHa(c.ha))}</text><text x="${cPct}" y="${y}" font-size="9.5" text-anchor="end" class="mono">${xml(fmt1(c.pct))}</text>`;
+    }
+    const cons = (cor.lists?.conurbations || []).slice().sort((p,q) => q[0]-p[0]);
+    if (cons.length && cons[0][2].length) { y += 15;out += `<text x="${bx}" y="${y}" font-size="8" class="muted">${xml(clip(L('Më i madhi: ','Largest: ')+cons[0][2].slice(0,4).join(', ')+(cons[0][2].length > 4 ? '…' : ''),62))}</text>`; }
+    y += 13;
+    out += `<text x="${bx}" y="${y}" font-size="7.5" class="muted">${xml(L(`lidhje ≤ 100 m · korridor ≥ 300 m · trup ≥ 3 ha · rezolucioni ${cor.res} m`,`link ≤ 100 m · corridor ≥ 300 m · body ≥ 3 ha · resolution ${cor.res} m`))}</text>`;
   } else {
   text(L('Si u rrit zona e ndërtuar','How the built-up area grew'),11,'',700,0,bx);
   const times = first.builtHa > 0 ? last.builtHa/first.builtHa : null;
@@ -1909,7 +1941,7 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     });
     out += `<text x="${gRight}" y="${gTop+2}" font-size="7.5" text-anchor="end" style="fill:#ffcf66">${xml(L('% mbi shtyllë = pjesa e sprawl','% above bar = sprawl share'))}</text>`;
     const yb2 = v => bBottom-v/100*(bBottom-bTop);
-    out += L(`<text x="${gx}" y="${bTop-14}" font-size="9" font-weight="700">Kërcimet dhe shiritat sipas vitit të ndërtimit: klasa në ${xml(steps[i].short)}</text>`,`<text x="${gx}" y="${bTop-14}" font-size="9" font-weight="700">Leapfrog and ribbon by year built: class in ${xml(steps[i].short)}</text>`);
+    out += L(`<text x="${gx}" y="${bTop-14}" font-size="9" font-weight="700">Kërcimet sipas vitit të ndërtimit: klasa në ${xml(steps[i].short)}</text>`,`<text x="${gx}" y="${bTop-14}" font-size="9" font-weight="700">Leapfrog by year built: class in ${xml(steps[i].short)}</text>`);
     for (const t of [50,100]) out += `<line x1="${px0}" x2="${gRight}" y1="${yb2(t)}" y2="${yb2(t)}" stroke="#1e2a3a"/><text x="${px0-4}" y="${yb2(t)+3}" font-size="7.5" text-anchor="end" class="muted mono">${t}%</text>`;
     out += `<line x1="${px0}" x2="${gRight}" y1="${bBottom}" y2="${bBottom}" stroke="#34445c"/>`;
     bars.forEach((bar,k) => {
@@ -1917,12 +1949,38 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
       if (k < bb.length) {
         const t = bb[k][10]+bb[k][11]+bb[k][12]+bb[k][13];
         let yy = bBottom;
-        if (t > 0) for (const st of [13,12,11,10]) { const h = bb[k][st]/t*(bBottom-bTop);if (h <= 0) continue;yy -= h;out += `<rect x="${x0}" y="${yy.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(.6,h-.5).toFixed(1)}" fill="rgb(${col[st].join(',')})"/>`; }
+        if (t > 0) for (const st of [13,11,10]) { const h = bb[k][st]/t*(bBottom-bTop);if (h <= 0) continue;yy -= h;out += `<rect x="${x0}" y="${yy.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(.6,h-.5).toFixed(1)}" fill="rgb(${col[st].join(',')})"/>`; }
       }
       out += `<text x="${cxAt(k)}" y="${bBottom+6}" font-size="${Math.min(8.5,Number(labelSize)+1).toFixed(1)}" class="muted mono" text-anchor="end" dominant-baseline="middle" transform="rotate(-90 ${cxAt(k)} ${bBottom+6})">${xml(bar.short)}</text>`;
     });
     const kx = px0, ky = bBottom+46;
     SPRAWL_CLASSES.forEach((c,n) => { out += `<rect x="${kx+n*110}" y="${ky-8}" width="10" height="9" fill="rgb(${c.c.join(',')})"/><text x="${kx+n*110+14}" y="${ky}" font-size="8" class="muted">${xml(c.t)}</text>`; });
+  } else if (cor && i > 1) {
+    // Corridor length per year, and the new construction of each year by its role (cumulative since the base year).
+    const ts = bars.map((_,k) => baseOff()+k+2), ser = ts.map(t => corrRes.series[t]);
+    const kmMax = niceMax(Math.max(...ser.map(x => x ? x.corridorKm : 0),1e-6)*1.2);
+    const ya2 = v => aBottom-v/kmMax*(aBottom-aTop+40);
+    out += L(`<text x="${gx}" y="${gTop+2}" font-size="9" font-weight="700">Gjatësia e korridoreve (km) dhe vendbanime të bashkuara</text>`,`<text x="${gx}" y="${gTop+2}" font-size="9" font-weight="700">Corridor length (km) and settlements joined</text>`);
+    for (const t of [kmMax/2,kmMax]) out += `<line x1="${px0}" x2="${gRight}" y1="${ya2(t)}" y2="${ya2(t)}" stroke="#1e2a3a"/><text x="${px0-4}" y="${ya2(t)+3}" font-size="7.5" text-anchor="end" class="muted mono">${fmt1(t)}</text>`;
+    out += `<line x1="${px0}" x2="${gRight}" y1="${aBottom}" y2="${aBottom}" stroke="#34445c"/>`;
+    bars.forEach((bar,k) => {
+      const x0 = xAt(k).toFixed(1), v = ser[k];
+      if (!v || k >= i) { out += `<rect x="${x0}" y="${aBottom-1}" width="${barW.toFixed(1)}" height="1" fill="#2a3850"/>`;return; }
+      const h = aBottom-ya2(v.corridorKm);
+      out += `<rect x="${x0}" y="${(aBottom-h).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(v.corridorKm > 0 ? 1 : 0,h).toFixed(1)}" fill="rgb(255,176,0)"/>`;
+      if (v.merged) out += vlabel(cxAt(k),(aBottom-h-3).toFixed(1),'⊕'+v.merged,labelSize,` style="fill:rgb(${CORR_CONURB.join(',')})"`);
+    });
+    out += `<text x="${gRight}" y="${gTop+2}" font-size="7.5" text-anchor="end" style="fill:rgb(${CORR_CONURB.join(',')})">${xml(L('⊕ = vendbanime të bashkuara','⊕ = settlements joined'))}</text>`;
+    const totMax = niceMax(Math.max(...ser.map(x => x ? x.ha[20]+x.ha[21]+x.ha[22]+x.ha[23] : 0),1e-6)*1.1);
+    const yb2 = v => bBottom-v/totMax*(bBottom-bTop);
+    out += L(`<text x="${gx}" y="${bTop-14}" font-size="9" font-weight="700">Ndërtimi i ri sipas rolit, kumulativ (ha)</text>`,`<text x="${gx}" y="${bTop-14}" font-size="9" font-weight="700">New construction by role, cumulative (ha)</text>`);
+    for (const t of [totMax/2,totMax]) out += `<line x1="${px0}" x2="${gRight}" y1="${yb2(t)}" y2="${yb2(t)}" stroke="#1e2a3a"/><text x="${px0-4}" y="${yb2(t)+3}" font-size="7.5" text-anchor="end" class="muted mono">${label(t)}</text>`;
+    out += `<line x1="${px0}" x2="${gRight}" y1="${bBottom}" y2="${bBottom}" stroke="#34445c"/>`;
+    bars.forEach((bar,k) => {
+      const x0 = xAt(k).toFixed(1), v = ser[k];
+      if (v && k < i) { let yy = bBottom;for (const c of [23,22,21,20]) { const hh = bBottom-yb2(v.ha[c]);if (hh <= 0) continue;yy -= hh;out += `<rect x="${x0}" y="${yy.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(.6,hh-.5).toFixed(1)}" fill="rgb(${CORR_CLASSES.find(q => q.k === c).c.join(',')})"/>`; } }
+      out += `<text x="${cxAt(k)}" y="${bBottom+6}" font-size="${Math.min(8.5,Number(labelSize)+1).toFixed(1)}" class="muted mono" text-anchor="end" dominant-baseline="middle" transform="rotate(-90 ${cxAt(k)} ${bBottom+6})">${xml(bar.short)}</text>`;
+    });
   } else {
   // Decades: light hatched bands behind both panels (every other decade), each labelled with its change.
   out += `<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#c8d3e0" stroke-width="1" opacity=".16"/></pattern></defs>`;
@@ -2058,7 +2116,7 @@ function loadSvgImage(svg) {
 async function videoFrame(i,W,H) {
   state.index = i;
   paint();
-  if (state.sprawl) { await sprawlReady();paint(); }
+  if (state.sprawl || state.mapView === 'corr') { await sprawlReady();await corrReady();paint(); }
   const {svg,width,height} = exportSvg();
   const image = await loadSvgImage(svg), frame = document.createElement('canvas');
   frame.width = W;frame.height = H;
@@ -2175,7 +2233,7 @@ $('sdgLegend').addEventListener('keydown',event => { if ((event.key === 'Enter' 
 // Modes: 'steps' classifies each step's new built-up against the footprint of the step before (results kept per step);
 //        'two' classifies everything new between the base step and the chosen step against the base footprint.
 function sprawlEngine() {
-  let gridCache = null, mem = null;
+  let gridCache = null, mem = null, stepsCache = null, bodyCache = null, nodeCache = null;
   const INF = 1e30, BIG = 1e29, R = Math.sqrt(1e6/Math.PI), FRINGE = 100, CAPTURE_M2 = 200e4;
   const LIN_MIN_M = 250, LIN_RATIO = 4, LIN_MAX_W = 100;
   function buffers(W,H) {
@@ -2328,7 +2386,7 @@ function sprawlEngine() {
         if (tracker) w = Math.max(minPix,w-dx-dy);   // the bridging added one pixel on each side
         const L = nS[l]*pixA/Math.max(minPix,4*(sumD[l]/nS[l]-(dx+dy)/4));
         let c = nRur[l] === nN[l] ? 13 : nInt[l] === nN[l] ? 10 : 11;
-        if ((c === 13 || (c === 11 && nRur[l]/nN[l] >= .5)) && w <= LIN_MAX_W && L >= LIN_MIN_M && L/w >= LIN_RATIO) c = 12;
+        if (job.linear && (c === 13 || (c === 11 && nRur[l]/nN[l] >= .5)) && w <= LIN_MAX_W && L >= LIN_MIN_M && L/w >= LIN_RATIO) c = 12;
         cls[l] = c;
         if (inDom[l]) { stats.patches[c]++;patchesOut.push([c,haDom[l],sx[l]/nN[l],sy[l]/nN[l],Math.round(w),Math.round(L),step]); }
       }
@@ -2340,6 +2398,205 @@ function sprawlEngine() {
       }
     };
     const blank = () => ({ha:{10:0,11:0,12:0,13:0},patches:{10:0,11:0,12:0,13:0},base:{1:0,2:0,3:0}});
+    // ---- Corridors, coalescence nodes and conurbations, evaluated on the footprint of each year t ----
+    // Settlement bodies: built-up linked within 100 m (each pixel grown by 50 m), at least 3 ha of built-up.
+    // Corridor: a chain of new built-up outside the interior of the footprint, pieces at most 100 m apart,
+    //   at least 300 m long along its own (possibly curved) axis and at most about 100 m wide.
+    // Node: the new built-up of a year within 150 m of the seam where it joins two footprints of the previous year that each
+    //   hold a settlement of the base year. Conurbation: base bodies joined into one footprint by year t.
+    const LINK = 50, SEAM = 150, RIB_SHARE = .35, BODY_HA = 3, COR_MIN_L = 300, COR_MAX_W = 200, COR_RATIO = 3;
+    const corridors = job => {
+      if (!stepsCache || stepsCache.key !== job.gridKey) run({...job,grid:null,mode:'steps',progress:null});
+      const {firstSub,firstInt} = stepsCache, a = job.a;
+      const label = (mask,labOut) => {   // 8-connected components of mask; returns their number
+        labOut.fill(0);
+        let n = 0;
+        for (let s0=0;s0<N;s0++) {
+          if (!mask[s0] || labOut[s0]) continue;
+          n++;
+          let top = 0;stack[top++] = s0;labOut[s0] = n;
+          while (top) {
+            const i = stack[--top], x = i%W, left = x > 0, right = x < W-1, up = i >= W, down = i < N-W;
+            if (left) { if (mask[i-1] && !labOut[i-1]) { labOut[i-1] = n;stack[top++] = i-1; } if (up && mask[i-W-1] && !labOut[i-W-1]) { labOut[i-W-1] = n;stack[top++] = i-W-1; } if (down && mask[i+W-1] && !labOut[i+W-1]) { labOut[i+W-1] = n;stack[top++] = i+W-1; } }
+            if (right) { if (mask[i+1] && !labOut[i+1]) { labOut[i+1] = n;stack[top++] = i+1; } if (up && mask[i-W+1] && !labOut[i-W+1]) { labOut[i-W+1] = n;stack[top++] = i-W+1; } if (down && mask[i+W+1] && !labOut[i+W+1]) { labOut[i+W+1] = n;stack[top++] = i+W+1; } }
+            if (up && mask[i-W] && !labOut[i-W]) { labOut[i-W] = n;stack[top++] = i-W; }
+            if (down && mask[i+W] && !labOut[i+W]) { labOut[i+W] = n;stack[top++] = i+W; }
+          }
+        }
+        return n;
+      };
+      const linkMask = (test,outMask) => { for (let i=0;i<N;i++) feat[i] = test(i) ? 1 : 0;edt();for (let i=0;i<N;i++) outMask[i] = D[i] <= LINK ? 1 : 0; };
+      // Base bodies (cached per base step).
+      if (!bodyCache || bodyCache.key !== job.gridKey+'|'+a) {
+        const linked = new Uint8Array(N), lab0 = new Int32Array(N);
+        linkMask(i => grid[i] >= 1 && grid[i] <= a,linked);
+        const nb = label(linked,lab0), ha = new Float64Array(nb+1);
+        for (let i=0;i<N;i++) { const c = grid[i];if (c >= 1 && c <= a && lab0[i]) ha[lab0[i]] += rowArea[(i-i%W)/W]/1e4; }
+        bodyCache = {key:job.gridKey+'|'+a,lab:lab0,ha,nb};
+      }
+      const {lab:bodyLab,ha:bodyHa,nb} = bodyCache;
+      const sig = l => l > 0 && bodyHa[l] >= BODY_HA;
+      const linkN = new Uint8Array(N), linkC = new Uint8Array(N), linkF = new Uint8Array(N), newLab = new Int32Array(N), candLab = new Int32Array(N), tLab = new Int32Array(N);
+      const dist = new Float64Array(N).fill(-1), heapI = new Int32Array(N), heapD = new Float64Array(N);
+      const dg = Math.hypot(dx,dy);
+      // Longest shortest path inside one component (double sweep, Dijkstra with 8 neighbours in metres).
+      const farthest = (start,lab,l,members) => {
+        for (const i of members) dist[i] = -1;
+        let hn = 0;
+        const push = (i,d) => { let k = hn++;while (k > 0) { const p = (k-1)>>1;if (heapD[p] <= d) break;heapI[k] = heapI[p];heapD[k] = heapD[p];k = p; } heapI[k] = i;heapD[k] = d; };
+        const pop = () => { const i = heapI[0], d = heapD[0], li = heapI[--hn], ld = heapD[hn];let k = 0;for (;;) { let c = 2*k+1;if (c >= hn) break;if (c+1 < hn && heapD[c+1] < heapD[c]) c++;if (heapD[c] >= ld) break;heapI[k] = heapI[c];heapD[k] = heapD[c];k = c; } heapI[k] = li;heapD[k] = ld;return [i,d]; };
+        dist[start] = 0;push(start,0);
+        let far = start, fd = 0;
+        while (hn) {
+          const [i,d] = pop();
+          if (d > dist[i] && dist[i] >= 0 && d !== dist[i]) continue;
+          if (d > fd) { fd = d;far = i; }
+          const x = i%W;
+          for (let j=-1;j<=1;j++) for (let k=-1;k<=1;k++) {
+            if (!j && !k) continue;
+            const yy = (i-x)/W+j, xx = x+k;
+            if (yy < 0 || yy >= H || xx < 0 || xx >= W) continue;
+            const n = yy*W+xx;
+            if (lab[n] !== l) continue;
+            const nd = d+(j && k ? dg : j ? dy : dx);
+            if (dist[n] < 0 || nd < dist[n]) { dist[n] = nd;push(n,nd); }
+          }
+        }
+        return [far,fd];
+      };
+      // Coalescence nodes, step by step: where the new construction of step t closes the gap between two footprints of
+      // step t-1 that each hold a settlement of the base year. The seam is the midline between the two footprints
+      // (labelled chamfer distance) where it runs inside the linked footprint of t; node pixels are the new pixels
+      // of t within SEAM metres of it. Each pixel keeps the step in which it became a node.
+      if (!nodeCache || nodeCache.key !== job.gridKey+'|'+a) {
+        let last = 0;for (let i=0;i<N;i++) if (grid[i] > last) last = grid[i];
+        const nodeStep = new Uint8Array(N), nodeJoin = new Uint8Array(N);
+        const lkP = new Uint8Array(N), labP = new Int32Array(N), lkT = new Uint8Array(N), labT = new Int32Array(N);
+        const cl = new Int32Array(N), cd = new Float32Array(N), seam = new Uint8Array(N);
+        const ddx = dx, ddy = dy, ddg = Math.hypot(dx,dy);
+        linkMask(i => grid[i] >= 1 && grid[i] <= a,lkP);
+        let nP = label(lkP,labP);
+        for (let t=a+1;t<=last;t++) {
+          // Footprints of t-1 that hold a significant base body.
+          const sigP = new Uint8Array(nP+1);
+          for (let i=0;i<N;i++) if (labP[i] && sig(bodyLab[i]) && grid[i] >= 1 && grid[i] <= a) sigP[labP[i]] = 1;
+          linkMask(i => grid[i] >= 1 && grid[i] <= t,lkT);
+          const nT = label(lkT,labT);
+          // Footprints of t that join two or more of them.
+          const firstP = new Int32Array(nT+1), cnt = new Uint8Array(nT+1), seen = new Map();
+          for (let i=0;i<N;i++) {
+            const pl = labP[i], tl = labT[i];
+            if (!pl || !tl || !sigP[pl] || !(grid[i] >= 1 && grid[i] < t)) continue;
+            if (!firstP[tl]) { firstP[tl] = pl;cnt[tl] = 1;continue; }
+            if (firstP[tl] === pl) continue;
+            const key = tl*1e7+pl;if (!seen.has(key)) { seen.set(key,1);cnt[tl] = Math.min(255,cnt[tl]+1); }
+          }
+          let any = false;for (let l=1;l<=nT;l++) if (cnt[l] >= 2) { any = true;break; }
+          if (any) {
+            // Labelled chamfer distance to the built pixels of the significant footprints of t-1.
+            for (let i=0;i<N;i++) { const pl = labP[i];if (pl && sigP[pl] && grid[i] >= 1 && grid[i] < t) { cl[i] = pl;cd[i] = 0; } else { cl[i] = 0;cd[i] = INF; } }
+            const relax = (i,n,w) => { if (cl[n] && cd[n]+w < cd[i]) { cd[i] = cd[n]+w;cl[i] = cl[n]; } };
+            for (let y=0;y<H;y++) for (let x=0;x<W;x++) { const i = y*W+x;if (x > 0) relax(i,i-1,ddx);if (y > 0) { relax(i,i-W,ddy);if (x > 0) relax(i,i-W-1,ddg);if (x < W-1) relax(i,i-W+1,ddg); } }
+            for (let y=H-1;y>=0;y--) for (let x=W-1;x>=0;x--) { const i = y*W+x;if (x < W-1) relax(i,i+1,ddx);if (y < H-1) { relax(i,i+W,ddy);if (x < W-1) relax(i,i+W+1,ddg);if (x > 0) relax(i,i+W-1,ddg); } }
+            // Seam: label changes between neighbours inside a joining footprint of t.
+            seam.fill(0);
+            for (let i=0;i<N;i++) {
+              const tl = labT[i];if (!tl || cnt[tl] < 2 || !cl[i]) continue;
+              const x = i%W;
+              if ((x < W-1 && cl[i+1] && cl[i+1] !== cl[i] && labT[i+1] === tl) || (i < N-W && cl[i+W] && cl[i+W] !== cl[i] && labT[i+W] === tl)) seam[i] = 1;
+            }
+            for (let i=0;i<N;i++) feat[i] = seam[i];
+            edt();
+            for (let i=0;i<N;i++) if (grid[i] === t && D[i] <= SEAM && labT[i] && cnt[labT[i]] >= 2) { nodeStep[i] = t;nodeJoin[i] = cnt[labT[i]]; }
+          }
+          lkP.set(lkT);labP.set(labT);nP = nT;
+        }
+        nodeCache = {key:job.gridKey+'|'+a,nodeStep,nodeJoin};
+      }
+      const {nodeStep,nodeJoin} = nodeCache;
+      const isNodePx = (i,t) => nodeStep[i] > 0 && nodeStep[i] <= t;
+      const II = new Float64Array((W+1)*(H+1)), hxW = Math.max(1,Math.round(250/dx)), hyW = Math.max(1,Math.round(250/dy));
+      const ts = job.ts, series = [];
+      let raster = null, lists = null;
+      for (const t of ts) {
+        // Chains of non-interior new built-up that are not nodes, linked; the footprint of t, linked.
+        // Local built-up share in a 500 m square: a ribbon along a road stays below 35 %, the rim of a compact extension does not.
+        for (let y=0;y<H;y++) { let row = 0;for (let x=0;x<W;x++) { const i = y*W+x;row += grid[i] >= 1 && grid[i] <= t ? 1 : 0;II[(y+1)*(W+1)+x+1] = II[y*(W+1)+x+1]+row; } }
+        const share = i => { const x = i%W, y = (i-x)/W, x0 = Math.max(0,x-hxW), x1 = Math.min(W,x+hxW+1), y0 = Math.max(0,y-hyW), y1 = Math.min(H,y+hyW+1);
+          return (II[y1*(W+1)+x1]-II[y0*(W+1)+x1]-II[y1*(W+1)+x0]+II[y0*(W+1)+x0])/((x1-x0)*(y1-y0)); };
+        linkMask(i => grid[i] > a && grid[i] <= t && firstInt[i] > t && !isNodePx(i,t) && share(i) < RIB_SHARE,linkC);
+        const nc = label(linkC,candLab);
+        linkMask(i => grid[i] >= 1 && grid[i] <= t,linkF);
+        label(linkF,tLab);
+        // Conurbations: footprints of t that hold two or more significant base bodies.
+        const tBodies = new Map();
+        for (let i=0;i<N;i++) { const b0 = bodyLab[i];if (!sig(b0) || !tLab[i]) continue;const tl = tLab[i];if (!tBodies.has(tl)) tBodies.set(tl,new Set());tBodies.get(tl).add(b0); }
+        const conurbOf = new Map();
+        let nConurb = 0, merged = 0;
+        for (const [tl,set] of tBodies) if (set.size >= 2) { nConurb++;merged += set.size;for (const b0 of set) conurbOf.set(b0,tl); }
+        // Corridors: geometry of each chain.
+        const area = new Float64Array(nc+1), built = new Float64Array(nc+1), members = Array.from({length:nc+1},() => []);
+        for (let i=0;i<N;i++) { const l = candLab[i];if (!l) continue;members[l].push(i);area[l] += pixA;if (grid[i] > a && grid[i] <= t && firstInt[i] > t && !isNodePx(i,t) && share(i) < RIB_SHARE) built[l] += pixA; }
+        const corr = new Uint8Array(nc+1), geo = [];
+        for (let l=1;l<=nc;l++) {
+          if (area[l] < COR_MIN_L*2*LINK*.5) continue;   // too small to be 300 m long
+          const [u] = farthest(members[l][0],candLab,l,members[l]);
+          const [, Lg] = farthest(u,candLab,l,members[l]);
+          const Lc = Lg, We = area[l]/Math.max(Lc,1);
+          if (Lc-2*LINK >= COR_MIN_L && We <= COR_MAX_W && Lc/We >= COR_RATIO) {
+            corr[l] = 1;
+            // Direction of the chain (principal axis of its built-up pixels), 0° north, 90° east.
+            let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0, m = 0, inDom = 0;
+            for (const i of members[l]) { if (!(grid[i] > a && grid[i] <= t) || isNodePx(i,t) || firstInt[i] <= t || share(i) >= RIB_SHARE) continue;const x = (i%W)*dx, y = -((i-i%W)/W)*dy;sx += x;sy += y;sxx += x*x;syy += y*y;sxy += x*y;m++;if (domain[i]) inDom++; }
+            const mx = sx/m, my = sy/m, cxx = sxx/m-mx*mx, cyy = syy/m-my*my, cxy = sxy/m-mx*my;
+            const ang = .5*Math.atan2(2*cxy,cxx-cyy);
+            const az = ((90-ang*180/Math.PI)%180+180)%180;
+            if (inDom) geo.push([Lc-2*LINK,Math.max(minPix,We-2*LINK),built[l]/1e4,az,mx/dx,-my/dy]);
+          }
+        }
+        // Classes for the new built-up of t, and statistics in the domain.
+        const st = {ha:{20:0,21:0,22:0,23:0},corridors:geo.length,corridorKm:geo.reduce((acc,g) => acc+g[0],0)/1000,nodes:0,conurbations:0,merged:0};
+        const out = t === job.b ? new Uint8Array(N) : null;
+        for (let i=0;i<N;i++) {
+          const c = grid[i];
+          if (c > a && c <= t) {
+            const k = isNodePx(i,t) ? 20 : corr[candLab[i]] && firstInt[i] > t && share(i) < RIB_SHARE ? 21 : firstInt[i] > t && firstSub[i] > t ? 22 : 23;
+            if (out) out[i] = k;
+            if (domain[i]) st.ha[k] += rowArea[(i-i%W)/W]/1e4;
+          } else if (out && c >= 1 && c <= a && conurbOf.has(bodyLab[i])) out[i] = 24;
+        }
+        // Node sites: connected groups of node pixels (8-neighbours, gaps up to 100 m bridged) reaching the domain.
+        linkMask(i => isNodePx(i,t),linkN);
+        const nsites = label(linkN,newLab);
+        const nodeIn = new Uint8Array(nsites+1);
+        for (let i=0;i<N;i++) if (newLab[i] && domain[i] && isNodePx(i,t)) nodeIn[newLab[i]] = 1;
+        for (let l=1;l<=nsites;l++) if (nodeIn[l]) st.nodes++;
+        // A conurbation counts when one of its bodies reaches the domain.
+        const conurbIn = new Set();
+        for (let i=0;i<N;i++) if (domain[i] && conurbOf.has(bodyLab[i])) conurbIn.add(conurbOf.get(bodyLab[i]));
+        st.conurbations = conurbIn.size;
+        for (const tl of conurbIn) st.merged += tBodies.get(tl).size;
+        series.push(st);
+        if (out) {
+          raster = out;
+          // Lists for the year on display: corridors, nodes and conurbations with the places inside their bodies.
+          const nodesL = [];
+          { const hx = new Float64Array(nsites+1), sxn = new Float64Array(nsites+1), syn = new Float64Array(nsites+1), mm = new Float64Array(nsites+1), jn = new Uint8Array(nsites+1), y0 = new Uint8Array(nsites+1).fill(255);
+            for (let i=0;i<N;i++) { const l = newLab[i];if (!l || !isNodePx(i,t)) continue;hx[l] += rowArea[(i-i%W)/W]/1e4;sxn[l] += i%W;syn[l] += (i-i%W)/W;mm[l]++;if (nodeJoin[i] > jn[l]) jn[l] = nodeJoin[i];if (nodeStep[i] < y0[l]) y0[l] = nodeStep[i]; }
+            for (let l=1;l<=nsites;l++) if (nodeIn[l]) nodesL.push([hx[l],jn[l],sxn[l]/mm[l],syn[l]/mm[l],y0[l]]); }
+          const conL = [];
+          for (const tl of conurbIn) {
+            const set = tBodies.get(tl), names = [];
+            for (const pl of job.places || []) { const i = pl[1]*W+pl[0];if (pl[0] >= 0 && pl[0] < W && pl[1] >= 0 && pl[1] < H && set.has(bodyLab[i])) names.push(pl[2]); }
+            let hb = 0;for (const b0 of set) hb += bodyHa[b0];
+            conL.push([set.size,hb,names]);
+          }
+          lists = {corridors:geo,nodes:nodesL,conurbations:conL};
+        }
+        if (job.progress) job.progress(series.length,ts.length);
+      }
+      return {out:raster || new Uint8Array(0),series,lists,ts};
+    };
     const baseStats = st => { for (let i=0;i<N;i++) if (zone[i] && domain[i]) st.base[zone[i]] += rowArea[(i-i%W)/W]/1e4; };
     const out = new Uint8Array(N), patches = [];
     if (job.mode === 'steps') {
@@ -2373,8 +2630,10 @@ function sprawlEngine() {
       prepare(job.n);
       mark(job.n);
       if (job.progress) job.progress(job.n,job.n);
+      stepsCache = {key:job.gridKey,firstSub:firstSub.slice(),firstInt:firstInt.slice()};
       return {out,patches,byStep,firstSub,firstUrb,firstInt};
     }
+    if (job.mode === 'corr') return corridors(job);
     const st = blank();
     prepare(job.a);
     baseStats(st);
@@ -2392,7 +2651,6 @@ const SPRAWL_MAX_PX = 12e6, SPRAWL_MARGIN_KM = .7;
 const SPRAWL_CLASSES = [
   {k:10,c:[79,140,255],t:L('Mbushje','Infill'),d:L('brenda hapësirës së brendshme të gjurmës urbane','inside the interior open space of the urban footprint'),sprawl:false},
   {k:11,c:[69,208,192],t:L('Zgjerim në skaj','Edge extension'),d:L('ngjitur me skajin, në hapësirën e jashtme','contiguous, in the exterior fringe'),sprawl:false},
-  {k:12,c:[255,176,0],t:L('Linear (shirit)','Linear (ribbon)'),d:L('shirit i gjatë e i ngushtë që shtrihet në hapësirë rurale','long narrow strip reaching into rural open space'),sprawl:true},
   {k:13,c:[255,77,109],t:L('Kërcim (leapfrog)','Leapfrog'),d:L('tërësisht në hapësirë rurale, larg zonave urbane','entirely in rural open space, away from urban areas'),sprawl:true},
 ];
 const SPRAWL_BASE = {1:[150,160,178],2:[98,108,124],3:[60,68,82]};
@@ -2408,7 +2666,7 @@ function sprawlNow(r,i,t) {
 state.sprawlShow = 'now';   // 'now' class at the year on display · 'class' class when built · 'year' this year's additions only
 let sprawlRes = null, sprawlPending = null, sprawlTimer = 0, sprawlJob = 0, sprawlWorker = null, workerGridKey = null, sprawlWaiters = [];
 const sprawlLocal = sprawlEngine();
-function sprawlRun(job) {
+function sprawlRun(job,onProgress=sprawlProgress) {
   // A Web Worker keeps the page responsive; if the page may not start one, the same code runs here.
   if (sprawlWorker === null) {
     try {
@@ -2420,7 +2678,7 @@ function sprawlRun(job) {
   return new Promise((resolve,reject) => {
     const onMsg = e => {
       if (e.data.id !== job.id) return;
-      if (e.data.progress != null) { sprawlProgress(e.data.progress);return; }
+      if (e.data.progress != null) { onProgress(e.data.progress);return; }
       sprawlWorker.removeEventListener('message',onMsg);
       if (e.data.error) reject(new Error(e.data.error));else resolve(e.data);
     };
@@ -2641,7 +2899,7 @@ function sprawlSummary() {
 }
 function renderSprawlPanel(busy=false) {
   $('sprawlBox').hidden = !state.sprawl;
-  $('sprawlLegend').hidden = !state.sprawl;
+  sprawlLegendHtml();
   if (!state.sprawl) return;
   const r = sprawlRes, current = sprawlCurrent(), steps = period().steps, i = state.index;
   $('sprawlMode').value = state.sprawlMode;
@@ -2660,10 +2918,10 @@ function renderSprawlPanel(busy=false) {
   const baseTot = s.base[1]+s.base[2]+s.base[3];
   const modeNote = state.sprawlMode === 'steps' ? L(`Çdo hap krahasohet me gjurmën e hapit paraprak; shumat janë për ${steps[0].short}–${steps[i].short}.`,`Each step is compared with the footprint of the step before; totals cover ${steps[0].short}–${steps[i].short}.`) : L(`Krahasim me dy data: gjurma e ${steps[0].short} kundrejt ndërtimit të ri deri në ${steps[i].short}.`,`Two-date comparison: the ${steps[0].short} footprint against new construction up to ${steps[i].short}.`);
   $('sprawlBody').innerHTML = `
-    <div class="sprawl-kpi"><strong>${s.share == null ? '—' : fmt1(s.share)+'%'}</strong><span>${L(`e ndërtimit të ri ${steps[0].short}–${steps[i].short} është <b>zgjerim i shpërndarë</b> (linear + kërcim): ${fmtHa(s.spr)} nga ${fmtHa(s.total)} ha`,`of new construction ${steps[0].short}–${steps[i].short} is <b>sprawl</b> (linear + leapfrog): ${fmtHa(s.spr)} of ${fmtHa(s.total)} ha`)}</span></div>
+    <div class="sprawl-kpi"><strong>${s.share == null ? '—' : fmt1(s.share)+'%'}</strong><span>${L(`e ndërtimit të ri ${steps[0].short}–${steps[i].short} u ndërtua si <b>kërcim</b> (zhvillim i shpërndarë): ${fmtHa(s.spr)} nga ${fmtHa(s.total)} ha`,`of new construction ${steps[0].short}–${steps[i].short} was built as <b>leapfrog</b> (dispersed development): ${fmtHa(s.spr)} of ${fmtHa(s.total)} ha`)}</span></div>
     <div class="sprawl-bar">${bar}</div>
     <table class="sprawl-table"><thead><tr><th>${L('Klasa','Class')}</th><th>ha</th><th>%</th><th>${L('Copa','Patches')}</th><th>${L('ha/copë','ha/patch')}</th></tr></thead><tbody>
-    ${s.rows.map(c => `<tr title="${esc(c.d)}"><td class="l"><i style="background:rgb(${c.c.join(',')})"></i>${esc(c.t)} <small>${c.sprawl ? 'sprawl' : ''}</small></td><td>${fmtHa(c.ha)}</td><td>${fmt1(c.pct)}</td><td>${number(c.n)}</td><td>${c.n ? fmt2(c.mean) : '—'}</td></tr>`).join('')}
+    ${s.rows.map(c => `<tr title="${esc(c.d)}"><td class="l"><i style="background:rgb(${c.c.join(',')})"></i>${esc(c.t)} </td><td>${fmtHa(c.ha)}</td><td>${fmt1(c.pct)}</td><td>${number(c.n)}</td><td>${c.n ? fmt2(c.mean) : '—'}</td></tr>`).join('')}
     <tr class="sum"><td class="l">${L('Gjithsej','Total')}</td><td>${fmtHa(s.total)}</td><td>100</td><td>${number(s.patches)}</td><td>${s.patches ? fmt2(s.total/s.patches) : '—'}</td></tr></tbody></table>
     <p class="note">${L(`Ndërtimi në ${steps[0].label.toLowerCase()} sipas dendësisë në rrethin 1 km²: urban ${fmtHa(s.base[1])} ha (${fmt1(baseTot ? s.base[1]/baseTot*100 : 0)}%), suburban ${fmtHa(s.base[2])} ha (${fmt1(baseTot ? s.base[2]/baseTot*100 : 0)}%), rural ${fmtHa(s.base[3])} ha (${fmt1(baseTot ? s.base[3]/baseTot*100 : 0)}%).`,`Built-up in ${steps[0].label} by density in the 1 km² circle: urban ${fmtHa(s.base[1])} ha (${fmt1(baseTot ? s.base[1]/baseTot*100 : 0)}%), suburban ${fmtHa(s.base[2])} ha (${fmt1(baseTot ? s.base[2]/baseTot*100 : 0)}%), rural ${fmtHa(s.base[3])} ha (${fmt1(baseTot ? s.base[3]/baseTot*100 : 0)}%).`)}</p>
     ${sprawlTimeHtml(s)}
@@ -2674,25 +2932,25 @@ function sprawlTimeHtml(s) {
   const r = sprawlRes, steps = period().steps, i = state.index;
   if (r.mode !== 'steps') return `<p class="note">${L('Ndryshimi i paternave në kohë shfaqet në mënyrën «Hap pas hapi».','Change over time is shown in the “Step by step” mode.')}</p>`;
   if (i < 1) return '';
-  const classKeys = [13,12,11,10], col = {};
+  const classKeys = [13,11,10], col = {};
   for (const c of SPRAWL_CLASSES) col[c.k] = c;
   const sum = o => o[10]+o[11]+o[12]+o[13];
   const nowTot = sum(r.now), nowSpr = r.now[12]+r.now[13];
   const sprBuilt = sum(r.matrix[12])+sum(r.matrix[13]), sprIn = r.matrix[12][10]+r.matrix[13][10], sprEdge = r.matrix[12][11]+r.matrix[13][11], sprStill = sprBuilt-sprIn-sprEdge;
   const half = Math.max(1,Math.floor(r.series.length/2)), sh = list => { const t = list.reduce((acc,x) => acc+sum(x),0);return t ? list.reduce((acc,x) => acc+x[12]+x[13],0)/t*100 : null; };
   const early = i > 1 ? sh(r.series.slice(0,half)) : null, late = i > 1 ? sh(r.series.slice(half)) : null;
-  const trend = early != null && late != null ? L(`Pjesa e sprawl në ndërtimin e ri: ${fmt1(early)}% në ${steps[1].short}–${steps[half].short}, ${fmt1(late)}% në ${steps[half+1].short}–${steps[i].short}.`,`Sprawl share of new construction: ${fmt1(early)}% in ${steps[1].short}–${steps[half].short}, ${fmt1(late)}% in ${steps[half+1].short}–${steps[i].short}.`) : '';
+  const trend = early != null && late != null ? L(`Pjesa e kërcimeve në ndërtimin e ri: ${fmt1(early)}% në ${steps[1].short}–${steps[half].short}, ${fmt1(late)}% në ${steps[half+1].short}–${steps[i].short}.`,`Leapfrog share of new construction: ${fmt1(early)}% in ${steps[1].short}–${steps[half].short}, ${fmt1(late)}% in ${steps[half+1].short}–${steps[i].short}.`) : '';
   const pc = v => sprBuilt ? fmt1(v/sprBuilt*100) : '—';
-  const fate = sprBuilt ? L(`Nga ${fmtHa(sprBuilt)} ha të ndërtuara si kërcim ose shirit në ${steps[1].short}–${steps[i].short}, në ${steps[i].short} <b>${pc(sprIn)}%</b> janë tashmë brenda gjurmës (mbushje), <b>${pc(sprEdge)}%</b> në skaj dhe <b>${pc(sprStill)}%</b> mbeten sprawl.`,`Of ${fmtHa(sprBuilt)} ha built as leapfrog or ribbon in ${steps[1].short}–${steps[i].short}, by ${steps[i].short} <b>${pc(sprIn)}%</b> is already inside the footprint (infill), <b>${pc(sprEdge)}%</b> at the edge and <b>${pc(sprStill)}%</b> is still sprawl.`) : '';
+  const fate = sprBuilt ? L(`Nga ${fmtHa(sprBuilt)} ha të ndërtuara si kërcim në ${steps[1].short}–${steps[i].short}, në ${steps[i].short} <b>${pc(sprIn)}%</b> janë tashmë brenda gjurmës (mbushje), <b>${pc(sprEdge)}%</b> në skaj dhe <b>${pc(sprStill)}%</b> mbeten sprawl.`,`Of ${fmtHa(sprBuilt)} ha built as leapfrog in ${steps[1].short}–${steps[i].short}, by ${steps[i].short} <b>${pc(sprIn)}%</b> is already inside the footprint (infill), <b>${pc(sprEdge)}%</b> at the edge and <b>${pc(sprStill)}%</b> is still dispersed.`) : '';
   const row = c => { const m = r.matrix[c.k], t = sum(m);return `<tr><td class="l"><i style="background:rgb(${c.c.join(',')})"></i>${esc(c.t)}</td>${[10,11].map(k => `<td>${t ? fmt1(m[k]/t*100) : '—'}</td>`).join('')}<td>${t ? fmt1((m[12]+m[13])/t*100) : '—'}</td><td>${fmtHa(t)}</td></tr>`; };
   return `<h4 class="sprawl-sub">${L('Si ndryshojnë paternat në kohë','How the patterns change over time')}</h4>
-    <p class="note">${L(`Klasa aktuale në ${steps[i].short}: sprawl <b>${nowTot ? fmt1(nowSpr/nowTot*100) : '—'}%</b> (${fmtHa(nowSpr)} ha), skaj ${nowTot ? fmt1(r.now[11]/nowTot*100) : '—'}%, mbushje ${nowTot ? fmt1(r.now[10]/nowTot*100) : '—'}% e ndërtimit të ri. Kur u ndërtua, sprawl ishte ${s.share == null ? '—' : fmt1(s.share)}%.`,`Current class in ${steps[i].short}: sprawl <b>${nowTot ? fmt1(nowSpr/nowTot*100) : '—'}%</b> (${fmtHa(nowSpr)} ha), edge ${nowTot ? fmt1(r.now[11]/nowTot*100) : '—'}%, infill ${nowTot ? fmt1(r.now[10]/nowTot*100) : '—'}% of new construction. When built, sprawl was ${s.share == null ? '—' : fmt1(s.share)}%.`)} ${trend}</p>
+    <p class="note">${L(`Klasa aktuale në ${steps[i].short}: kërcim <b>${nowTot ? fmt1(nowSpr/nowTot*100) : '—'}%</b> (${fmtHa(nowSpr)} ha), skaj ${nowTot ? fmt1(r.now[11]/nowTot*100) : '—'}%, mbushje ${nowTot ? fmt1(r.now[10]/nowTot*100) : '—'}% e ndërtimit të ri. Kur u ndërtua, kërcimet ishin ${s.share == null ? '—' : fmt1(s.share)}%.`,`Current class in ${steps[i].short}: leapfrog <b>${nowTot ? fmt1(nowSpr/nowTot*100) : '—'}%</b> (${fmtHa(nowSpr)} ha), edge ${nowTot ? fmt1(r.now[11]/nowTot*100) : '—'}%, infill ${nowTot ? fmt1(r.now[10]/nowTot*100) : '—'}% of new construction. When built, leapfrog was ${s.share == null ? '—' : fmt1(s.share)}%.`)} ${trend}</p>
     ${i > 1 ? `<div class="sprawl-chart-title">${L('Përbërja e ndërtimit të ri të çdo viti (klasa kur u ndërtua)','Mix of each year\'s new construction (class when built)')}</div>
     ${sprawlStack(r.series,classKeys,k => col[k].c,k => col[k].t,'ha')}` : ''}
     <p class="note">${fate}</p>
-    ${i > 1 ? `<div class="sprawl-chart-title">${L(`Kërcimet dhe shiritat sipas vitit të ndërtimit: klasa në ${steps[i].short}`,`Leapfrog and ribbon development by year built: class in ${steps[i].short}`)}</div>
+    ${i > 1 ? `<div class="sprawl-chart-title">${L(`Kërcimet sipas vitit të ndërtimit: klasa në ${steps[i].short}`,`Leapfrog by year built: class in ${steps[i].short}`)}</div>
     ${sprawlStack(r.byBuild,classKeys,k => col[k].c,k => col[k].t,'ha')}` : ''}
-    <table class="sprawl-table"><thead><tr><th>${L(`Kur u ndërtua → klasa në ${steps[i].short}`,`When built → class in ${steps[i].short}`)}</th><th>${L('mbushje %','infill %')}</th><th>${L('skaj %','edge %')}</th><th>sprawl %</th><th>ha</th></tr></thead><tbody>${SPRAWL_CLASSES.slice().reverse().map(row).join('')}</tbody></table>`;
+    <table class="sprawl-table"><thead><tr><th>${L(`Kur u ndërtua → klasa në ${steps[i].short}`,`When built → class in ${steps[i].short}`)}</th><th>${L('mbushje %','infill %')}</th><th>${L('skaj %','edge %')}</th><th>${L('kërcim %','leapfrog %')}</th><th>ha</th></tr></thead><tbody>${SPRAWL_CLASSES.slice().reverse().map(row).join('')}</tbody></table>`;
 }
 function exportSprawlTimeCsv() {
   const r = sprawlRes;
@@ -2722,20 +2980,27 @@ function exportSprawlCsv() {
   const slug = normalize(state.aoi ? state.aoi.name : state.name).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'zona';
   download(new Blob(['﻿'+[head,...rows].map(r => r.map(q).join(',')).join('\n')],{type:'text/csv;charset=utf-8'}),`${L('sprawl-copat','sprawl-patches')}-${slug}-${state.period}-${steps[0].short}-${steps[state.index].short}.csv`);
 }
-function setSprawl(on) {
-  state.sprawl = on;
-  $('toggleSprawl').setAttribute('aria-pressed',String(on));
+// Map views: growth over time · forms of expansion (infill, edge, leapfrog) · corridors and nodes.
+state.mapView = 'time';
+function setMapView(v,repaint=true) {
+  state.mapView = v;
+  state.sprawl = v === 'forms';
+  document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-selected',String(b.dataset.view === v)));
   renderSprawlPanel();
-  if (on) scheduleSprawl(true);
-  if (view) { paint(true);if (sample) updateHash(); }
+  renderCorrPanel();
+  if (v === 'forms') scheduleSprawl(true);
+  if (v === 'corr') scheduleCorr(true);
+  if (repaint && view) { paint(true);if (sample) updateHash(); }
 }
-$('toggleSprawl').onclick = () => setSprawl(!state.sprawl);
+document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setMapView(b.dataset.view));
 $('sprawlCsv').onclick = exportSprawlCsv;
 $('sprawlTimeCsv').onclick = exportSprawlTimeCsv;
 $('sprawlShow').onchange = () => { state.sprawlShow = $('sprawlShow').value;sprawlLegendHtml();if (sprawlRes) sprawlRes.viewKey = null;sprawlView();renderSprawlPanel();paint(true);if (sample) updateHash(); };
 $('sprawlMode').onchange = () => { state.sprawlMode = $('sprawlMode').value;sprawlLegendHtml();renderSprawlPanel();scheduleSprawl(true);paint(true);if (sample) updateHash(); };
 function sprawlLegendHtml() {
   const sw = (c,t,cls='') => `<span class="${cls}"><i style="background:rgb(${c.join(',')})"></i>${esc(t)}</span>`;
+  $('sprawlLegend').hidden = state.mapView === 'time';
+  if (state.mapView === 'corr') { $('sprawlLegend').innerHTML = CORR_CLASSES.map(c => sw(c.c,c.t)).join('')+sw(CORR_CONURB,L('vendbanime të bashkuara (konurbacion)','joined settlements (conurbation)'),'base');return; }
   const show = state.sprawlMode === 'steps' ? state.sprawlShow : 'class';
   $('sprawlLegend').innerHTML = (show === 'now' ? `<b>${L('Klasa në vitin e zgjedhur:','Class in the chosen year:')}</b>` : show === 'class' && state.sprawlMode === 'steps' ? `<b>${L('Klasa kur u ndërtua:','Class when built:')}</b>` : '')
     +(show === 'year' ? `<b>${L('Shtesat e këtij viti:','This year\'s additions:')}</b>` : '')+SPRAWL_CLASSES.map(c => sw(c.c,c.t)).join('')+(show === 'year' ? sw([70,82,102],L('vitet e mëparshme','earlier years'),'base') : '')
@@ -2743,9 +3008,165 @@ function sprawlLegendHtml() {
 }
 sprawlLegendHtml();
 
+// ---------- Corridors, coalescence nodes and conurbations (third map view) ----------
+const CORR_CLASSES = [
+  {k:21,c:[255,176,0],t:L('Korridor linear','Linear corridor'),d:L('zinxhir ndërtimesh (≤ 100 m larg njëri-tjetrit) përgjatë një boshti, ≥ 300 m','chain of buildings (≤ 100 m apart) along an axis, ≥ 300 m')},
+  {k:20,c:[214,72,190],t:L('Nyje bashkimi','Coalescence node'),d:L('ndërtim i ri që lidh dy ose më shumë vendbanime','new construction joining two or more settlements')},
+  {k:22,c:[255,77,109],t:L('Zhvillim i izoluar','Isolated development'),d:L('jashtë trupit të vendbanimit, pa drejtim korridori','outside the settlement body, with no corridor direction')},
+  {k:23,c:[66,120,142],t:L('Kompakt (skaj, mbushje)','Compact (edge, infill)'),d:L('pjesë e trupit të vendbanimit','part of the settlement body')},
+];
+const CORR_CONURB = [168,150,230];
+let corrRes = null, corrPending = null, corrTimer = 0, corrJob = 0, corrWaiters = [];
+const corrKey = () => { const w = sprawlWindow();return w && `${w.gridKey}|corr|${baseOff()}|${sprawlDomainSig()}`; };
+const corrCurrent = () => !!corrRes && !corrRes.error && !corrRes.tooBig && corrRes.key === corrKey() && corrRes.b === baseOff()+state.index+1;
+function scheduleCorr(now=false) {
+  if (state.mapView !== 'corr' || !sample) return;
+  clearTimeout(corrTimer);
+  corrTimer = setTimeout(computeCorr,now ? 0 : 160);
+}
+function corrSettle() { if (!corrPending) { const list = corrWaiters;corrWaiters = [];list.forEach(f => f()); } }
+function corrReady() {
+  if (state.mapView !== 'corr' || !sample || state.index === 0) return Promise.resolve();
+  if (corrCurrent()) return Promise.resolve();
+  return new Promise(resolve => { corrWaiters.push(resolve);scheduleCorr(true); });
+}
+function corrProgress(p) {
+  if (state.mapView !== 'corr') return;
+  $('corrBody').innerHTML = `<p class="note sprawl-busy">${L('Duke gjetur korridoret, nyjet dhe konurbacionet në rezolucionin burimor…','Finding corridors, nodes and conurbations at the source resolution…')} ${p ? Math.round(p*100)+'%' : ''}</p><div class="sprawl-progress"><i style="width:${(p*100).toFixed(0)}%"></i></div>`;
+}
+async function computeCorr() {
+  const key = corrKey();
+  if (!key || state.mapView !== 'corr') return;
+  const a = baseOff()+1, b = baseOff()+state.index+1, pend = key+'#'+b;
+  if (state.index === 0 || corrCurrent()) { renderCorrPanel();corrSettle();return; }
+  if (corrPending === pend) return;
+  const w = sprawlWindow();
+  if (w.tooBig) { corrRes = {key,b,tooBig:true,w};renderCorrPanel();paint(true);corrSettle();return; }
+  corrPending = pend;
+  const id = ++corrJob;
+  corrProgress(0);
+  try {
+    const n = manifest.periods[state.period].steps.length, haveSeries = corrRes?.key === key && corrRes.series;
+    const ts = haveSeries ? [b] : Array.from({length:n-a},(_,k) => a+1+k);
+    const domain = corrRes?.key === key && corrRes.domain ? corrRes.domain : sprawlDomain(w);
+    const rowArea = new Float64Array(w.H);
+    for (let y=0;y<w.H;y++) { const lat = w.north-(y+.5)*w.dlat;rowArea[y] = w.dlon*mPerDegLon(lat)*w.dlat*mPerDegLat(lat); }
+    const pl = places.filter(p => p.lat < w.north && p.lat > w.south && p.lon > w.west && p.lon < w.east)
+      .sort((p,q) => (q.population || 0)-(p.population || 0)).map(p => [Math.floor((p.lon-w.west)/w.dlon),Math.floor((w.north-p.lat)/w.dlat),p.name]);
+    const job = {id,mode:'corr',n,gridKey:w.gridKey,W:w.W,H:w.H,a,b,ts,dx:w.dx,dy:w.dy,tracker:w.tracker,domain:domain.slice(),rowArea,places:pl};
+    const grid = sprawlRes?.gridKey === w.gridKey && sprawlRes.grid ? sprawlRes.grid : corrRes?.w?.gridKey === w.gridKey && corrRes.grid ? corrRes.grid : await sprawlGrid(w);
+    if (workerGridKey !== w.gridKey || !sprawlWorker) { job.grid = grid.slice();workerGridKey = w.gridKey; }
+    if (id !== corrJob) return;
+    const t0 = performance.now(), r = await sprawlRun(job,corrProgress);
+    if (id !== corrJob) return;
+    const series = haveSeries ? corrRes.series : {};
+    if (!haveSeries) r.ts.forEach((t,k) => { series[t] = r.series[k]; });
+    else series[b] = r.series[0];
+    corrRes = {key,b,w,grid,domain,series,out:r.out,lists:r.lists,ms:performance.now()-t0,a};
+    corrRes.overlay = corrOverlay(corrRes);
+  } catch(error) {
+    console.error(error);
+    if (String(error.message) === 'grid') { workerGridKey = null;corrPending = null;return computeCorr(); }
+    corrRes = {key,b,error:error.message};
+  } finally { if (id === corrJob) corrPending = null; }
+  renderCorrPanel();
+  paint(true);
+  corrSettle();
+}
+function corrOverlay(r) {
+  const w = r.w, cv = document.createElement('canvas');
+  cv.width = w.W;cv.height = w.H;
+  const ctx = cv.getContext('2d'), img = ctx.createImageData(w.W,w.H), px = img.data, colors = {24:CORR_CONURB};
+  for (const c of CORR_CLASSES) colors[c.k] = c.c;
+  for (let i=0;i<r.out.length;i++) {
+    const c = colors[r.out[i]];
+    if (!c) continue;
+    px[i*4] = c[0];px[i*4+1] = c[1];px[i*4+2] = c[2];px[i*4+3] = r.domain[i] ? 255 : 70;
+  }
+  ctx.putImageData(img,0,0);
+  return cv;
+}
+function drawCorr() {
+  const r = corrRes;
+  if (state.mapView !== 'corr' || !corrCurrent() || !r.overlay) return;
+  const w = r.w, kx = view.size/(view.east-view.west), ky = view.size/(view.north-view.south);
+  context.save();
+  context.beginPath();context.rect(view.x,view.y,view.size,view.size);context.clip();
+  context.imageSmoothingEnabled = (w.east-w.west)*kx < w.W;
+  context.drawImage(r.overlay,view.x+(w.west-view.west)*kx,view.y+(view.north-w.north)*ky,(w.east-w.west)*kx,(w.north-w.south)*ky);
+  context.restore();
+}
+const AZ_NAMES = () => [[0,L('V–J','N–S')],[45,L('VL–JP','NE–SW')],[90,L('L–P','E–W')],[135,L('VP–JL','NW–SE')],[180,L('V–J','N–S')]];
+const azName = az => AZ_NAMES().reduce((best,[d,n]) => Math.abs(az-d) < Math.abs(az-best[0]) ? [d,n] : best,[999,''])[1];
+function corrSummary() {
+  if (!corrCurrent()) return null;
+  const r = corrRes, st = r.series[r.b];
+  if (!st) return null;
+  const tot = st.ha[20]+st.ha[21]+st.ha[22]+st.ha[23];
+  return {st,tot,rows:CORR_CLASSES.map(c => ({...c,ha:st.ha[c.k],pct:tot ? st.ha[c.k]/tot*100 : 0})),lists:r.lists,res:Math.round((r.w.dx+r.w.dy)/2)};
+}
+function corrBars(values,labels,color,unit,fmt=fmt1) {
+  const n = values.length, W = 300, H = 92, m = {l:28,r:6,t:8,b:20}, pw = W-m.l-m.r, ph = H-m.t-m.b, slot = pw/Math.max(1,n), bw = Math.max(1.5,slot*.7);
+  const max = niceMax(Math.max(...values,1e-6)*1.1), steps = period().steps;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="sprawl-chart" role="img">`;
+  for (const t of [0,max/2,max]) { const y = m.t+ph-t/max*ph;svg += `<line x1="${m.l}" x2="${W-m.r}" y1="${y}" y2="${y}" stroke="#1e2a3a"/><text x="${m.l-4}" y="${y+3}" text-anchor="end" font-size="8" fill="#7f93ab">${fmt(t)}</text>`; }
+  values.forEach((v,j) => { const h = v/max*ph, x = m.l+j*slot+(slot-bw)/2;svg += `<rect x="${x.toFixed(1)}" y="${(m.t+ph-h).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(v > 0 ? 1 : 0,h).toFixed(1)}" fill="rgb(${color.join(',')})"><title>${esc(labels[j]+': '+fmt(v)+' '+unit)}</title></rect>`; });
+  const ticks = labels.map((_,j) => j).filter(j => n <= 12 || Number(labels[j].replace(/\D/g,'').slice(-4))%5 === 0 || j === n-1);
+  for (const j of ticks) svg += `<text x="${(m.l+j*slot+slot/2).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="8" fill="#7f93ab">${esc(steps[j+1]?.short || '')}</text>`;
+  return svg+'</svg>';
+}
+function renderCorrPanel() {
+  $('corrBox').hidden = state.mapView !== 'corr';
+  if (state.mapView !== 'corr') return;
+  const r = corrRes, steps = period().steps, i = state.index;
+  $('corrMeta').textContent = `${steps[0].short} → ${steps[i].short}`;
+  if (i === 0) { $('corrBody').innerHTML = `<p class="note">${L('Zgjidhni një vit pas vitit bazë.','Choose a year after the base year.')}</p>`;return; }
+  if (r?.tooBig && r.key === corrKey()) { $('corrBody').innerHTML = `<p class="note">${L('Zona është shumë e madhe për analizë në rezolucionin burimor. Zvogëloni mbulimin ose zgjidhni një zonë më të vogël.','The area is too large for analysis at the source resolution. Reduce the extent or choose a smaller zone.')}</p>`;return; }
+  if (r?.error && r.key === corrKey()) { $('corrBody').innerHTML = `<p class="note">${L('Analiza dështoi: ','The analysis failed: ')}${esc(r.error)}</p>`;return; }
+  const s = corrSummary();
+  if (!s) { corrProgress(0);if (!corrPending) scheduleCorr(true);return; }
+  const st = s.st, a = r.a, ts = Object.keys(r.series).map(Number).filter(t => t > a && t <= r.b).sort((x,y) => x-y);
+  const labels = ts.map(t => steps[t-a].label);
+  const cons = (s.lists?.conurbations || []).slice().sort((x,y) => y[0]-x[0]);
+  const cors = (s.lists?.corridors || []).slice().sort((x,y) => y[0]-x[0]);
+  const nods = (s.lists?.nodes || []).slice().sort((x,y) => y[0]-x[0]), nodeYear = n => steps[n[4]-a]?.short || '';
+  const bar = s.rows.map(c => `<i style="width:${c.pct.toFixed(2)}%;background:rgb(${c.c.join(',')})" title="${esc(c.t)}: ${fmt1(c.pct)}%"></i>`).join('');
+  $('corrBody').innerHTML = `
+    <div class="corr-kpis">
+      <div><strong>${number(st.corridors)}</strong><span>${L('korridore','corridors')} · ${fmt1(st.corridorKm)} km</span></div>
+      <div><strong>${number(st.nodes)}</strong><span>${L('nyje bashkimi','coalescence nodes')}</span></div>
+      <div><strong>${number(st.conurbations)}</strong><span>${L(`konurbacione · ${number(st.merged)} vendbanime të bashkuara`,`conurbations · ${number(st.merged)} settlements joined`)}</span></div>
+    </div>
+    <div class="sprawl-bar">${bar}</div>
+    <table class="sprawl-table"><thead><tr><th>${L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}`)}</th><th>ha</th><th>%</th></tr></thead><tbody>
+    ${s.rows.map(c => `<tr title="${esc(c.d)}"><td class="l"><i style="background:rgb(${c.c.join(',')})"></i>${esc(c.t)}</td><td>${fmtHa(c.ha)}</td><td>${fmt1(c.pct)}</td></tr>`).join('')}
+    <tr class="sum"><td class="l">${L('Gjithsej','Total')}</td><td>${fmtHa(s.tot)}</td><td>100</td></tr></tbody></table>
+    ${ts.length > 1 ? `<div class="sprawl-chart-title">${L('Gjatësia e korridoreve në kohë (km)','Corridor length over time (km)')}</div>${corrBars(ts.map(t => r.series[t].corridorKm),labels,[255,176,0],'km')}
+    <div class="sprawl-chart-title">${L('Vendbanime të bashkuara në konurbacione','Settlements joined in conurbations')}</div>${corrBars(ts.map(t => r.series[t].merged),labels,CORR_CONURB,'',v => number(Math.round(v)))}` : ''}
+    ${cons.length ? `<h4 class="sprawl-sub">${L('Konurbacionet','Conurbations')}</h4><ul class="corr-list">${cons.slice(0,6).map(c => `<li><b>${number(c[0])} ${L('vendbanime','settlements')}</b> · ${fmtHa(c[1])} ha${c[2].length ? ' · '+esc(c[2].slice(0,5).join(', '))+(c[2].length > 5 ? '…' : '') : ''}</li>`).join('')}</ul>` : ''}
+    ${nods.length ? `<h4 class="sprawl-sub">${L('Nyjet më të mëdha të bashkimit','Largest coalescence nodes')}</h4><ul class="corr-list">${nods.slice(0,5).map(n => `<li><b>${fmtHa(n[0])} ha</b> · ${L('formuar në','formed in')} ${esc(nodeYear(n))} · ${L(`bashkon ${n[1]} gjurmë`,`joins ${n[1]} footprints`)}</li>`).join('')}</ul>` : ''}
+    ${cors.length ? `<h4 class="sprawl-sub">${L('Korridoret më të gjata','Longest corridors')}</h4><ul class="corr-list">${cors.slice(0,5).map(c => `<li><b>${number(Math.round(c[0]/10)*10)} m</b> · ${L('drejtimi','direction')} ${azName(c[3])} (${Math.round(c[3])}°) · ${L('gjerësia','width')} ~${number(Math.round(c[1]))} m · ${fmt2(c[2])} ha</li>`).join('')}</ul>` : ''}
+    <p class="note">${L(`Rezolucioni: ${s.res} m (burimor) · ${number(Math.round(r.ms))} ms`,`Resolution: ${s.res} m (source) · ${number(Math.round(r.ms))} ms`)}</p>`;
+}
+function exportCorrCsv() {
+  const s = corrSummary();
+  if (!s) return;
+  const r = corrRes, w = r.w, steps = period().steps, i = state.index;
+  const ll = (x,y) => [(w.north-(y+.5)*w.dlat).toFixed(6),(w.west+(x+.5)*w.dlon).toFixed(6)];
+  const head = L(['lloji','gjatesia_m','gjeresia_m','ha','drejtimi_grade','drejtimi','vendbanime','lat','lon','vendbanimet','nga','deri'],['type','length_m','width_m','ha','direction_deg','direction','settlements','lat','lon','places','from','to']);
+  const rows = [];
+  for (const c of s.lists.corridors) rows.push([L('korridor','corridor'),Math.round(c[0]),Math.round(c[1]),c[2].toFixed(3),Math.round(c[3]),azName(c[3]),'',...ll(c[4],c[5]),'',steps[0].label,steps[i].label]);
+  for (const n of s.lists.nodes) rows.push([L('nyje','node'),'','',n[0].toFixed(3),'','',n[1],...ll(n[2],n[3]),'',steps[n[4]-r.a]?.label || steps[0].label,steps[i].label]);
+  for (const c of s.lists.conurbations) rows.push([L('konurbacion','conurbation'),'','',c[1].toFixed(2),'','',c[0],'','',c[2].join('; '),steps[0].label,steps[i].label]);
+  const q = v => /[",;\n]/.test(String(v)) ? '"'+String(v).replace(/"/g,'""')+'"' : String(v);
+  const slug = normalize(state.aoi ? state.aoi.name : state.name).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'zona';
+  download(new Blob(['﻿'+[head,...rows].map(x => x.map(q).join(',')).join('\n')],{type:'text/csv;charset=utf-8'}),`${L('korridoret-nyjet','corridors-nodes')}-${slug}-${state.period}-${steps[0].short}-${steps[i].short}.csv`);
+}
+$('corrCsv').onclick = exportCorrCsv;
+
 window.atlasExport = exportSvg;   // for testing from the console
 // Static page text, translated on load when the page is in English.
-const EN_STATIC = {"ATLASI URBAN":"URBAN ATLAS","5. Klasa aktuale: ndërtimi i mëparshëm rivlerësohet në gjurmën e vitit të zgjedhur. Pikseli bëhet mbushje kur është urban ose suburban dhe brenda 100 m nuk ka hapësirë të lirë të jashtme (skaj i jashtëm ose rurale); skaj kur është urban ose suburban, por ka të tillë afër; përndryshe mbetet në klasën kur u ndërtua. Kalimi shkon vetëm përpara (sprawl → skaj → mbushje), sepse WSF nuk heq ndërtime.":"5. Current class: earlier construction is re-evaluated in the footprint of the chosen year. A pixel becomes infill when it is urban or suburban with no exterior open space (exterior fringe or rural) within 100 m; edge when it is urban or suburban but has such space nearby; otherwise it keeps its class from when it was built. The change only goes forward (sprawl → edge → infill), because WSF never removes built-up land.","Klasën aktuale në vitin e zgjedhur":"Current class in the chosen year","Shfaq në hartë":"Show on map","Klasën kur u ndërtua":"Class when built","Vetëm shtesat e vitit":"This year's additions only","Statusin në vitin e zgjedhur":"Status in the chosen year","Shkarko CSV të ndryshimeve në kohë":"Download the change-over-time CSV","Krahasimi":"Comparison","Hap pas hapi: çdo vit me vitin paraprak":"Step by step: each year against the year before","Dy data: viti bazë me vitin e zgjedhur":"Two dates: base year against the chosen year","Klasifikimi bëhet në rezolucionin burimor të WSF (10 m Tracker, rreth 30 m Evolution), në një dritare që e kalon zonën me 700 m për kontekst. «Hap pas hapi» krahason ndërtimin e ri të çdo viti me gjurmën e vitit paraprak dhe i mbledh rezultatet nga viti bazë deri në vitin e zgjedhur; kështu ruhet radha kohore e rritjes. «Dy data» krahason gjurmën e vitit bazë me gjithë ndërtimin e ri deri në vitin e zgjedhur, si te Angel et al. (2010), ku intervalet janë rreth 10 vjet; në intervale të gjata copat e njëpasnjëshme bashkohen.":"The classification runs at the WSF source resolution (10 m Tracker, about 30 m Evolution), in a window that extends 700 m beyond the area for context. “Step by step” compares each year's new construction with the footprint of the year before and adds the results from the base year to the chosen year, which keeps the order in which growth happened. “Two dates” compares the base-year footprint with all new construction up to the chosen year, as in Angel et al. (2010), whose intervals are about 10 years; over long intervals successive patches merge.","4. Linear (shirit): copë zgjerimi ose kërcimi me gjerësi ≤ 100 m, gjatësi ≥ 250 m dhe gjatësi/gjerësi ≥ 4, që shtrihet të paktën për gjysmën e saj në hapësirë rurale. Gjerësia vlerësohet nga distanca mesatare deri te skaji i copës.":"4. Linear (ribbon): an extension or leapfrog patch at most 100 m wide, at least 250 m long, with length/width ≥ 4 and at least half of it in rural space. Width is estimated from the mean distance to the patch edge.","Klasifikimi i ndërtimit të ri: mbushje, zgjerim, linear, kërcim":"Classification of new construction: infill, extension, linear, leapfrog","Zgjerimi i shpërndarë":"Urban sprawl","(Urban Sprawl) ·":"·","Metoda e klasifikimit":"Classification method","Krahasohet ndërtimi i vitit bazë me atë të vitit të zgjedhur, në rezolucionin burimor të WSF (10 m Tracker, rreth 30 m Evolution), në një dritare që e kalon zonën me 700 m për kontekst.":"The built-up area of the base year is compared with that of the selected year, at the WSF source resolution (10 m Tracker, about 30 m Evolution), in a window that extends 700 m beyond the area for context.","1. Çdo piksel i ndërtuar i vitit bazë merr dendësinë e ndërtimit në rrethin 1 km² rreth tij: urban ≥ 50%, suburban 10–50%, rural < 10% (llogaritur në qeliza 30 m).":"1. Every built-up pixel of the base year gets the built-up share in the 1 km² circle around it: urban ≥ 50%, suburban 10–50%, rural < 10% (computed on 30 m cells).","2. Hapësira e lirë nën 100 m nga ndërtimi urban ose suburban është skaj (fringe); më larg është rurale. Hapësira rurale e rrethuar plotësisht deri në 200 ha është e kapur dhe i përket gjurmës urbane. Skaji nën 100 m nga hapësira rurale është i jashtëm; pjesa tjetër është e brendshme.":"2. Open space less than 100 m from urban or suburban built-up is fringe; farther away it is rural. Rural space fully enclosed and up to 200 ha is captured and belongs to the urban footprint. Fringe less than 100 m from rural space is exterior; the rest is interior.","3. Copat e ndërtimit të ri janë piksela të ri të lidhur (8 fqinjë; te Tracker bashkohen boshllëqet deri në 20 m). Mbushje: copa është tërësisht në hapësirën e brendshme. Kërcim: copa është tërësisht në hapësirën rurale. Zgjerim në skaj: të gjitha të tjerat.":"3. Patches of new construction are connected new pixels (8 neighbours; in Tracker gaps of up to 20 m are bridged). Infill: the patch lies entirely in interior space. Leapfrog: the patch lies entirely in rural space. Edge extension: all others.","4. Linear (shirit): copë zgjerimi ose kërcimi me gjatësi ≥ 250 m dhe gjatësi/gjerësi ≥ 4, që shtrihet të paktën për gjysmën e saj në hapësirë rurale. Gjerësia vlerësohet nga distanca mesatare deri te skaji i copës.":"4. Linear (ribbon): an extension or leapfrog patch at least 250 m long with length/width ≥ 4, at least half of it in rural space. Width is estimated from the mean distance to the patch edge.","Zgjerim i shpërndarë (sprawl) = linear + kërcim. Mbushja dhe zgjerimi në skaj nuk konsiderohen sprawl.":"Sprawl = linear + leapfrog. Infill and edge extension are not counted as sprawl.","Burimet: Angel, S., Parent, J. & Civco, D. L. (2010). The Fragmentation of Urban Footprints: Global Evidence of Sprawl, 1990–2000. Lincoln Institute of Land Policy. · Wilson, E. H., Hurd, J. D., Civco, D. L., Prisloe, M. P. & Arnold, C. (2003). Development of a geospatial model to quantify, describe and map urban growth. Remote Sensing of Environment, 86(3), 275–285.":"Sources: Angel, S., Parent, J. & Civco, D. L. (2010). The Fragmentation of Urban Footprints: Global Evidence of Sprawl, 1990–2000. Lincoln Institute of Land Policy. · Wilson, E. H., Hurd, J. D., Civco, D. L., Prisloe, M. P. & Arnold, C. (2003). Development of a geospatial model to quantify, describe and map urban growth. Remote Sensing of Environment, 86(3), 275–285.","Kufizime: pragjet e klasës lineare janë zgjedhje e këtij atlasi (Wilson et al. nuk japin vlera numerike të njëjta); rrugët nuk përdoren drejtpërdrejt. Ndërtimi jashtë kufirit të shtetit nuk është në të dhëna, prandaj dendësia afër kufirit mund të nënvlerësohet.":"Limitations: the thresholds of the linear class are this atlas's choice (Wilson et al. do not give the same numbers); roads are not used directly. Built-up land beyond the national border is not in the data, so density near the border may be underestimated.","Shkarko CSV të copave":"Download the patches CSV","Përkufizim":"Definition","Zgjerimi i shpërndarë urban":"Urban sprawl","(Urban Sprawl)":"(Zgjerimi i shpërndarë urban)","Zgjerimi i shpërndarë urban (Urban Sprawl) është zhvillimi hapësinor i shpërndarë, me dendësi të ulët ndërtimi, në periferi të zonave urbane, i karakterizuar nga fragmentimi i strukturës urbane, shtrirja lineare e ndërtimeve përgjatë korridoreve të transportit dhe varësia e lartë nga përdorimi i automjeteve.":"Urban sprawl is dispersed, low-density spatial development on the periphery of urban areas, characterised by a fragmented urban structure, linear development along transport corridors and a high dependence on car use.","Burimi: McCann, E. J. (2009). Sprawl. Në The Dictionary of Human Geography, botimi i pestë, Wiley-Blackwell, f. 719.":"Source: McCann, E. J. (2009). Sprawl. In The Dictionary of Human Geography, 5th edition, Wiley-Blackwell, p. 719.","Shënim: Ky është përkthim dhe përmbledhje në shqip e përkufizimit të librit, jo citim fjalë për fjalë.":"Note: this is a summary of the book's definition, not a verbatim quotation.","Në këtë atlas, kategoria «Shpërndarje» është treguesi sasior i këtij procesi: popullsia rritet, por zona e ndërtuar rritet më shpejt (SDG 11.3.1, LCRPGR > 1). Dendësia, fragmentimi dhe shtrirja përgjatë rrugëve nuk maten drejtpërdrejt.":"In this atlas, the “Sprawl” category is the quantitative indicator of this process: population grows, but the built-up area grows faster (SDG 11.3.1, LCRPGR > 1). Density, fragmentation and ribbon development along roads are not measured directly.","Animacion me seri kohore":"Time-series animation","I njëjti shabllon si harta e printuar, një kuadër për çdo vit, nga viti bazë deri në vitin e fundit.":"The same template as the printed map, one frame per year, from the base year to the last year.","Kohëzgjatja e çdo viti":"Duration of each year","0,5 sekonda":"0.5 seconds","0,8 sekonda":"0.8 seconds","1,2 sekonda":"1.2 seconds","2 sekonda":"2 seconds","Madhësia":"Size","Kalim i butë mes viteve":"Smooth transition between years","● Krijo videon":"● Create the video","Ndalo":"Stop","Zgjerimi urban në Kosovë": "Urban expansion in Kosovo", "Zgjerimi urban": "Urban expansion", "në Kosovë": "in Kosovo", "Një atlas nga": "An atlas by", "Zgjidh vendbanimin dhe ndiq ndryshimin e tij në kohë.": "Pick a settlement and follow how it changed over time.", "Shteti": "Country", "Vendbanimi": "Settlement", "Periudha": "Period", "Viti bazë": "Base year", "nga cili vit nis analiza": "the year the analysis starts", "Ndërtimi deri në vitin bazë shfaqet gri; shtesat, grafikët dhe CSV-të llogariten që nga ky vit.": "Construction up to the base year is shown in grey; additions, charts and CSVs are computed from this year on.", "Mbulimi i hartës": "Map extent", "Shfaq gjithë Kosovën": "Show all of Kosovo", "Zona e interesit": "Zone of interest", "Vizatoni një zonë në hartë ose ngarkoni kufirin e saj. Statistikat, grafikët, harta dhe CSV-të llogariten vetëm për të.": "Draw a zone on the map or upload its boundary. Statistics, charts, the map and CSVs are computed for it alone.", "✎ Vizato në hartë": "✎ Draw on the map", "⤒ Ngarko skedar": "⤒ Upload file", "SHP (në .zip, ose .shp + .shx + .dbf + .prj), KML, KMZ, GeoJSON. Pranohen WGS84, UTM, KOSOVAREF01 dhe Gauss-Krüger. Skedari mund të tërhiqet edhe mbi hartë.": "SHP (in a .zip, or .shp + .shx + .dbf + .prj), KML, KMZ, GeoJSON. WGS84, UTM, KOSOVAREF01 and Gauss-Krüger are accepted. You can also drag the file onto the map.", "Shfaq": "Show", "✕ Hiq": "✕ Remove", "Harta bazë": "Base map", "Burimi": "Source", "Asnjë": "None", "Esri · imazh satelitor": "Esri · satellite imagery", "Paraqitja e sfondit": "Background style", "E errët · thekson ngjyrat e viteve": "Dark · highlights the year colours", "RGB · ngjyrat natyrale": "RGB · natural colours", "Pankromatike · bardhë e zi": "Panchromatic · black and white", "Transparenca": "Transparency", "Zonë e ndërtuar në pamje": "Built-up area in view", "Shtesa nga kuadri i mëparshëm": "Added since the previous frame", "Shkarko hartën e kësaj zone": "Download the map of this area", "Pamja aktuale, me legjendë, statistika dhe autorësi": "Current view, with legend, statistics and credits", "Rreth të dhënave": "About the data", "WSF identifikon zonat e ndërtuara në imazhe satelitore. Ngjyra tregon periudhën kur zona u identifikua.": "WSF detects built-up areas in satellite imagery. The colour shows the period in which an area was detected.", "Evolution ka rezolucion burimor rreth 30 m. Tracker ka rezolucion burimor 10 m. Pamja në ekran përshtatet sipas zmadhimit.": "Evolution has a source resolution of about 30 m. Tracker has a source resolution of 10 m. The on-screen view adapts to the zoom level.", "Tracker nis me gjendjen e korrikut 2016. Kuadrot e mëvonshme paraqesin janarin e vitit përkatës. Periudhat shfaqen veçmas sepse produktet përdorin metoda të ndryshme.": "Tracker starts with the state of July 2016. Later frames show January of each year. The periods are shown separately because the products use different methods.", "Sipërfaqet janë vlerësime brenda pamjes dhe kufirit të shtetit. Katalogu i emrave vjen nga GeoNames, me variante të emrave për kërkim. Harta bazë vjen nga OpenStreetMap.": "Areas are estimates within the view and the country boundary. The place-name catalogue comes from GeoNames, with name variants for search. The base map comes from OpenStreetMap.", "Kufijtë e komunave dhe të zonave kadastrale janë në sistemin KOSOVAREF01 (EPSG:9141).": "Municipal and cadastral zone boundaries are in KOSOVAREF01 (EPSG:9141).", "Të dhënat e Tracker përditësohen automatikisht sapo DLR publikon një hap të ri": "Tracker data update automatically as soon as DLR publishes a new step", "Shkarko versionin offline (një skedar HTML)": "Download the offline version (one HTML file)", "Si ta citoni": "How to cite", "Kopjo": "Copy", "© Rizah Murseli · Atlasi urban i Kosovës": "© Rizah Murseli · Urban Atlas of Kosovo", "GJENDJA FILLESTARE": "BASELINE", "↶ Kthe": "↶ Undo", "✓ Përfundo": "✓ Finish", "Anulo": "Cancel", "Filtri:": "Filter:", "◎ Diagrami radial": "◎ Radial diagram", "▢ Kufijtë": "▢ Boundaries", "Diagrami radial": "Radial diagram", "Shtesat vjetore brenda rrethit (rrezja": "Annual additions inside the circle (radius", "), sipas drejtimit.": "), by direction.", "Çdo shtyllë është një vit, me ngjyrën e vitit në hartë; koha ecën në drejtim të akrepave të orës.": "Each bar is one year, in that year's map colour; time runs clockwise.", "afër qendrës": "near the centre", "në mes": "middle", "në skaj": "outer edge", "kontribuuesit e OpenStreetMap": "OpenStreetMap contributors", "Gjendja": "State", "Shtesat e vitit": "Year's additions", "Krahaso": "Compare", "Majtas": "Left", "Djathtas 2015": "Right 2015", "Shko te filtri": "Go to the filter", "Hiq filtrin": "Clear filter", "Duke ngarkuar të dhënat…": "Loading data…", "Tërhiq hartën · Rrota për zmadhim": "Drag the map · Wheel to zoom", "Luaj": "Play", "Çdo ngjyrë i përket një viti. Grija tregon gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.": "Each colour belongs to one year. Grey shows the baseline. Shortcuts: ← → for the year, space to play.", "Kjo zonë": "This area", "Njësitë": "Units", "Qëndrueshmëria": "Sustainability", "Gara 5 km": "5 km race", "Kosova": "Kosovo", "Rritja": "Growth", "Viti më aktiv": "Most active year", "Mesatarja vjetore": "Annual average", "Zona e ndërtuar, kumulative": "Built-up area, cumulative", "Shtesa sipas vitit": "Added area by year", "Statistikat përshkruese": "Descriptive statistics", "shtesat dhe rritja vjetore, pa gjendjen fillestare": "annual additions and growth, excluding the baseline", "Tabela për çdo vit": "Table for every year", "ha dhe %": "ha and %", "Shkarko CSV të zonës": "Download the area's CSV", "Qendër apo periferi?": "Centre or periphery?", "% e tokës së ndërtuar sipas largësisë nga qendra e pamjes": "% of land built up by distance from the centre of the view", "1 · Komunat": "1 · Municipalities", "një ose disa": "one or more", "Gjithë Kosova · 38 komunat": "All of Kosovo · 38 municipalities", "Gjithë Kosova": "All of Kosovo", "Mbyll": "Close", "2 · Zonat kadastrale": "2 · Cadastral zones", "opsionale · pa zgjedhje = njësitë e plota": "optional · none chosen = whole units", "Zgjidh fillimisht komunën": "Choose the municipality first", "Komunat e plota": "Whole municipalities", "Treguesi": "Indicator", "Pjesa e territorit të ndërtuar (%)": "Share of territory built up (%)", "Sipërfaqja e ndërtuar": "Built-up area", "Rritja nga gjendja fillestare (%)": "Growth since the baseline (%)", "Shtesa nga gjendja fillestare": "Added since the baseline", "Shtesa për km² territor (ha/km²)": "Added per km² of territory (ha/km²)", "Përzgjedhja": "Selection", "kliko njësitë në hartë, në hartën tematike ose në tabelë": "click units on the map, the thematic map or the table", "Shfaq në hartë": "Show on map", "Shkarko CSV": "Download CSV", "Ecuria në kohë": "Change over time", "Renditja": "Ranking", "Burimi i popullsisë": "Population source", "Harta e efikasitetit të tokës": "Land-use efficiency map", "SDG 11.3.1 · kliko për ta shtuar ose hequr nga filtri": "SDG 11.3.1 · click to add or remove from the filter", "Toka kundrejt popullsisë": "Land versus population", "rritja vjetore": "annual growth", "Zonë e ndërtuar për banor, 2024": "Built-up area per inhabitant, 2024", "m² sipas WSF Tracker": "m² from WSF Tracker", "Lidhja me objektivat e zhvillimit të qëndrueshëm": "Link to the Sustainable Development Goals", "Ndërtimet sipas përshtatshmërisë së tokës bujqësore": "Construction by agricultural land suitability", "Mbi çfarë u ndërtua?": "What was built on?", "Metoda dhe kufizimet": "Method and limitations", ": zona e ndërtuar nga WSF Tracker, janar 2017 → janar 2024.": ": built-up area from WSF Tracker, January 2017 → January 2024.", "Kur popullsia bie, raporti nuk ka kuptim dhe njësia renditet te \"zgjerim me popullsi në rënie\".": "When population falls, the ratio is meaningless and the unit is listed under \"expansion with declining population\".", "Periudhat e popullsisë dhe të tokës nuk përputhen plotësisht; krahasohen shpejtësitë vjetore. Për katër komunat veriore të dy vitet janë vlerësime: ato janë jashtë totalit. Bojkoti i pjesshëm i 2011 në disa komuna me shumicë serbe mund ta fryjë rritjen e tyre. Diaspora nuk numërohet si popullsi rezidente, por shtëpitë e saj e rrisin zonën e ndërtuar.": "The population and land periods do not match exactly; annual rates are compared. For the four northern municipalities both years are estimates: they are left out of the total. The partial 2011 boycott in some Serb-majority municipalities may inflate their growth. The diaspora is not counted as resident population, but its houses do add to the built-up area.", "Popullsia jepet për njësitë e nivelit të parë. Zonat më të vogla dhe rrethi radial nuk përdoren këtu.": "Population is given for first-level units. Smaller zones and the radial circle are not used here.", "Shkarko CSV (SDG 11.3.1)": "Download CSV (SDG 11.3.1)", "38 qendrat komunale, krahasuar në rreze të njëjtë prej 5 km nga qendra. Renditja ndjek vitin në kohëzgjatje; luaje animacionin për ta parë garën.": "38 municipal centres, compared within the same 5 km radius of the centre. The ranking follows the timeline; play the animation to watch the race.", "Rendit sipas": "Sort by", "Sipërfaqes së ndërtuar": "Built-up area", "Rritjes nga viti bazë (%)": "Growth since the base year (%)", "Shtesës së vitit": "Year's addition", "Gjithë Kosova · 1985–2015": "All of Kosovo · 1985–2015", "Gjithë Kosova · 2016–2026": "All of Kosovo · 2016–2026", "Dy produktet maten ndryshe (30 m kundrejt 10 m), ndaj vlerat e tyre nuk vazhdojnë njëra-tjetrën. Krahasoni ritmin, jo nivelin.": "The two products measure differently (30 m versus 10 m), so their values do not continue each other. Compare the pace, not the level.", "Vendbanimet me shtesën më të madhe": "Settlements with the largest additions", "Koncepti, analiza dhe zhvillimi:": "Concept, analysis and development:", "· Harta bazë ©": "· Base map ©", "Analiza": "Analysis", "Diagrami radial i shtesave sipas drejtimit": "Radial diagram of additions by direction", "Eksploro historinë e zgjerimit urban të çdo vendbanimi në Kosovë, nga të dhënat satelitore të DLR.": "Explore the history of urban expansion of every settlement in Kosovo, from DLR satellite data.", "Filtro komunat": "Filter municipalities", "Filtro komunat…": "Filter municipalities…", "Filtro zonat kadastrale": "Filter cadastral zones", "Filtro zonat sipas emrit…": "Filter zones by name…", "Harta e zonave të ndërtuara. Tërhiq për lëvizje, përdor rrotën për zmadhim dhe kliko dy herë për qendrim.": "Map of built-up areas. Drag to move, use the wheel to zoom and double-click to centre.", "Harta interaktive": "Interactive map", "Hiq filtrin e njësive": "Clear the unit filter", "Hiq kulmin e fundit (Backspace)": "Remove the last vertex (Backspace)", "Kliko për të zgjedhur një pikë në Kosovë": "Click to pick a point in Kosovo", "Kërko qytet ose fshat…": "Search for a town or village…", "Legjenda e viteve": "Year legend", "Luaj animacionin": "Play the animation", "Mënyra e shfaqjes": "Display mode", "Ndarësi i krahasimit": "Comparison divider", "Rikthe pamjen e vendbanimit": "Return to the settlement view", "Shpejtësia": "Speed", "Transparenca e hartës bazë": "Base map transparency", "Viti": "Year", "Viti në anën e majtë": "Year on the left side", "Zgjidh shtetin": "Choose the country", "Zmadho hartën": "Zoom in", "Zvogëlo hartën": "Zoom out", "Murseli, R. (2026). Zgjerimi urban në Kosovë: atlas interaktiv i zonave të ndërtuara, 1985–2026. Të dhënat: DLR World Settlement Footprint.": "Murseli, R. (2026). Urban expansion in Kosovo: an interactive atlas of built-up areas, 1985–2026. Data: DLR World Settlement Footprint.", "Esc": "Esc"};
+const EN_STATIC = {"ATLASI URBAN":"URBAN ATLAS","Pamja e hartës":"Map view","Zgjerimi në kohë":"Growth over time","Format e zgjerimit":"Forms of expansion","Koridoret dhe nyjet":"Corridors and nodes","(mbushje, skaj, kërcim) ·":"(infill, edge, leapfrog) ·","Metoda":"Method","Analiza bëhet për çdo vit mbi gjurmën e atij viti, në rezolucionin burimor të WSF. Ndërtimet lidhen kur janë deri në 100 m larg njëri-tjetrit.":"The analysis runs for every year on that year's footprint, at the WSF source resolution. Buildings are linked when they are at most 100 m apart.","Trupi i vendbanimit: ndërtimi i vitit bazë i lidhur brenda 100 m, me të paktën 3 ha.":"Settlement body: base-year built-up linked within 100 m, at least 3 ha.","Korridor linear: zinxhir ndërtimesh të reja jashtë brendësisë së gjurmës urbane, me hapësirë deri në 100 m mes tyre, që shtrihet të paktën 300 m përgjatë boshtit të vet (edhe kur ky lakohet, si një rrugë) dhe është jo më i gjerë se rreth 100 m. Gjatësia matet si rruga më e gjatë brenda zinxhirit; drejtimi jepet nga boshti kryesor i ndërtimeve. Rreth korridorit ndërtimi duhet të jetë i rrallë: në katrorin 500 m × 500 m rreth çdo pikseli, më pak se 35% e ndërtuar; kështu buza e hollë e një zgjerimi kompakt nuk merret për korridor.":"Linear corridor: a chain of new buildings outside the interior of the urban footprint, at most 100 m apart, stretching at least 300 m along its own axis (even when it bends, like a road) and no wider than about 100 m. Length is the longest path inside the chain; direction is the main axis of its buildings. Around a corridor, construction must be sparse: less than 35% built up in the 500 m × 500 m square around each pixel, so the thin rim of a compact extension is not taken for a corridor.","Nyje bashkimi: vendi ku ndërtimi i ri i një viti mbyll hapësirën ndërmjet dy gjurmëve të vitit paraprak që secila mban një vendbanim të vitit bazë. Nyja përfshin ndërtimin e ri të atij viti deri në 150 m nga vija e mesme ndërmjet tyre, aty ku ato bashkohen; pjesa tjetër e zinxhirit mbetet korridor ose kompakt. Konurbacion: trupat e vendbanimeve që deri në vitin e zgjedhur janë bashkuar në një gjurmë të vazhdueshme (Geddes 1915).":"Coalescence node: the place where one year's new construction closes the gap between two footprints of the previous year, each holding a base-year settlement. The node covers that year's new construction within 150 m of the midline between them, where they join; the rest of the chain stays corridor or compact. Conurbation: settlement bodies that by the chosen year have joined into one continuous footprint (Geddes 1915).","Zhvillim i izoluar: ndërtim i ri me dendësi rurale (nën 10% në rrethin 1 km²) që nuk i përket një korridori. Kompakt: pjesa tjetër, në skaj ose brenda trupit.":"Isolated development: new construction at rural density (below 10% in the 1 km² circle) that is not part of a corridor. Compact: the rest, at the edge or inside the body.","Kufizime: rrugët nuk përdoren drejtpërdrejt, por drejtimi del nga vetë radhitja e ndërtimeve; shtimi i rrugëve të OpenStreetMap do ta forconte kushtin «përgjatë rrugës». Pragjet (100 m, 150 m, 300 m, 35%, 3 ha) janë zgjedhje e këtij atlasi.":"Limitations: roads are not used directly; the direction comes from how the buildings line up. Adding OpenStreetMap roads would strengthen the “along a road” condition. The thresholds (100 m, 150 m, 300 m, 35%, 3 ha) are this atlas's choice.","Shkarko CSV të korridoreve dhe nyjeve":"Download the corridors and nodes CSV","5. Klasa aktuale: ndërtimi i mëparshëm rivlerësohet në gjurmën e vitit të zgjedhur. Pikseli bëhet mbushje kur është urban ose suburban dhe brenda 100 m nuk ka hapësirë të lirë të jashtme (skaj i jashtëm ose rurale); skaj kur është urban ose suburban, por ka të tillë afër; përndryshe mbetet në klasën kur u ndërtua. Kalimi shkon vetëm përpara (sprawl → skaj → mbushje), sepse WSF nuk heq ndërtime.":"5. Current class: earlier construction is re-evaluated in the footprint of the chosen year. A pixel becomes infill when it is urban or suburban with no exterior open space (exterior fringe or rural) within 100 m; edge when it is urban or suburban but has such space nearby; otherwise it keeps its class from when it was built. The change only goes forward (sprawl → edge → infill), because WSF never removes built-up land.","Klasën aktuale në vitin e zgjedhur":"Current class in the chosen year","Shfaq në hartë":"Show on map","Klasën kur u ndërtua":"Class when built","Vetëm shtesat e vitit":"This year's additions only","Statusin në vitin e zgjedhur":"Status in the chosen year","Shkarko CSV të ndryshimeve në kohë":"Download the change-over-time CSV","Krahasimi":"Comparison","Hap pas hapi: çdo vit me vitin paraprak":"Step by step: each year against the year before","Dy data: viti bazë me vitin e zgjedhur":"Two dates: base year against the chosen year","Klasifikimi bëhet në rezolucionin burimor të WSF (10 m Tracker, rreth 30 m Evolution), në një dritare që e kalon zonën me 700 m për kontekst. «Hap pas hapi» krahason ndërtimin e ri të çdo viti me gjurmën e vitit paraprak dhe i mbledh rezultatet nga viti bazë deri në vitin e zgjedhur; kështu ruhet radha kohore e rritjes. «Dy data» krahason gjurmën e vitit bazë me gjithë ndërtimin e ri deri në vitin e zgjedhur, si te Angel et al. (2010), ku intervalet janë rreth 10 vjet; në intervale të gjata copat e njëpasnjëshme bashkohen.":"The classification runs at the WSF source resolution (10 m Tracker, about 30 m Evolution), in a window that extends 700 m beyond the area for context. “Step by step” compares each year's new construction with the footprint of the year before and adds the results from the base year to the chosen year, which keeps the order in which growth happened. “Two dates” compares the base-year footprint with all new construction up to the chosen year, as in Angel et al. (2010), whose intervals are about 10 years; over long intervals successive patches merge.","4. Linear (shirit): copë zgjerimi ose kërcimi me gjerësi ≤ 100 m, gjatësi ≥ 250 m dhe gjatësi/gjerësi ≥ 4, që shtrihet të paktën për gjysmën e saj në hapësirë rurale. Gjerësia vlerësohet nga distanca mesatare deri te skaji i copës.":"4. Linear (ribbon): an extension or leapfrog patch at most 100 m wide, at least 250 m long, with length/width ≥ 4 and at least half of it in rural space. Width is estimated from the mean distance to the patch edge.","Klasifikimi i ndërtimit të ri: mbushje, zgjerim, linear, kërcim":"Classification of new construction: infill, extension, linear, leapfrog","Zgjerimi i shpërndarë":"Urban sprawl","(Urban Sprawl) ·":"·","Metoda e klasifikimit":"Classification method","Krahasohet ndërtimi i vitit bazë me atë të vitit të zgjedhur, në rezolucionin burimor të WSF (10 m Tracker, rreth 30 m Evolution), në një dritare që e kalon zonën me 700 m për kontekst.":"The built-up area of the base year is compared with that of the selected year, at the WSF source resolution (10 m Tracker, about 30 m Evolution), in a window that extends 700 m beyond the area for context.","1. Çdo piksel i ndërtuar i vitit bazë merr dendësinë e ndërtimit në rrethin 1 km² rreth tij: urban ≥ 50%, suburban 10–50%, rural < 10% (llogaritur në qeliza 30 m).":"1. Every built-up pixel of the base year gets the built-up share in the 1 km² circle around it: urban ≥ 50%, suburban 10–50%, rural < 10% (computed on 30 m cells).","2. Hapësira e lirë nën 100 m nga ndërtimi urban ose suburban është skaj (fringe); më larg është rurale. Hapësira rurale e rrethuar plotësisht deri në 200 ha është e kapur dhe i përket gjurmës urbane. Skaji nën 100 m nga hapësira rurale është i jashtëm; pjesa tjetër është e brendshme.":"2. Open space less than 100 m from urban or suburban built-up is fringe; farther away it is rural. Rural space fully enclosed and up to 200 ha is captured and belongs to the urban footprint. Fringe less than 100 m from rural space is exterior; the rest is interior.","3. Copat e ndërtimit të ri janë piksela të ri të lidhur (8 fqinjë; te Tracker bashkohen boshllëqet deri në 20 m). Mbushje: copa është tërësisht në hapësirën e brendshme. Kërcim: copa është tërësisht në hapësirën rurale. Zgjerim në skaj: të gjitha të tjerat.":"3. Patches of new construction are connected new pixels (8 neighbours; in Tracker gaps of up to 20 m are bridged). Infill: the patch lies entirely in interior space. Leapfrog: the patch lies entirely in rural space. Edge extension: all others.","4. Linear (shirit): copë zgjerimi ose kërcimi me gjatësi ≥ 250 m dhe gjatësi/gjerësi ≥ 4, që shtrihet të paktën për gjysmën e saj në hapësirë rurale. Gjerësia vlerësohet nga distanca mesatare deri te skaji i copës.":"4. Linear (ribbon): an extension or leapfrog patch at least 250 m long with length/width ≥ 4, at least half of it in rural space. Width is estimated from the mean distance to the patch edge.","Zgjerim i shpërndarë (sprawl) = linear + kërcim. Mbushja dhe zgjerimi në skaj nuk konsiderohen sprawl.":"Sprawl = linear + leapfrog. Infill and edge extension are not counted as sprawl.","Burimet: Angel, S., Parent, J. & Civco, D. L. (2010). The Fragmentation of Urban Footprints: Global Evidence of Sprawl, 1990–2000. Lincoln Institute of Land Policy. · Wilson, E. H., Hurd, J. D., Civco, D. L., Prisloe, M. P. & Arnold, C. (2003). Development of a geospatial model to quantify, describe and map urban growth. Remote Sensing of Environment, 86(3), 275–285.":"Sources: Angel, S., Parent, J. & Civco, D. L. (2010). The Fragmentation of Urban Footprints: Global Evidence of Sprawl, 1990–2000. Lincoln Institute of Land Policy. · Wilson, E. H., Hurd, J. D., Civco, D. L., Prisloe, M. P. & Arnold, C. (2003). Development of a geospatial model to quantify, describe and map urban growth. Remote Sensing of Environment, 86(3), 275–285.","Kufizime: pragjet e klasës lineare janë zgjedhje e këtij atlasi (Wilson et al. nuk japin vlera numerike të njëjta); rrugët nuk përdoren drejtpërdrejt. Ndërtimi jashtë kufirit të shtetit nuk është në të dhëna, prandaj dendësia afër kufirit mund të nënvlerësohet.":"Limitations: the thresholds of the linear class are this atlas's choice (Wilson et al. do not give the same numbers); roads are not used directly. Built-up land beyond the national border is not in the data, so density near the border may be underestimated.","Shkarko CSV të copave":"Download the patches CSV","Përkufizim":"Definition","Zgjerimi i shpërndarë urban":"Urban sprawl","(Urban Sprawl)":"(Zgjerimi i shpërndarë urban)","Zgjerimi i shpërndarë urban (Urban Sprawl) është zhvillimi hapësinor i shpërndarë, me dendësi të ulët ndërtimi, në periferi të zonave urbane, i karakterizuar nga fragmentimi i strukturës urbane, shtrirja lineare e ndërtimeve përgjatë korridoreve të transportit dhe varësia e lartë nga përdorimi i automjeteve.":"Urban sprawl is dispersed, low-density spatial development on the periphery of urban areas, characterised by a fragmented urban structure, linear development along transport corridors and a high dependence on car use.","Burimi: McCann, E. J. (2009). Sprawl. Në The Dictionary of Human Geography, botimi i pestë, Wiley-Blackwell, f. 719.":"Source: McCann, E. J. (2009). Sprawl. In The Dictionary of Human Geography, 5th edition, Wiley-Blackwell, p. 719.","Shënim: Ky është përkthim dhe përmbledhje në shqip e përkufizimit të librit, jo citim fjalë për fjalë.":"Note: this is a summary of the book's definition, not a verbatim quotation.","Në këtë atlas, kategoria «Shpërndarje» është treguesi sasior i këtij procesi: popullsia rritet, por zona e ndërtuar rritet më shpejt (SDG 11.3.1, LCRPGR > 1). Dendësia, fragmentimi dhe shtrirja përgjatë rrugëve nuk maten drejtpërdrejt.":"In this atlas, the “Sprawl” category is the quantitative indicator of this process: population grows, but the built-up area grows faster (SDG 11.3.1, LCRPGR > 1). Density, fragmentation and ribbon development along roads are not measured directly.","Animacion me seri kohore":"Time-series animation","I njëjti shabllon si harta e printuar, një kuadër për çdo vit, nga viti bazë deri në vitin e fundit.":"The same template as the printed map, one frame per year, from the base year to the last year.","Kohëzgjatja e çdo viti":"Duration of each year","0,5 sekonda":"0.5 seconds","0,8 sekonda":"0.8 seconds","1,2 sekonda":"1.2 seconds","2 sekonda":"2 seconds","Madhësia":"Size","Kalim i butë mes viteve":"Smooth transition between years","● Krijo videon":"● Create the video","Ndalo":"Stop","Zgjerimi urban në Kosovë": "Urban expansion in Kosovo", "Zgjerimi urban": "Urban expansion", "në Kosovë": "in Kosovo", "Një atlas nga": "An atlas by", "Zgjidh vendbanimin dhe ndiq ndryshimin e tij në kohë.": "Pick a settlement and follow how it changed over time.", "Shteti": "Country", "Vendbanimi": "Settlement", "Periudha": "Period", "Viti bazë": "Base year", "nga cili vit nis analiza": "the year the analysis starts", "Ndërtimi deri në vitin bazë shfaqet gri; shtesat, grafikët dhe CSV-të llogariten që nga ky vit.": "Construction up to the base year is shown in grey; additions, charts and CSVs are computed from this year on.", "Mbulimi i hartës": "Map extent", "Shfaq gjithë Kosovën": "Show all of Kosovo", "Zona e interesit": "Zone of interest", "Vizatoni një zonë në hartë ose ngarkoni kufirin e saj. Statistikat, grafikët, harta dhe CSV-të llogariten vetëm për të.": "Draw a zone on the map or upload its boundary. Statistics, charts, the map and CSVs are computed for it alone.", "✎ Vizato në hartë": "✎ Draw on the map", "⤒ Ngarko skedar": "⤒ Upload file", "SHP (në .zip, ose .shp + .shx + .dbf + .prj), KML, KMZ, GeoJSON. Pranohen WGS84, UTM, KOSOVAREF01 dhe Gauss-Krüger. Skedari mund të tërhiqet edhe mbi hartë.": "SHP (in a .zip, or .shp + .shx + .dbf + .prj), KML, KMZ, GeoJSON. WGS84, UTM, KOSOVAREF01 and Gauss-Krüger are accepted. You can also drag the file onto the map.", "Shfaq": "Show", "✕ Hiq": "✕ Remove", "Harta bazë": "Base map", "Burimi": "Source", "Asnjë": "None", "Esri · imazh satelitor": "Esri · satellite imagery", "Paraqitja e sfondit": "Background style", "E errët · thekson ngjyrat e viteve": "Dark · highlights the year colours", "RGB · ngjyrat natyrale": "RGB · natural colours", "Pankromatike · bardhë e zi": "Panchromatic · black and white", "Transparenca": "Transparency", "Zonë e ndërtuar në pamje": "Built-up area in view", "Shtesa nga kuadri i mëparshëm": "Added since the previous frame", "Shkarko hartën e kësaj zone": "Download the map of this area", "Pamja aktuale, me legjendë, statistika dhe autorësi": "Current view, with legend, statistics and credits", "Rreth të dhënave": "About the data", "WSF identifikon zonat e ndërtuara në imazhe satelitore. Ngjyra tregon periudhën kur zona u identifikua.": "WSF detects built-up areas in satellite imagery. The colour shows the period in which an area was detected.", "Evolution ka rezolucion burimor rreth 30 m. Tracker ka rezolucion burimor 10 m. Pamja në ekran përshtatet sipas zmadhimit.": "Evolution has a source resolution of about 30 m. Tracker has a source resolution of 10 m. The on-screen view adapts to the zoom level.", "Tracker nis me gjendjen e korrikut 2016. Kuadrot e mëvonshme paraqesin janarin e vitit përkatës. Periudhat shfaqen veçmas sepse produktet përdorin metoda të ndryshme.": "Tracker starts with the state of July 2016. Later frames show January of each year. The periods are shown separately because the products use different methods.", "Sipërfaqet janë vlerësime brenda pamjes dhe kufirit të shtetit. Katalogu i emrave vjen nga GeoNames, me variante të emrave për kërkim. Harta bazë vjen nga OpenStreetMap.": "Areas are estimates within the view and the country boundary. The place-name catalogue comes from GeoNames, with name variants for search. The base map comes from OpenStreetMap.", "Kufijtë e komunave dhe të zonave kadastrale janë në sistemin KOSOVAREF01 (EPSG:9141).": "Municipal and cadastral zone boundaries are in KOSOVAREF01 (EPSG:9141).", "Të dhënat e Tracker përditësohen automatikisht sapo DLR publikon një hap të ri": "Tracker data update automatically as soon as DLR publishes a new step", "Shkarko versionin offline (një skedar HTML)": "Download the offline version (one HTML file)", "Si ta citoni": "How to cite", "Kopjo": "Copy", "© Rizah Murseli · Atlasi urban i Kosovës": "© Rizah Murseli · Urban Atlas of Kosovo", "GJENDJA FILLESTARE": "BASELINE", "↶ Kthe": "↶ Undo", "✓ Përfundo": "✓ Finish", "Anulo": "Cancel", "Filtri:": "Filter:", "◎ Diagrami radial": "◎ Radial diagram", "▢ Kufijtë": "▢ Boundaries", "Diagrami radial": "Radial diagram", "Shtesat vjetore brenda rrethit (rrezja": "Annual additions inside the circle (radius", "), sipas drejtimit.": "), by direction.", "Çdo shtyllë është një vit, me ngjyrën e vitit në hartë; koha ecën në drejtim të akrepave të orës.": "Each bar is one year, in that year's map colour; time runs clockwise.", "afër qendrës": "near the centre", "në mes": "middle", "në skaj": "outer edge", "kontribuuesit e OpenStreetMap": "OpenStreetMap contributors", "Gjendja": "State", "Shtesat e vitit": "Year's additions", "Krahaso": "Compare", "Majtas": "Left", "Djathtas 2015": "Right 2015", "Shko te filtri": "Go to the filter", "Hiq filtrin": "Clear filter", "Duke ngarkuar të dhënat…": "Loading data…", "Tërhiq hartën · Rrota për zmadhim": "Drag the map · Wheel to zoom", "Luaj": "Play", "Çdo ngjyrë i përket një viti. Grija tregon gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.": "Each colour belongs to one year. Grey shows the baseline. Shortcuts: ← → for the year, space to play.", "Kjo zonë": "This area", "Njësitë": "Units", "Qëndrueshmëria": "Sustainability", "Gara 5 km": "5 km race", "Kosova": "Kosovo", "Rritja": "Growth", "Viti më aktiv": "Most active year", "Mesatarja vjetore": "Annual average", "Zona e ndërtuar, kumulative": "Built-up area, cumulative", "Shtesa sipas vitit": "Added area by year", "Statistikat përshkruese": "Descriptive statistics", "shtesat dhe rritja vjetore, pa gjendjen fillestare": "annual additions and growth, excluding the baseline", "Tabela për çdo vit": "Table for every year", "ha dhe %": "ha and %", "Shkarko CSV të zonës": "Download the area's CSV", "Qendër apo periferi?": "Centre or periphery?", "% e tokës së ndërtuar sipas largësisë nga qendra e pamjes": "% of land built up by distance from the centre of the view", "1 · Komunat": "1 · Municipalities", "një ose disa": "one or more", "Gjithë Kosova · 38 komunat": "All of Kosovo · 38 municipalities", "Gjithë Kosova": "All of Kosovo", "Mbyll": "Close", "2 · Zonat kadastrale": "2 · Cadastral zones", "opsionale · pa zgjedhje = njësitë e plota": "optional · none chosen = whole units", "Zgjidh fillimisht komunën": "Choose the municipality first", "Komunat e plota": "Whole municipalities", "Treguesi": "Indicator", "Pjesa e territorit të ndërtuar (%)": "Share of territory built up (%)", "Sipërfaqja e ndërtuar": "Built-up area", "Rritja nga gjendja fillestare (%)": "Growth since the baseline (%)", "Shtesa nga gjendja fillestare": "Added since the baseline", "Shtesa për km² territor (ha/km²)": "Added per km² of territory (ha/km²)", "Përzgjedhja": "Selection", "kliko njësitë në hartë, në hartën tematike ose në tabelë": "click units on the map, the thematic map or the table", "Shfaq në hartë": "Show on map", "Shkarko CSV": "Download CSV", "Ecuria në kohë": "Change over time", "Renditja": "Ranking", "Burimi i popullsisë": "Population source", "Harta e efikasitetit të tokës": "Land-use efficiency map", "SDG 11.3.1 · kliko për ta shtuar ose hequr nga filtri": "SDG 11.3.1 · click to add or remove from the filter", "Toka kundrejt popullsisë": "Land versus population", "rritja vjetore": "annual growth", "Zonë e ndërtuar për banor, 2024": "Built-up area per inhabitant, 2024", "m² sipas WSF Tracker": "m² from WSF Tracker", "Lidhja me objektivat e zhvillimit të qëndrueshëm": "Link to the Sustainable Development Goals", "Ndërtimet sipas përshtatshmërisë së tokës bujqësore": "Construction by agricultural land suitability", "Mbi çfarë u ndërtua?": "What was built on?", "Metoda dhe kufizimet": "Method and limitations", ": zona e ndërtuar nga WSF Tracker, janar 2017 → janar 2024.": ": built-up area from WSF Tracker, January 2017 → January 2024.", "Kur popullsia bie, raporti nuk ka kuptim dhe njësia renditet te \"zgjerim me popullsi në rënie\".": "When population falls, the ratio is meaningless and the unit is listed under \"expansion with declining population\".", "Periudhat e popullsisë dhe të tokës nuk përputhen plotësisht; krahasohen shpejtësitë vjetore. Për katër komunat veriore të dy vitet janë vlerësime: ato janë jashtë totalit. Bojkoti i pjesshëm i 2011 në disa komuna me shumicë serbe mund ta fryjë rritjen e tyre. Diaspora nuk numërohet si popullsi rezidente, por shtëpitë e saj e rrisin zonën e ndërtuar.": "The population and land periods do not match exactly; annual rates are compared. For the four northern municipalities both years are estimates: they are left out of the total. The partial 2011 boycott in some Serb-majority municipalities may inflate their growth. The diaspora is not counted as resident population, but its houses do add to the built-up area.", "Popullsia jepet për njësitë e nivelit të parë. Zonat më të vogla dhe rrethi radial nuk përdoren këtu.": "Population is given for first-level units. Smaller zones and the radial circle are not used here.", "Shkarko CSV (SDG 11.3.1)": "Download CSV (SDG 11.3.1)", "38 qendrat komunale, krahasuar në rreze të njëjtë prej 5 km nga qendra. Renditja ndjek vitin në kohëzgjatje; luaje animacionin për ta parë garën.": "38 municipal centres, compared within the same 5 km radius of the centre. The ranking follows the timeline; play the animation to watch the race.", "Rendit sipas": "Sort by", "Sipërfaqes së ndërtuar": "Built-up area", "Rritjes nga viti bazë (%)": "Growth since the base year (%)", "Shtesës së vitit": "Year's addition", "Gjithë Kosova · 1985–2015": "All of Kosovo · 1985–2015", "Gjithë Kosova · 2016–2026": "All of Kosovo · 2016–2026", "Dy produktet maten ndryshe (30 m kundrejt 10 m), ndaj vlerat e tyre nuk vazhdojnë njëra-tjetrën. Krahasoni ritmin, jo nivelin.": "The two products measure differently (30 m versus 10 m), so their values do not continue each other. Compare the pace, not the level.", "Vendbanimet me shtesën më të madhe": "Settlements with the largest additions", "Koncepti, analiza dhe zhvillimi:": "Concept, analysis and development:", "· Harta bazë ©": "· Base map ©", "Analiza": "Analysis", "Diagrami radial i shtesave sipas drejtimit": "Radial diagram of additions by direction", "Eksploro historinë e zgjerimit urban të çdo vendbanimi në Kosovë, nga të dhënat satelitore të DLR.": "Explore the history of urban expansion of every settlement in Kosovo, from DLR satellite data.", "Filtro komunat": "Filter municipalities", "Filtro komunat…": "Filter municipalities…", "Filtro zonat kadastrale": "Filter cadastral zones", "Filtro zonat sipas emrit…": "Filter zones by name…", "Harta e zonave të ndërtuara. Tërhiq për lëvizje, përdor rrotën për zmadhim dhe kliko dy herë për qendrim.": "Map of built-up areas. Drag to move, use the wheel to zoom and double-click to centre.", "Harta interaktive": "Interactive map", "Hiq filtrin e njësive": "Clear the unit filter", "Hiq kulmin e fundit (Backspace)": "Remove the last vertex (Backspace)", "Kliko për të zgjedhur një pikë në Kosovë": "Click to pick a point in Kosovo", "Kërko qytet ose fshat…": "Search for a town or village…", "Legjenda e viteve": "Year legend", "Luaj animacionin": "Play the animation", "Mënyra e shfaqjes": "Display mode", "Ndarësi i krahasimit": "Comparison divider", "Rikthe pamjen e vendbanimit": "Return to the settlement view", "Shpejtësia": "Speed", "Transparenca e hartës bazë": "Base map transparency", "Viti": "Year", "Viti në anën e majtë": "Year on the left side", "Zgjidh shtetin": "Choose the country", "Zmadho hartën": "Zoom in", "Zvogëlo hartën": "Zoom out", "Murseli, R. (2026). Zgjerimi urban në Kosovë: atlas interaktiv i zonave të ndërtuara, 1985–2026. Të dhënat: DLR World Settlement Footprint.": "Murseli, R. (2026). Urban expansion in Kosovo: an interactive atlas of built-up areas, 1985–2026. Data: DLR World Settlement Footprint.", "Esc": "Esc"};
 function translateStatic() {
   if (LANG !== 'en') return;
   const walker = document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);

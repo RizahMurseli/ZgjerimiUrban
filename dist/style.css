@@ -346,3 +346,16 @@ body.recording .map-wrap{outline:2px solid #ff5d5d88;outline-offset:-2px}
 .sprawl-keys i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .sprawl-legend b{font-weight:600;color:var(--text);margin-right:2px}
 .sel-actions button[hidden]{display:none}
+/* Map views */
+.map-views{display:flex;gap:4px;margin:0 0 10px;border-bottom:1px solid var(--border)}
+.map-views button{background:transparent;border:1px solid transparent;border-bottom:0;color:var(--muted);padding:9px 16px;border-radius:8px 8px 0 0;font-size:13px;margin-bottom:-1px}
+.map-views button:hover{color:var(--text)}
+.map-views button[aria-selected=true]{background:var(--panel,#0d1520);border-color:var(--border);color:var(--text);font-weight:600;box-shadow:inset 0 2px 0 var(--accent)}
+.map-views button[data-view=forms][aria-selected=true]{box-shadow:inset 0 2px 0 #ff4d6d}
+.map-views button[data-view=corr][aria-selected=true]{box-shadow:inset 0 2px 0 #ffb000}
+@media(min-width:851px){.map-wrap{height:calc(100vh - 330px)}}
+.corr-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0 10px}
+.corr-kpis div{border:1px solid var(--border);border-radius:7px;padding:8px}
+.corr-kpis strong{display:block;font:700 22px 'Space Mono',monospace;color:#ffcf66}
+.corr-kpis span{font-size:10.5px;color:var(--muted);line-height:1.35;display:block}
+.corr-list{margin:4px 0 8px;padding-left:16px;font-size:11.5px;line-height:1.6;color:var(--muted)}.corr-list b{color:var(--text)}
