@@ -367,3 +367,8 @@ body.view-forms #zoneGrowth,body.view-forms #zoneRings,body.view-forms .mode-swi
 body.view-forms #legend button{border-top-color:#3a4658}
 body.view-forms #legend button.active{border-top-color:var(--accent)}
 .sprawl-legend .leg-base{margin-left:6px}
+.stage-story{border-left:3px solid var(--accent);padding:2px 0 2px 10px;margin:6px 0 10px}
+.stage-story p{font-size:12.5px;line-height:1.55;margin:0 0 7px;color:#d6e0ec}
+.stage-story p:last-child{margin-bottom:0}
+.corr-list .stg{font:700 11px 'Space Mono',monospace}
+.sankey text{font-family:'DM Sans',sans-serif}
