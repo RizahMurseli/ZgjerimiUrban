@@ -20,7 +20,7 @@
       <div class="search-wrap"><input id="search" type="search" placeholder="Kërko qytet ose fshat…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="results"><div id="results" role="listbox" hidden></div></div>
       <div class="presets" id="presets"></div>
       <label for="period">Periudha</label>
-      <select id="period"><option value="evolution">1985–2015 · WSF Evolution</option><option value="tracker">WSF Tracker</option></select>
+      <select id="period"><option value="evolution">1985–2015 · WSF Evolution</option><option value="tracker">WSF Tracker</option><option value="combined">1985–2026 · Evolution + Tracker</option></select>
       <label for="baseYear" class="base-label">Viti bazë <small>nga cili vit nis analiza</small></label>
       <select id="baseYear" aria-describedby="baseHint"></select>
       <p class="base-hint" id="baseHint">Ndërtimi deri në vitin bazë shfaqet gri; shtesat, grafikët dhe CSV-të llogariten që nga ky vit.</p>
@@ -53,6 +53,7 @@
       <div class="download-box">
         <span class="download-title">Shkarko hartën e kësaj zone</span>
         <span class="download-note">Pamja aktuale, me legjendë, statistika dhe autorësi</span>
+        <label class="sheet-title" for="sheetTitle">Titulli i fletës</label><input id="sheetTitle" type="text" maxlength="90" placeholder="automatik: zona · tema · periudha">
         <div class="download-buttons"><button data-export="png" type="button">⤓ PNG</button><button data-export="svg" type="button">⤓ SVG</button><button id="videoToggle" type="button" aria-expanded="false" aria-controls="videoBox">▶ Video</button></div>
         <div id="videoBox" class="video-box" hidden>
           <span class="video-title">Animacion me seri kohore</span>

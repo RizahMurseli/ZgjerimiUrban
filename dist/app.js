@@ -87,7 +87,7 @@ const normalize = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
 // Time axis comes from manifest.json, so new WSF Tracker steps need no code change.
 // Base year: the analysis can start at any step. period() returns the steps from that step on,
 // and every per-step series (units, municipalities, national) is sliced the same way in applyBase().
-state.base = {evolution:0,tracker:0};
+state.base = {evolution:0,tracker:0,combined:0};
 const baseOff = (name=state.period) => state.base[name] || 0;
 const periodCache = {};
 const period = (name=state.period) => {
@@ -109,6 +109,28 @@ function rebaseSeries(obj) {
   }
 }
 const rawSeries = (obj,p) => obj._r?.[p] || obj[p];
+// A joined series 1985–2026 at the Evolution grid (~30 m): Evolution to 2015, then the Tracker additions from
+// January 2017. Tracker's first step (July 2016) is left out: what it shows beyond Evolution is mostly the finer
+// resolution, not growth, and would appear as a false jump.
+function addCombinedPeriod() {
+  const e = manifest.periods.evolution, t = manifest.periods.tracker;
+  if (!e || !t || manifest.periods.combined) return;
+  const E = e.steps.length, tSteps = t.steps.slice(1), n = E+tSteps.length;
+  manifest.periods.combined = {title:'1985–2026 · Evolution + Tracker',source:'WSF EVOLUTION + TRACKER · ~30 M',
+    range:`1985 – ${t.steps[t.steps.length-1].label.toLowerCase()}`,rawSteps:n,combined:true,joinStep:E,
+    steps:[...e.steps,...tSteps.map((s,k) => ({...s,epoch:k ? s.epoch : 'WSF TRACKER'}))],lut:Array.from({length:256},(_,k) => k <= n ? k : 0)};
+  // The same join for every per-step series: Evolution, then the Tracker increments after July 2016.
+  const join = o => {
+    if (!o || typeof o !== 'object') return;
+    if (Array.isArray(o)) { o.forEach(join);return; }
+    const ev = o.evolution, tr = o.tracker;
+    if (Array.isArray(ev) && Array.isArray(tr) && ev.length === E && tr.length === t.steps.length && typeof ev[0] === 'number')
+      o.combined = [...ev,...tr.slice(1).map(v => ev[E-1]+Math.max(0,v-tr[0]))];
+    for (const k of Object.keys(o)) if (k !== 'evolution' && k !== 'tracker' && k !== 'combined' && o[k] && typeof o[k] === 'object') join(o[k]);
+  };
+  if (stats) { join(stats.national);join(stats.municipal); }
+  if (units) { join(units.municipalities);join(units.cadastral);join(units.kosovo); }
+}
 // Raw WSF code (1 = first step) → code relative to the base step (1 = built by the base year).
 function baseRemap(name=state.period) {
   const off = baseOff(name), n = manifest.periods[name].steps.length, out = new Uint8Array(256);
@@ -211,11 +233,17 @@ function updateView() {
   $('locationName').textContent = state.name;
   $('mapName').textContent = state.name.toUpperCase();
 }
-async function tileData(tile, size) {
-  const key = state.period+':'+tile.id+':'+size;
+async function tileData(tile, size, name=state.period) {
+  const key = name+':'+tile.id+':'+size;
   if (cache.has(key)) return cache.get(key);
-  const period = state.period;
-  const request = (async () => {
+  const period = name;
+  const request = period === 'combined' ? (async () => {
+    // Evolution codes to 2015, then Tracker codes from January 2017 (step 2 on) where Evolution saw nothing.
+    const [e,t] = await Promise.all([tileData(tile,size,'evolution'),tileData(tile,size,'tracker')]);
+    const E = manifest.periods.evolution.steps.length, values = new Uint8Array(size*size);
+    for (let i=0;i<values.length;i++) values[i] = e.values[i] || (t.values[i] >= 2 ? E+t.values[i]-1 : 0);
+    return {values,size};
+  })() : (async () => {
     const response = await fetch(BASE+period+'-'+tile.id+'.png');
     if (!response.ok) throw new Error(L('Pllaka e të dhënave nuk u ngarkua.','A data tile failed to load.'));
     const bitmap = await createImageBitmap(await response.blob());
@@ -237,7 +265,7 @@ async function tileData(tile, size) {
   })();
   cache.set(key,request);
   // Bound browser memory when exploring several distant areas.
-  if (cache.size > 10) cache.delete(cache.keys().next().value);
+  if (cache.size > 24) cache.delete(cache.keys().next().value);
   try { return await request; } catch(error) { cache.delete(key); throw error; }
 }
 async function loadView() {
@@ -265,7 +293,7 @@ async function loadView() {
     for (const tile of visible) {
       if (token !== generation) return;
       const [west,south,east,north] = tile.bbox;
-      const native = state.period === 'evolution' ? manifest.evolutionSize : manifest.trackerSize;
+      const native = state.period !== 'tracker' ? manifest.evolutionSize : manifest.trackerSize;
       const target = Math.max(256,Math.min(native,2**Math.ceil(Math.log2(v.size*(east-west)/(v.east-v.west)))));
       const {values,size} = await tileData(tile,target);
       if (token !== generation) return;
@@ -523,7 +551,7 @@ function updateHash() {
   if (state.aoi) params.set('aoi','1');
   if (LANG === 'en') params.set('l','en');
   if (state.mapView !== 'time') params.set('mv',state.mapView);
-  if (state.mapView === 'plan' && state.planYear) params.set('py',String(state.planYear));
+  if (state.mapView === 'plan' && state.planYear) { params.set('py',String(state.planYear));params.set('pm',String(state.planMandate));params.set('pi',String(Math.round(state.planImpl*100))); }
   if (state.sprawl && state.sprawlMode === 'two') params.set('sp','2');
   if (state.sprawl && state.sprawlShow !== 'stage') params.set('ss',state.sprawlShow);
   if (state.sprawl && state.stageCuts.join(',') !== '1,10,50') params.set('sc',state.stageCuts.join(','));
@@ -647,6 +675,7 @@ async function start() {
     population = await fetch(BASE+'population.json').then(r => r.ok ? r.json() : null).catch(() => null);
     landcover = await fetch(BASE+'landcover.json').then(r => r.ok ? r.json() : null).catch(() => null);
     soil = await fetch(BASE+'soil.json').then(r => r.ok ? r.json() : null).catch(() => null);
+    addCombinedPeriod();
     if (LANG === 'en') {
       if (landcover) { landcover.classes.forEach(c => { c.label = tx(c.label); });landcover.steps.forEach(st => { st.label = trLabel(st.label); }); }
       if (population?.sources) for (const src of Object.values(population.sources)) { src.label = tx(src.label);src.source = tx(src.source);src.note = tx(src.note); }
@@ -673,7 +702,7 @@ async function start() {
     const [bw,bs,be,bn] = manifest.bounds;
     Object.assign(state,{lat:selectedPlace.lat,lon:selectedPlace.lon,span:selectedPlace.span || 16,name:selectedPlace.name});
     if (hash.has('lat') && lat>bs && lat<bn && lon>bw && lon<be && km>=2 && km<=wholeView().span) {
-      Object.assign(state,{lat,lon,span:km,name:hash.get('name') || L('Zonë e zgjedhur','Selected area'),period:hash.get('p') === 'tracker' ? 'tracker' : 'evolution'});
+      Object.assign(state,{lat,lon,span:km,name:hash.get('name') || L('Zonë e zgjedhur','Selected area'),period:['tracker','combined'].includes(hash.get('p')) ? hash.get('p') : 'evolution'});
     }
     if (['cumulative','added','compare'].includes(hash.get('m'))) setMode(hash.get('m'),false);
     if (hash.get('b') === '0') state.basemap = false;
@@ -684,6 +713,8 @@ async function start() {
     if (hash.get('sp') === '1' || hash.get('sp') === '2') { state.mapView = 'forms';state.sprawlMode = hash.get('sp') === '2' ? 'two' : 'steps'; }
     if (['forms','sdg','plan'].includes(hash.get('mv'))) state.mapView = hash.get('mv');
     if (hash.get('py')) state.planYear = Number(hash.get('py'));
+    if ([5,10,15,20].includes(Number(hash.get('pm')))) state.planMandate = Number(hash.get('pm'));
+    if (hash.has('pi') && Number(hash.get('pi')) >= 0 && Number(hash.get('pi')) <= 100) state.planImpl = Number(hash.get('pi'))/100;
     if (['year','class','now','stage'].includes(hash.get('ss'))) state.sprawlShow = hash.get('ss');
     if (hash.get('sc')) { const v = hash.get('sc').split(',').map(Number);if (v.length === 3 && v[0] > 0 && v[1] > v[0] && v[2] > v[1]) { state.stageCuts = v;state.sprawlNucleus = v[1]; } }
     else if (['5','25','50'].includes(hash.get('sn'))) { state.sprawlNucleus = Number(hash.get('sn'));state.stageCuts = [1,state.sprawlNucleus,Math.max(50,state.sprawlNucleus*2)]; }
@@ -991,7 +1022,7 @@ function renderKosovo() {
     label:C.name+' '+pe.range,onPick:i => go('evolution',i),tip:i => `${yearLabel(i,'evolution')}<br><b>${km2(e[i])}</b>`+(i ? `<br>+${km2(e[i]-e[i-1])}` : '')});
   timeChart($('chartNationTrk'),{values:t,years:pt.steps.map(s => s.year),active:state.period === 'tracker' ? state.index : null,color:'#5e9bff',
     label:C.name+' '+pt.range,onPick:i => go('tracker',i),tip:i => `${yearLabel(i,'tracker')}<br><b>${km2(t[i])}</b>`+(i ? `<br>+${km2(t[i]-t[i-1])}` : '')});
-  const [a,b] = state.period === 'evolution' ? [0,1] : [2,3];
+  const [a,b] = state.period !== 'tracker' ? [0,1] : [2,3];
   $('hotTitle').innerHTML = L(`Vendbanimet me shtesën më të madhe <small>${manifest.periods[state.period].range} · brenda 1 km nga pika e vendbanimit</small>`,`Settlements with the largest additions <small>${trLabel(manifest.periods[state.period].range)} · within 1 km of the settlement point</small>`);
   const ranked = places.map(p => ({p,v:stats.places[p.id]})).filter(r => r.v).sort((x,y) => (y.v[b]-y.v[a])-(x.v[b]-x.v[a]));
   const chosen = [];
@@ -1117,7 +1148,7 @@ function renderRadial() {
   const fr = typeof sprawlRadial === 'function' ? sprawlRadial() : null;
   if (fr) {
     const show = sprawlRes.mode === 'steps' ? state.sprawlShow : 'class';
-    if (sprawlRes.radPlan) $('radialKeyText').innerHTML += ' '+L('Ngjyrat: para masave, real brenda kufirit, i zhvendosur nga plani, real jashtë kufirit (i shmangur); si në hartë.','Colours: before the measures, actual inside the boundary, relocated by the plan, actual outside the boundary (avoided); as on the map.');
+    if (sprawlRes.radPlan) $('radialKeyText').innerHTML += ' '+L('Vetëm vitet e planit: K konform, Z3 zhvendosur nga plani, JK jokonform, PS pas skadimit; vijat shënojnë vlerësimin afatmesëm dhe skadimin.','Plan years only: K conforming, Z3 relocated by the plan, JK non-conforming, PS after expiry; the lines mark the mid-term review and the expiry.');
     else if (sprawlRes.radSdg) $('radialKeyText').innerHTML += ' '+L('Ngjyrat: ✓ në përputhje, ! konsum toke, ✕ cenim i SDG. Te çdo drejtim: pjesa e cenimit deri në vitin e zgjedhur.','Colours: ✓ in line, ! land take, ✕ SDG breach. At each direction: the breach share up to the chosen year.');
     else $('radialKeyText').innerHTML += ' '+(state.index === 0 ? L('Shtyllat e zbehura tregojnë ndërtimin e viteve në vijim, me klasën kur u ndërtua; ngjyrat si në hartë.','Faded bars show the construction of the coming years, in its class when built; colours as on the map.') : show === 'now' ? L(`Ngjyrat: klasa e ndërtimit në ${esc(period().steps[state.index].short)}, si në hartë.`,`Colours: the class of construction in ${esc(period().steps[state.index].short)}, as on the map.`)
       : show === 'year' ? L('Ngjyrat: klasa e shtesave të këtij viti, si në hartë.','Colours: the class of this year\'s additions, as on the map.') : L('Ngjyrat: klasa kur u ndërtua, si në hartë.','Colours: the class when built, as on the map.'));
@@ -1127,8 +1158,9 @@ function renderRadial() {
   swEl.hidden = !!fr;
   swEl.innerHTML = fr ? [0,1,2,...(fr.some(dir => dir[3].some(v => v > 0)) ? [3] : [])].map(l => `<span><i class="sw" style="background:rgb(${sprawlRadialColor(l).join(',')})"></i>${esc(sprawlRadialName(l))}</span>`).join('') : swEl.dataset.bands;
   $('radialKeyNote').textContent = fr ? L('Çdo shtyllë është një vit ndërtimi; koha ecën në drejtim të akrepave të orës.','Each bar is one year of building; time runs clockwise.') : L('Çdo shtyllë është një vit, me ngjyrën e vitit në hartë; koha ecën në drejtim të akrepave të orës.','Each bar is one year, in that year\'s map colour; time runs clockwise.');
+  const meta = fr?.meta;
   if (s && (s.radial || fr)) {
-    const m = count()-1;
+    const m = meta ? meta.n : count()-1;
     const series = fr || s.radial.map(dir => dir.map(band => Array.from({length:m},(_,k) => band[k+2])));
     const nl = series[0].length, layerSum = (dir,k) => { let t = 0;for (let b=0;b<nl;b++) t += dir[b][k];return t; };
     let max = 0;
@@ -1139,11 +1171,11 @@ function renderRadial() {
       out += `<path class="radial-base" d="M${f(pt(ang(d,0),r0))}A${r0} ${r0} 0 0 1 ${f(pt(ang(d,m-1),r0))}"/>`;
       // One bar per year, coloured like the map. Within a bar, shades split the
       // area by distance from the centre: dark = near the centre, light = near the edge.
-      const now = state.index-1, palette = colors();
+      const now = meta ? meta.now : state.index-1, palette = colors();
       const step = m > 1 ? RADIAL.span/(m-1) : RADIAL.span, width = step*.78;
       const sector = (a0,a1,ra,rb) => `M${f(pt(a0,ra))}L${f(pt(a0,rb))}A${rb} ${rb} 0 0 1 ${f(pt(a1,rb))}L${f(pt(a1,ra))}A${ra} ${ra} 0 0 0 ${f(pt(a0,ra))}Z`;
       for (let k=0;k<m;k++) {
-        const color = palette[k+1], opacity = (fr || now >= 0) && k > now ? .25 : 1;
+        const color = palette[Math.min(k+1,palette.length-1)], opacity = (fr || now >= 0) && k > now ? .25 : 1;
         const a = ang(d,k);
         let base = 0;
         for (let b=0;b<nl;b++) {
@@ -1154,14 +1186,21 @@ function renderRadial() {
           base += v;
         }
       }
-      if (now >= 0) {
+      if (now >= 0 && now < m) {
         const total = layerSum(dir,now);
         const a = ang(d,now), top = r0+total/max*h+10;
         out += `<line class="radial-now" x1="${pt(a,lens)[0]}" y1="${pt(a,lens)[1]}" x2="${pt(a,top)[0]}" y2="${pt(a,top)[1]}"/><circle cx="${pt(a,top)[0]}" cy="${pt(a,top)[1]}" r="2.5" fill="#fff"/>`;
       }
       for (const k of [0,m-1]) {
         const [tx,ty] = pt(ang(d,k),(lens+r0)/2);
-        out += `<text class="radial-year" x="${tx}" y="${ty+3}" text-anchor="middle">${period().steps[k+1].short}</text>`;
+        out += `<text class="radial-year" x="${tx}" y="${ty+3}" text-anchor="middle">${meta ? meta.labels[k] : period().steps[k+1].short}</text>`;
+      }
+      // Plan milestones (mid-term review, expiry) as ticks across the bars.
+      if (meta?.marks) for (const [kk,lab] of Object.entries(meta.marks)) {
+        const k = Number(kk);if (k < 0 || k >= m) continue;
+        const a = ang(d,k)+(m > 1 ? RADIAL.span/(m-1)/2 : 0), [x1,y1] = pt(a,r0-3), [x2,y2] = pt(a,r0+h+3);
+        out += `<line class="radial-mark" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+        out += `<title>${lab}</title>`;
       }
       const total = dir.reduce((sum,band) => sum+band.reduce((a,b) => a+b,0),0);
       const flip = d === 2, R = RADIAL.outer*S+(flip ? 16 : 7);
@@ -1170,6 +1209,11 @@ function renderRadial() {
       const Ro = RADIAL.outer*S+4, a0 = ang(d,0)-2, a1 = ang(d,m-1)+2;
       out += `<path class="radial-hit" data-d="${d}" d="M${f(pt(a0,r0-4))}L${f(pt(a0,Ro))}A${Ro} ${Ro} 0 0 1 ${f(pt(a1,Ro))}L${f(pt(a1,r0-4))}A${r0-4} ${r0-4} 0 0 0 ${f(pt(a0,r0-4))}Z"/>`;
     });
+    // Plan: the balance at the year shown, at the top inside the circle.
+    if (meta?.center) {
+      const [l1,l2] = meta.center, ty = cy-lens+22;
+      out += `<g class="radial-center"><rect x="${cx-128}" y="${ty-13}" width="256" height="34" rx="8"/><text x="${cx}" y="${ty+1}" text-anchor="middle" class="rc1">${esc(l1)}</text><text x="${cx}" y="${ty+15}" text-anchor="middle" class="rc2">${esc(l2)}</text></g>`;
+    }
     svg.innerHTML = out;
     const yearAt = (event,d) => {
       const rect = svg.getBoundingClientRect();
@@ -1183,13 +1227,13 @@ function renderRadial() {
         const k = yearAt(event,d), v = series[d].map(band => band[k]);
         const names = fr ? series[d].map((_,b) => sprawlRadialName(b)) : BAND_NAMES, sw = b => fr ? 'rgb('+sprawlRadialColor(b).join(',')+')' : shade(colors()[k+1],b);
         const wrap = $('tip').parentElement.getBoundingClientRect();
-        $('tip').innerHTML = `<b>${DIRS[d]} · ${yearLabel(k+1)}</b><br>`+v.map((x,b) => fr && x <= 0 ? '' : `<i style="background:${sw(b)}"></i>${names[b]}: +${ha(x)}<br>`).join('')+L(`<small>Kliko për të zgjedhur vitin</small>`,`<small>Click to select the year</small>`);
+        $('tip').innerHTML = `<b>${DIRS[d]} · ${meta ? meta.labels[k] : yearLabel(k+1)}</b><br>`+v.map((x,b) => fr && x <= 0 ? '' : `<i style="background:${sw(b)}"></i>${names[b]}: +${ha(x)}<br>`).join('')+L(`<small>Kliko për të zgjedhur vitin</small>`,`<small>Click to select the year</small>`);
         $('tip').style.left = Math.min(event.clientX-wrap.left+14,wrap.width-210)+'px';
         $('tip').style.top = (event.clientY-wrap.top+14)+'px';
         $('tip').hidden = false;
       };
       el.onpointerleave = () => { $('tip').hidden = true; };
-      el.onclick = event => setIndex(yearAt(event,d)+1);
+      el.onclick = event => meta ? meta.pick(yearAt(event,d)) : setIndex(yearAt(event,d)+1);
     });
   } else svg.innerHTML = out;
 }
@@ -1784,6 +1828,10 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
 .radial-year{fill:#8aa0bb;font:8.5px 'Space Mono',Consolas,monospace}
 .radial-label{fill:#e8eef6;font:700 10px 'DM Sans',Arial,sans-serif;letter-spacing:1.5px}
 .radial-hit,.radial-dim{fill:none}
+.radial-mark{stroke:#66e0d1;stroke-width:1.2;stroke-dasharray:3 2}
+.radial-center rect{fill:rgba(7,12,20,.82);stroke:#2b3d57}
+.radial-center .rc1{fill:#e8eef6;font:600 11.5px 'DM Sans',Arial,sans-serif}
+.radial-center .rc2{fill:#9fd7ff;font:600 10.5px 'Space Mono',Consolas,monospace}
 </style>
 <rect width="${W}" height="${H}" fill="#090d15"/>
 <clipPath id="mapclip"><rect width="${S}" height="${S}"/></clipPath>
@@ -1809,9 +1857,9 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   if (spr) {
     // With the sprawl layer the map shows classes, so the legend shows them too.
     const showNow = state.sprawlMode === 'steps' && (state.sprawlShow === 'now' || state.sprawlShow === 'stage'), showYear = state.sprawlMode === 'steps' && state.sprawlShow === 'year';
-    text(state.mapView === 'plan' ? L(`Skenari kompakt: masat nga ${planYearName(sprawlRes.plan?.p ?? 0)}`,`Compact scenario: measures from ${planYearName(sprawlRes.plan?.p ?? 0)}`) : state.mapView === 'sdg' ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short} dhe SDG`,`New construction ${steps[0].short}–${steps[i].short} and the SDGs`) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: shkalla në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: stage in ${steps[i].short}`) : showNow ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: klasa në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: class in ${steps[i].short}`)
+    text(state.mapView === 'plan' ? (P0 => P0 ? L(`Plani ${P0.pYear}–${planYearName(P0.E)} · zbatim ${Math.round(P0.f*100)}%`,`Plan ${P0.pYear}–${planYearName(P0.E)} · ${Math.round(P0.f*100)}% implemented`) : L('Plani','Plan'))(sprawlRes.plan) : state.mapView === 'sdg' ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short} dhe SDG`,`New construction ${steps[0].short}–${steps[i].short} and the SDGs`) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: shkalla në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: stage in ${steps[i].short}`) : showNow ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: klasa në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: class in ${steps[i].short}`)
       : showYear ? L(`Shtesat e ${steps[i].short} sipas klasës`,`Additions of ${steps[i].short} by class`) : L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short} sipas klasës`,`New construction ${steps[0].short}–${steps[i].short} by class`),11,'',700,26);
-    const T = state.sprawlNucleus, legItems = state.mapView === 'plan' ? [8,6,7,5,2,4,...(state.planReal ? [3] : []),1].map(k => [PLANC[k].c.slice(0,3),PLANC[k].t.replace(/ \((M\d)\)/,' $1')]).concat(sprawlRes?.plan?.LC ? [[PLANC[9].c.slice(0,3),L('Pyll i ruajtur M7','Forest kept M7')],[PLANC[13].c.slice(0,3),L('Shkurre e ruajtur M7','Shrub kept M7')]] : []) : state.mapView === 'sdg' ? [1,2,3].map(k => [SDGF[k].c,SDGF[k].s+' '+SDGF[k].k]) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? (stageNames(),[0,1,2,3,4,5].filter(k => k !== 3 || T).map(k => [STAGES[k].c,STAGES[k].t.replace(/ \(.*\)$/,'')])) : [[SPRAWL_CLASSES[0].c,SPRAWL_CLASSES[0].t],[SPRAWL_CLASSES[1].c,SPRAWL_CLASSES[1].t],[SPRAWL_SIZE[1].c,L('Kërcim < 1 ha','Leapfrog < 1 ha')],[SPRAWL_SIZE[2].c,T ? L(`Kërcim 1–${T} ha`,`Leapfrog 1–${T} ha`) : L('Kërcim ≥ 1 ha','Leapfrog ≥ 1 ha')],...(T ? [[SPRAWL_SIZE[3].c,L(`Bërthamë e re ≥ ${T} ha`,`New nucleus ≥ ${T} ha`)]] : [])];
+    const T = state.sprawlNucleus, legItems = state.mapView === 'plan' ? [8,6,7,4,5,1,2,3,16].map(k => [PLANC[k].c.slice(0,3),planLegendTxt(k)]).concat(sprawlRes?.plan?.LC ? [[PLANC[9].c.slice(0,3),planLegendTxt(9)],[PLANC[13].c.slice(0,3),planLegendTxt(13)]] : []) : state.mapView === 'sdg' ? [1,2,3].map(k => [SDGF[k].c,SDGF[k].s+' '+SDGF[k].k]) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? (stageNames(),[0,1,2,3,4,5].filter(k => k !== 3 || T).map(k => [STAGES[k].c,STAGES[k].t.replace(/ \(.*\)$/,'')])) : [[SPRAWL_CLASSES[0].c,SPRAWL_CLASSES[0].t],[SPRAWL_CLASSES[1].c,SPRAWL_CLASSES[1].t],[SPRAWL_SIZE[1].c,L('Kërcim < 1 ha','Leapfrog < 1 ha')],[SPRAWL_SIZE[2].c,T ? L(`Kërcim 1–${T} ha`,`Leapfrog 1–${T} ha`) : L('Kërcim ≥ 1 ha','Leapfrog ≥ 1 ha')],...(T ? [[SPRAWL_SIZE[3].c,L(`Bërthamë e re ≥ ${T} ha`,`New nucleus ≥ ${T} ha`)]] : [])];
     const one = state.mapView === 'plan', lcN = one && sprawlRes?.plan?.LC ? 2 : 0, legRows = legItems.length-lcN+Math.ceil(lcN/2), legStep = legRows > 8 ? 12.5 : 14;
     legItems.forEach(([c,t],k) => {
       const M = legItems.length-lcN, rowP = k < M ? k : M+Math.floor((k-M)/2), lx = one ? ax+(k >= M && (k-M)%2 ? 150 : 0) : ax+(k%2)*150, ly = one ? y+16+rowP*legStep : y+16+Math.floor(k/2)*16;
@@ -1942,26 +1990,29 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   const stz = !sdzT && spr && state.sprawlMode === 'steps' && state.sprawlShow === 'stage' && i > 0 && typeof stageSummary === 'function' ? stageSummary() : null;
   const plz = spr && state.mapView === 'plan' && typeof planStats === 'function' ? planStats() : null;
   if (plz) {
-    // Plan view. Column A: scenario against reality by year. Column B: the finding and the measures. Below: measures by direction.
-    const P = plz.P, yH = P.LC ? 86 : 100, yTop = yA+14, yn = planYearName;
-    out += `<text x="${ax}" y="${yTop+8}" font-size="9" font-weight="700">${xml(L('Skenari kundrejt realitetit (ha në vit)','Scenario against reality (ha per year)'))}</text>`;
+    // Plan view. Column A: the plan years, scenario against no plan, and conformity by implementation level.
+    // Column B: the finding, the measures with their codes and SDG targets, and the SDG status.
+    const P = plz.P, yH = 74, yTop = yA+14, yn = planYearName, s = plz.s, rl = plz.real, pc = v => Math.round(v*100)+'%';
+    out += `<text x="${ax}" y="${yTop+8}" font-size="9" font-weight="700">${xml(L(`Plani ${P.pYear}–${yn(P.E)}: vit pas viti (ha)`,`Plan ${P.pYear}–${yn(P.E)}: year by year (ha)`))}</text>`;
     out += planChartSvg(plz,{w:aw,h:yH}).replace('<svg ',`<svg x="${ax}" y="${yTop+12}" width="${aw}" height="${yH}" `);
     let ly0 = yTop+12+yH+10;
-    [[2,L('brenda kufirit','inside the boundary')],[4,L('zhvendosur nga plani','relocated by the plan')],[3,L('jashtë kufirit në realitet','outside in reality')]].forEach(([k,t],n) => { out += `<rect x="${ax+n*95}" y="${ly0-8}" width="9" height="9" fill="rgb(${PLANC[k].c.slice(0,3).join(',')})"/><text x="${ax+n*95+13}" y="${ly0}" font-size="7.8">${xml(t)}</text>`; });
+    [[2,'K · '+L('konform','conforming')],[4,'Z3 · '+L('zhvendosur','relocated')],[3,'JK · '+L('jokonform','non-conforming')]].forEach(([k,tt],n) => { out += `<rect x="${ax+n*110}" y="${ly0-8}" width="9" height="9" fill="rgb(${PLANC[k].c.slice(0,3).join(',')})"/><text x="${ax+n*110+13}" y="${ly0}" font-size="7.8">${xml(tt)}</text>`; });
+    const lv = planLevels(sprawlRes) || [];
+    const lvLine = lv.map(x => `${x.f === 0 ? '0' : x.f < .25 ? '<25' : Math.round(x.f*100)}→${Math.round(x.s.conformity*100)}`).join(' · ');
+    out += `<text x="${ax}" y="${ly0+16}" font-size="8.3"><tspan font-weight="700">${xml(L('Zbatimi→konformiteti, %:','Implementation→conformity, %:'))}</tspan> ${xml(lvLine)}</text>`;
     const wrap = (txt,n) => { const words = txt.split(' '), lines = [];let cur = '';for (const w2 of words) { if ((cur+' '+w2).trim().length > n) { lines.push(cur.trim());cur = w2; } else cur += ' '+w2; }if (cur.trim()) lines.push(cur.trim());return lines; };
-    const cpl = Math.floor((bRight-bx)/4.6), total = plz.moved+plz.kept;
+    const cpl = Math.floor((bRight-bx)/4.6);
     let ty = y+24;
-    out += `<text x="${bx}" y="${ty}" font-size="9" font-weight="700" style="fill:#66e0d1">${xml(L('Përfundimi i skenarit','Finding of the scenario'))}</text>`;ty += 12;
-    const fin = plz.b <= P.p && !state.planExtra ? L(`Masat hyjnë në fuqi në ${yn(P.p)}.`,`The measures take effect in ${yn(P.p)}.`)
-      : L(`Nga ${yn(P.p)} deri në ${yn(plz.Y)} u ndërtuan ${fmtHa(total)} ha; ${fmtHa(plz.moved)} ha (${total ? fmt1(plz.moved/total*100) : 0}%) ranë jashtë kufirit. Plani i vendos brenda tij: ${fmtHa(plz.moved)} ha tokë rurale të shpëtuar. Kapaciteti i mbetur: ${fmtHa(plz.left)} ha.`,`From ${yn(P.p)} to ${yn(plz.Y)}, ${fmtHa(total)} ha were built; ${fmtHa(plz.moved)} ha (${total ? fmt1(plz.moved/total*100) : 0}%) fell outside the boundary. The plan puts them inside: ${fmtHa(plz.moved)} ha of rural land saved. Capacity left: ${fmtHa(plz.left)} ha.`)+(P.K ? ' '+L(`Trendi deri në ${PLAN_HORIZON}: +${fmtHa(P.projDemand*P.K)} ha, rreth ${fmtHa(P.projDemand*P.K*P.recentShare)} ha jashtë kufirit pa masa.`,`Trend to ${PLAN_HORIZON}: +${fmtHa(P.projDemand*P.K)} ha, about ${fmtHa(P.projDemand*P.K*P.recentShare)} ha outside the boundary without measures.`) : '');
+    out += `<text x="${bx}" y="${ty}" font-size="9" font-weight="700" style="fill:#66e0d1">${xml(L(`Përfundimi · zbatim ${pc(P.f)}`,`Finding · ${pc(P.f)} implemented`))}</text>`;ty += 12;
+    const fin = plz.Y <= P.p ? L(`Plani hyn në fuqi në ${P.pYear}, me mandat ${state.planMandate} vjet; vlerësimi afatmesëm në ${yn(P.R)}.`,`The plan takes effect in ${P.pYear} for ${state.planMandate} years; mid-term review in ${yn(P.R)}.`)
+      : L(`Nga ${P.pYear} deri në ${yn(plz.Yp)} u ndërtuan ${fmtHa(rl.total)} ha; pa plan ${pc(rl.conformity)} ishte konform. Me zbatim ${pc(P.f)} zhvendosen ${fmtHa(s.reloc)} ha në zonat Z3 dhe konformiteti bëhet ${pc(s.conformity)}; shpëtohen ${fmtHa(s.relocOut)} ha tokë rurale. Vlerësimi afatmesëm ${yn(P.R)}: ${pc(plz.mid.conformity)} konform.`,`From ${P.pYear} to ${yn(plz.Yp)}, ${fmtHa(rl.total)} ha were built; without the plan ${pc(rl.conformity)} conformed. With ${pc(P.f)} implementation ${fmtHa(s.reloc)} ha move to Z3 zones and conformity becomes ${pc(s.conformity)}; ${fmtHa(s.relocOut)} ha of rural land are saved. Mid-term review ${yn(P.R)}: ${pc(plz.mid.conformity)} conforming.`);
     for (const line of wrap(fin,cpl)) { out += `<text x="${bx}" y="${ty}" font-size="8.3">${xml(line)}</text>`;ty += 10.5; }
     ty += 6;
     out += `<text x="${bx}" y="${ty}" font-size="9" font-weight="700">${xml(L('Masat','Measures'))}</text>`;ty += 12;
-    const ms = [['M1',6,L('Densifiko / mbush','Densify / infill'),P.capM1],['M2',7,L('Konsolido skajin','Consolidate the edge'),P.capM2],['M3',8,L('Kufi i rritjes urbane','Urban growth boundary'),plz.ugbHa],['M4',5,L('Fuqizo qendrat e reja','Strengthen the new centres'),plz.nucHa],['M5',3,L('Ndal / sano shpërndarjen','Stop / repair dispersal'),plz.moved],['M6',null,L('Ruaj tokën rurale e bujqësore','Protect rural and farm land'),plz.moved],...(P.LC ? [['M7',9,L('Ruaj pyjet e shkurret: rekreacion','Keep forest and shrub: recreation'),plz.protHa[1]+plz.protHa[2]]] : [])];
-    for (const [c,k,t,h] of ms) { if (k) out += `<rect x="${bx}" y="${ty-8}" width="9" height="9" fill="rgb(${PLANC[k].c.slice(0,3).join(',')})"/>`;out += `<text x="${bx+14}" y="${ty}" font-size="8.3" font-weight="700" class="mono">${c}</text><text x="${bx+38}" y="${ty}" font-size="8.3">${xml(t)}</text><text x="${bRight-62}" y="${ty}" font-size="7.4" text-anchor="end" style="fill:#9fd7ff">${xml('SDG '+PLAN_SDG[c])}</text><text x="${bRight}" y="${ty}" font-size="8.3" text-anchor="end" class="mono">${xml(fmtHa(h))} ha</text>`;ty += ms.length > 7 ? 9.4 : ms.length > 6 ? 10.5 : 12; }
-    // Measures by direction, in one line: the main measure codes and the construction outside the boundary.
-    const dirLine = plz.dir.map((d,k) => `${DIRS[k][0]} ${(planDirMeasure(d).match(/M\d/g) || ['—']).join('·')} ${fmtHa(d.moved)}`).join(' · ');
-    out += `<text x="${ax}" y="${ly0+16}" font-size="8.3"><tspan font-weight="700">${xml(L('Drejtimi, ha jashtë:','Direction, ha outside:'))}</tspan> ${xml(dirLine)}</text>`;
+    const ms = [['M1','Z1',6,L('Densifiko / mbush','Densify / infill'),P.capM1],['M2','Z2',7,L('Konsolido skajin','Consolidate the edge'),P.capM2],['M3','UGB',8,L('Kufi i rritjes urbane','Urban growth boundary'),plz.ugbHa],['M4','Q',5,L('Fuqizo qendrat dytësore','Strengthen secondary centres'),plz.nucHa],['M5','JK',3,L('Zhvendos zhvillimin JK','Relocate JK development'),s.reloc],['M6','',null,L('Ruaj tokën rurale','Protect rural land'),s.relocOut],...(P.LC ? [['M7','G1·G2',9,L('Ruaj pyjet e shkurret','Keep forest and shrubland'),plz.protHa[1]+plz.protHa[2]]] : [])];
+    for (const [c,code,k,tt,h] of ms) { if (k) out += `<rect x="${bx}" y="${ty-8}" width="9" height="9" fill="rgb(${PLANC[k].c.slice(0,3).join(',')})"/>`;out += `<text x="${bx+14}" y="${ty}" font-size="8.3" font-weight="700" class="mono">${c}</text><text x="${bx+36}" y="${ty}" font-size="7.6" class="mono" style="fill:#9fb2c8">${xml(code)}</text><text x="${bx+74}" y="${ty}" font-size="8.3">${xml(tt)}</text><text x="${bRight-62}" y="${ty}" font-size="7.4" text-anchor="end" style="fill:#9fd7ff">${xml('SDG '+PLAN_SDG[c])}</text><text x="${bRight}" y="${ty}" font-size="8.3" text-anchor="end" class="mono">${xml(fmtHa(h))} ha</text>`;ty += ms.length > 6 ? 10.2 : 12; }
+    const sdgLine = `11.3 ${PLAN_LIGHT[planLight.conf(s)]} · 11.3.1 ${PLAN_LIGHT[planLight.out(s)]}`+(P.LC ? ` · 15.1 ${PLAN_LIGHT[planLight.forest(s)]} · 11.7 ${PLAN_LIGHT[planLight.green(s)]}` : '');
+    out += `<text x="${ax}" y="${ly0+28}" font-size="8.3"><tspan font-weight="700">${xml(L(`Synimet SDG në ${yn(plz.Yp)}:`,`SDG targets in ${yn(plz.Yp)}:`))}</tspan> ${xml(sdgLine)}</text>`;
   } else if (sdzT) {
     // SDG view. Column A: the year chart under the summary. Column B: the SDG targets read here, under the sprawl block.
     // Below both: the reading in one line and the breach by direction, with its legend beside it.
@@ -2111,8 +2162,25 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   text(L(`Autori: ${AUTHOR}`,`Author: ${AUTHOR}`),12.5,'',700,22);
   text(L('Të dhënat: DLR World Settlement Footprint (Evolution, Tracker)','Data: DLR World Settlement Footprint (Evolution, Tracker)')+(state.basemap ? ' · '+BASEMAP_CREDIT[state.basemapSource].text : ''),8.5,'muted',400,16);
   text(L(`Kuartilet me interpolim linear; devijimi standard i mostrës; modusi mbi vlerat e rrumbullakosura në 0,1 · ${(d => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`)(new Date())}`,`Quartiles by linear interpolation; sample standard deviation; mode over values rounded to 0.1 · ${(d => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`)(new Date())}`),8,'muted',400,12);
-  return {svg:out+'</svg>',width:W,height:H};
+  // Title band across the top of the sheet: the title typed by the user, or one made from the view.
+  const TH = 66, title = sheetTitle(), sub = `${period().source} · ${i ? steps[0].short+'–'+steps[i].short : steps[0].short}${state.mapView === 'plan' && state.planExtra ? ' · '+L('projeksion','projection') : ''}`;
+  const head = `<rect x="0" y="0" width="${W}" height="${TH}" fill="#0b1422"/><rect x="0" y="0" width="6" height="${TH}" fill="#66e0d1"/><line x1="0" x2="${W}" y1="${TH-.5}" y2="${TH-.5}" stroke="#2b3d57"/>`
+    +`<text x="26" y="${TH/2+10}" font-size="${title.length > 70 ? 21 : 27}" font-weight="700">${xml(title)}</text>`
+    +`<text x="${W-24}" y="${TH/2+4}" font-size="10.5" text-anchor="end" class="muted mono">${xml(sub)}</text>`;
+  out = out.replace(`width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,`width="${W}" height="${H+TH}" viewBox="0 0 ${W} ${H+TH}">`);
+  const cut = out.indexOf('</style>')+8;
+  out = out.slice(0,cut)+head+`<g transform="translate(0,${TH})">`+out.slice(cut);
+  return {svg:out+'</g></svg>',width:W,height:H+TH};
 }
+// Title of an exported sheet or video.
+function sheetAutoTitle() {
+  const steps = period().steps, i = state.index, y0 = i ? steps[0].short+'–' : '', y1 = steps[i].short, name = state.aoi ? state.aoi.name : state.name;
+  if (state.mapView === 'plan' && typeof planStats === 'function') { const P = sprawlRes?.plan;if (P) return L(`${name} · Skenari i planit ${P.pYear}–${planYearName(P.E)} · zbatim ${Math.round(P.f*100)}%`,`${name} · Plan scenario ${P.pYear}–${planYearName(P.E)} · ${Math.round(P.f*100)}% implemented`); }
+  if (state.mapView === 'sdg') return L(`${name} · Zgjerimi urban dhe SDG ${y0}${y1}`,`${name} · Urban expansion and the SDGs ${y0}${y1}`);
+  if (state.mapView === 'forms') return L(`${name} · Format e zgjerimit urban ${y0}${y1}`,`${name} · Forms of urban expansion ${y0}${y1}`);
+  return L(`${name} · Zgjerimi urban ${y0}${y1}`,`${name} · Urban expansion ${y0}${y1}`);
+}
+function sheetTitle() { const v = ($('sheetTitle')?.value || '').trim();return v || sheetAutoTitle(); }
 let viewerDownloads = null;
 if (window.claude?.use) window.claude.use('downloads').then(d => { viewerDownloads = d; }).catch(() => {});
 async function download(blob,name) {
@@ -2547,7 +2615,7 @@ function sprawlNow(r,i,t) {
 state.sprawlShow = 'stage';
 state.stageCuts = [1,10,50];   // ha, configurable on the map: A < 1 · B 1–10 · C 10–50 · D ≥ 50
 state.sprawlNucleus = 10;   // = stageCuts[1]: a detached structure of at least this size counts as a new nucleus, not as sprawl
-const sprawlViewKey = () => `${baseOff()+1}|${baseOff()+state.index+1}|${state.sprawlShow}|${state.stageCuts.join(',')}|${state.mapView}|${state.planYear}|${state.planExtra}|${state.planReal}`;
+const sprawlViewKey = () => `${baseOff()+1}|${baseOff()+state.index+1}|${state.sprawlShow}|${state.stageCuts.join(',')}|${state.mapView}|${state.planYear}|${state.planExtra}|${state.planReal}|${state.planMandate}|${state.planImpl}`;
 function formsLike() { return state.mapView === 'forms' || state.mapView === 'sdg' || state.mapView === 'plan'; }   // 'now' class at the year on display · 'class' class when built · 'year' this year's additions only
 let sprawlRes = null, sprawlPending = null, sprawlTimer = 0, sprawlJob = 0, sprawlWorker = null, workerGridKey = null, sprawlWaiters = [];
 const sprawlLocal = sprawlEngine();
@@ -2937,16 +3005,19 @@ function setMapView(v,repaint=true) {
   state.sprawl = v === 'forms' || v === 'sdg' || v === 'plan';
   document.body.classList.toggle('view-plan',v === 'plan');
   if (v !== 'plan') state.planExtra = 0;
+  // A plan can run across the Evolution and Tracker years: the Plan view works on the joined series.
+  const toJoined = v === 'plan' && repaint && state.period !== 'combined' && !!manifest?.periods?.combined;
   document.body.classList.toggle('view-forms',state.sprawl);
   document.body.classList.toggle('view-sdg',v === 'sdg');
   if (state.sprawl && state.mode !== 'cumulative') setMode('cumulative',false);
   const hint = $('timelineHint');
   if (hint) { if (hint.dataset.time == null) hint.dataset.time = hint.textContent;
-    hint.textContent = v === 'plan' ? L('Skenar planifikimi: zgjidhni vitin kur hyjnë masat në fuqi dhe luajeni deri në 2030. Nga ai vit rritja është sa në realitet, por e vendosur sipas planit: gri-blu = rritje brenda kufirit, jeshile = zona të planit. «Krahaso» shfaq edhe vendin real të ndërtimit të shmangur.','Planning scenario: choose the year the measures take effect and play it to 2030. From that year growth is as large as in reality but placed by the plan: grey-blue = growth inside the boundary, green = plan zones. Compare also shows where the avoided construction really went.') : v === 'sdg' ? L('Ngjyrat në hartë tregojnë si ndikon ndërtimi i ri në SDG: në përputhje, konsum toke ose cenim. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show how new construction bears on the SDGs: in line, land take or breach. Shortcuts: ← → for the year, space to play.') : v === 'forms' ? L('Ngjyrat në hartë tregojnë formën e zgjerimit, jo vitin. Fillo nga viti bazë për të parë gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show the form of expansion, not the year. Start at the base year to see the initial state. Shortcuts: ← → for the year, space to play.') : hint.dataset.time; }
+    hint.textContent = v === 'plan' ? L('Plani: zgjidhni hyrjen në fuqi, mandatin dhe shkallën e zbatimit, pastaj luajeni. Në vijën kohore shënohen fillimi, vlerësimi afatmesëm dhe skadimi. K = zhvillim konform, Z3 = zonë e re ndërtimi, JK = jokonform, PS = pas skadimit.','Plan: choose when it takes effect, its mandate and the implementation level, then play it. The timeline marks the start, the mid-term review and the expiry. K = conforming, Z3 = new building zone, JK = non-conforming, PS = after expiry.') : v === 'sdg' ? L('Ngjyrat në hartë tregojnë si ndikon ndërtimi i ri në SDG: në përputhje, konsum toke ose cenim. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show how new construction bears on the SDGs: in line, land take or breach. Shortcuts: ← → for the year, space to play.') : v === 'forms' ? L('Ngjyrat në hartë tregojnë formën e zgjerimit, jo vitin. Fillo nga viti bazë për të parë gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show the form of expansion, not the year. Start at the base year to see the initial state. Shortcuts: ← → for the year, space to play.') : hint.dataset.time; }
   document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-selected',String(b.dataset.view === v)));
   renderSprawlPanel();
   if (state.sprawl) scheduleSprawl(true);
   if (state.tab === 'units' && typeof renderUnits === 'function') renderUnits();
+  if (toJoined) { $('period').value = 'combined';state.planYear = null;$('period').onchange();return; }
   if (repaint && view) { paint(true);if (sample) updateHash(); }
 }
 document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setMapView(b.dataset.view));
@@ -2975,8 +3046,8 @@ function sprawlLegendHtml() {
   const show = state.sprawlMode === 'steps' ? state.sprawlShow : 'class';
   if (state.mapView === 'plan') {
     if (focused) return;
-    const P = sprawlRes?.plan, sw3 = k => { const rgb = `rgb(${PLANC[k].c.slice(0,3).join(',')})`;return `<span><i style="background:${k === 9 || k === 10 || k === 13 ? `repeating-linear-gradient(45deg,${rgb} 0 2px,transparent 2px 5px)` : rgb}${PLANC[k].c[3] && k < 9 ? ';opacity:.55' : ''}"></i>${esc(PLANC[k].t)}</span>`; };
-    $('sprawlLegend').innerHTML = `<b>${L(`Skenari kompakt${P ? `, masat nga ${esc(planYearName(P.p))}` : ''}:`,`Compact scenario${P ? `, measures from ${esc(planYearName(P.p))}` : ''}:`)}</b>`+[8,...(P?.expand?.length ? [14] : []),6,7,4,5,2,1,...(P?.LC ? [9,13] : []),...(state.planReal ? [3,...(P?.LC ? [11] : [])] : [])].map(sw3).join('')
+    const P = sprawlRes?.plan, sw3 = k => { const rgb = `rgb(${PLANC[k].c.slice(0,3).join(',')})`;return `<span><i style="background:${k === 9 || k === 13 ? `repeating-linear-gradient(45deg,${rgb} 0 2px,transparent 2px 5px)` : rgb}${PLANC[k].c[3] && k < 9 ? ';opacity:.55' : ''}"></i>${PLANC[k].code ? `<b class="lg-code">${PLANC[k].code}</b>` : ''}${esc(PLANC[k].t)}</span>`; };
+    $('sprawlLegend').innerHTML = `<b>${P ? L(`Plani ${P.pYear}–${planYearName(P.E)} · zbatim ${Math.round(P.f*100)}%:`,`Plan ${P.pYear}–${planYearName(P.E)} · ${Math.round(P.f*100)}% implemented:`) : L('Plani:','Plan:')}</b>`+[8,...(P?.expand?.length ? [14] : []),6,7,4,5,1,2,3,16,...(P?.LC ? [9,13] : []),...(state.planReal ? [17] : [])].map(sw3).join('')
       +`<label class="plan-real"><input type="checkbox" id="planRealChk"${state.planReal ? ' checked' : ''}> ${L('Krahaso me vendin real të ndërtimit','Compare with where it was really built')}</label>`;
     const chk = $('planRealChk');
     if (chk) chk.onchange = () => { state.planReal = chk.checked;if (sprawlRes) { sprawlRes.viewKey = null;sprawlRes.radialKey = null; }sprawlView();renderSprawlPanel();paint(true); };
@@ -3019,31 +3090,11 @@ function sprawlRadial() {
   const layer = {10:0,11:1,12:2,13:2,0:3,131:4,14:5};
   const cx = ((view.west+view.east)/2-w.west)/w.dlon, cy = (w.north-(view.north+view.south)/2)/w.dlat;
   const {grid,out,domain} = r;
-  if (planMode) {
-    // Scenario growth placed by the plan, in the year the plan places it.
-    const P = r.plan;
-    for (let i=0;i<grid.length;i++) {
-      const t = P.alloc[i];
-      if (!t || t > P.last || !domain[i]) continue;
-      const k = t-off-2;if (k < 0 || k >= m) continue;
-      const x = i%w.W, y = (i-x)/w.W, ddx = (x+.5-cx)*w.dx, ddy = (y+.5-cy)*w.dy, angle = (Math.atan2(ddx,-ddy)+Math.PI*2.25)%(Math.PI*2);
-      rad[Math.min(3,Math.floor(angle/(Math.PI/2)))][t <= b ? 2 : 4][k] += r.rowHa[y]/100;
-    }
-  }
+  if (planMode) { r.radial = planRadial(r,cx,cy);r.radialKey = key;return r.radial; }
   for (let i=0;i<grid.length;i++) {
     const code = grid[i], k = code-off-2;
     if (k < 0 || k >= m || !domain[i]) continue;
     let c;
-    if (planMode) {
-      const P = r.plan;
-      let g = 4;
-      if (code <= P.p) g = code <= b ? 0 : 4;
-      else if (P.ugbYear[i] && !P.prot[i]) g = code <= b ? 1 : 4;
-      else { if (!state.planReal) continue;g = code <= b ? 3 : 4; }
-      const x = i%w.W, y = (i-x)/w.W, ddx = (x+.5-cx)*w.dx, ddy = (y+.5-cy)*w.dy, angle = (Math.atan2(ddx,-ddy)+Math.PI*2.25)%(Math.PI*2), dd = Math.min(3,Math.floor(angle/(Math.PI/2)));
-      rad[dd][g][k] += r.rowHa[y]/100;
-      continue;
-    }
     if (sdgMode) {
       const g = code > b ? 3 : r.sdgPix[i] ? r.sdgPix[i]-1 : 3;
       const x = i%w.W, y = (i-x)/w.W, ddx = (x+.5-cx)*w.dx, ddy = (y+.5-cy)*w.dy, angle = (Math.atan2(ddx,-ddy)+Math.PI*2.25)%(Math.PI*2);
@@ -3067,18 +3118,11 @@ function sprawlRadial() {
     const angle = (Math.atan2(ddx,-ddy)+Math.PI*2.25)%(Math.PI*2);
     rad[Math.min(3,Math.floor(angle/(Math.PI/2)))][l][k] += r.rowHa[y]/100;   // km², like the year diagram
   }
-  if (planMode && r.plan && b > r.plan.p) for (let i=0;i<grid.length;i++) {
-    const t = r.plan.alloc[i];
-    if (!t || t > b || !domain[i]) continue;
-    const k = t-off-2;if (k < 0 || k >= m) continue;
-    const x = i%w.W, y = (i-x)/w.W, angle = (Math.atan2((x+.5-cx)*w.dx,-(y+.5-cy)*w.dy)+Math.PI*2.25)%(Math.PI*2);
-    rad[Math.min(3,Math.floor(angle/(Math.PI/2)))][2][k] += r.rowHa[y]/100;
-  }
   r.radial = rad;r.radialKey = key;
   return rad;
 }
-function sprawlRadialColor(l) { if (sprawlRes?.radPlan) return l === 4 ? [70,82,102] : PLANC[[1,2,4,3][l]].c;if (sprawlRes?.radSdg) return l === 3 ? [70,82,102] : SDGF[l+1].c;if (sprawlRes?.radStage) return l === 6 ? [70,82,102] : STAGES[l].c;return l === 3 ? [70,82,102] : l === 4 ? SPRAWL_SIZE[1].c : l === 5 ? SPRAWL_SIZE[3].c : SPRAWL_CLASSES.find(c => c.k === SPRAWL_RADIAL_LAYERS[l]).c; }
-function sprawlRadialName(l) { if (sprawlRes?.radPlan) return l === 4 ? L('vitet në vijim','coming years') : PLANC[[1,2,4,3][l]].t;if (sprawlRes?.radSdg) return l === 3 ? L('vitet në vijim','coming years') : SDGF[l+1].s+' '+SDGF[l+1].t;if (sprawlRes?.radStage) return l === 6 ? L('vitet në vijim','coming years') : STAGES[l].t;return l === 3 ? L('vitet e tjera','other years') : l === 4 || l === 5 ? SPRAWL_SIZE[l === 4 ? 1 : 3].t : l === 2 ? SPRAWL_SIZE[2].t : SPRAWL_CLASSES.find(c => c.k === SPRAWL_RADIAL_LAYERS[l]).t; }
+function sprawlRadialColor(l) { if (sprawlRes?.radPlan) return PLANC[[2,4,3,16][l]].c.slice(0,3);if (sprawlRes?.radSdg) return l === 3 ? [70,82,102] : SDGF[l+1].c;if (sprawlRes?.radStage) return l === 6 ? [70,82,102] : STAGES[l].c;return l === 3 ? [70,82,102] : l === 4 ? SPRAWL_SIZE[1].c : l === 5 ? SPRAWL_SIZE[3].c : SPRAWL_CLASSES.find(c => c.k === SPRAWL_RADIAL_LAYERS[l]).c; }
+function sprawlRadialName(l) { if (sprawlRes?.radPlan) return planLegendTxt([2,4,3,16][l]);if (sprawlRes?.radSdg) return l === 3 ? L('vitet në vijim','coming years') : SDGF[l+1].s+' '+SDGF[l+1].t;if (sprawlRes?.radStage) return l === 6 ? L('vitet në vijim','coming years') : STAGES[l].t;return l === 3 ? L('vitet e tjera','other years') : l === 4 || l === 5 ? SPRAWL_SIZE[l === 4 ? 1 : 3].t : l === 2 ? SPRAWL_SIZE[2].t : SPRAWL_CLASSES.find(c => c.k === SPRAWL_RADIAL_LAYERS[l]).t; }
 // ---------- SDG reading of the forms of expansion ----------
 // Infill uses land inside the existing footprint (SDG 11.3: compact, efficient urbanisation; it lowers 11.3.1).
 // Edge extension adds new land, but next to the city. Leapfrog takes and fragments rural land (11.3, 15.3, 2.4)
@@ -3691,31 +3735,40 @@ function sdgInfoHtml() {
 // Each year after P the same amount is built as in reality. What was built inside the boundary stays; what was built
 // outside it is moved to the best free land inside (infill first, then by local built-up share), and when that land
 // runs out the boundary grows by 100 m. Beyond the last WSF year (Tracker) the demand is the mean of the last five years.
-state.planYear = null;   // period index when the measures start
-state.planReal = false;  // also show where the avoided construction really went (comparison)
+state.planYear = null;   // period index when the plan takes effect
+state.planMandate = 10;  // years the plan is in force; the mid-term review falls halfway
+state.planImpl = 1;      // share of the non-conforming construction the plan manages to relocate (0–1)
+state.planReal = false;  // also show where the relocated construction really went (comparison)
 state.planExtra = 0;     // projected years shown beyond the last WSF year
 const PLAN_HORIZON = 2030;
+const PLAN_LEVELS = [1,.75,.5,.25,.1];   // implementation levels compared: 100, 75, 50, 25 and under 25 %
+// Map classes of the plan view, with short codes as in a zoning plan.
 const PLANC = {
-  1:{c:[120,130,150],t:L('Ndërtim para masave','Built before the measures')},
-  2:{c:[96,132,196],t:L('Rritje brenda kufirit, në vendin real','Growth inside the boundary, where it really happened')},
-  3:{c:[255,77,109],t:L('Krahasim: ndërtim real jashtë kufirit, i shmangur (M5)','Comparison: actual construction outside the boundary, avoided (M5)')},
-  4:{c:[64,184,120],t:L('Zonë ndërtimi e planit (blloqe 100 m)','Plan building zone (100 m blocks)')},
-  5:{c:[184,132,255],t:L('Qendër e re për t\'u fuqizuar (M4)','New centre to strengthen (M4)')},
-  6:{c:[64,184,120,70],t:L('Tokë për densifikim (M1)','Land to densify (M1)')},
-  7:{c:[255,176,0,60],t:L('Skaj për konsolidim (M2)','Edge to consolidate (M2)')},
-  8:{c:[102,224,209],t:L('Kufiri i rritjes urbane i vitit të masave (M3)','Urban growth boundary of the policy year (M3)')},
-  9:{c:[120,200,80,230],t:L('Pyll i ruajtur → park, pyll urban (M7)','Forest kept → park, urban forest (M7)')},
-  10:{c:[70,160,255,230],t:L('Ujë i ruajtur → breg rekreativ (M7)','Water kept → recreational shore (M7)')},
-  11:{c:[255,150,20],t:L('Krahasim: pyll ose shkurre e humbur nën ndërtim real','Comparison: forest or shrubland lost to actual construction')},
-  12:{c:[16,96,56],t:L('Skaji i zonës së planit','Edge of the plan zone')},
-  13:{c:[214,206,90,220],t:L('Shkurre/kullotë e ruajtur → hapësirë rekreative (M7)','Shrub/grassland kept → recreational space (M7)')},
-  14:{c:[255,190,70],t:L('Zgjerim i kufirit kur toka mbaron','Boundary widened when land runs out')},
-  15:{c:[255,150,20],t:L('Humbur: gjelbërim komunitar nën ndërtim real','Lost: community green under actual construction')},
+  1:{c:[120,130,150],code:'E',t:L('Ndërtim ekzistues','Existing built-up')},
+  2:{c:[96,132,196],code:'K',t:L('Zhvillim konform','Conforming development')},
+  3:{c:[255,77,109],code:'JK',t:L('Zhvillim jokonform','Non-conforming development')},
+  4:{c:[64,184,120],code:'Z3',t:L('Zonë e re ndërtimi','New building zone')},
+  5:{c:[184,132,255],code:'Q',t:L('Qendër dytësore','Secondary centre')},
+  6:{c:[64,184,120,70],code:'Z1',t:L('Zonë densifikimi','Densification zone')},
+  7:{c:[255,176,0,60],code:'Z2',t:L('Zonë konsolidimi skajor','Edge consolidation zone')},
+  8:{c:[102,224,209],code:'UGB',t:L('Kufiri i rritjes urbane','Urban growth boundary')},
+  9:{c:[120,200,80,230],code:'G1',t:L('Pyll i mbrojtur','Protected forest')},
+  12:{c:[16,96,56],code:'',t:L('Skaji i zonës Z3','Edge of zone Z3')},
+  13:{c:[214,206,90,220],code:'G2',t:L('Shkurre e mbrojtur','Protected shrubland')},
+  14:{c:[255,190,70],code:'UGB+',t:L('Zgjerim i kufirit','Boundary extension')},
+  16:{c:[150,140,175],code:'PS',t:L('Zhvillim pas skadimit','Development after expiry')},
+  17:{c:[255,77,109,90],code:'JK→Z3',t:L('Vendi real i zhvillimit të zhvendosur','Where relocated development really went')},
 };
-const PLAN_OPEN_M = 25;   // open land narrower than ~2×20 m (road strips between buildings) is not building land
+const planLegendTxt = k => (PLANC[k].code ? PLANC[k].code+' · ' : '')+PLANC[k].t;
+const PLAN_OPEN_M = 25;   // open land narrower than ~2×25 m (road strips between buildings) is not building land
 const PLAN_BLOCK_M = 100; // the plan allocates whole blocks of this size
 const PLAN_CORE_M = 40;   // a block is building land only if its open land is at least ~2×40 m wide somewhere (no road strips)
-function planDefaultYear() { const n = count();return Math.max(1,Math.min(n-2,state.period === 'tracker' ? Math.round((n-1)*.35) : period().steps.findIndex(s => s.year >= 2000) > 0 ? period().steps.findIndex(s => s.year >= 2000) : Math.round((n-1)/2))); }
+const PLAN_GREEN_TARGET = .15;   // SDG 11.7: open green space as a share of the urban area (UN-Habitat: about 15 %)
+const PLAN_SDG = {M1:'11.3',M2:'11.3',M3:'11.3 · 15.3',M4:'11.2 · 11.3',M5:'11.3 · 15.3',M6:'2.4 · 15.3',M7:'15.1 · 11.7'};
+function planDefaultYear() {
+  const steps = period().steps, n = steps.length, k = steps.findIndex(s => s.year >= (state.period === 'tracker' ? 2018 : 2010));
+  return Math.max(1,Math.min(n-2,k > 0 ? k : Math.round((n-1)/2)));
+}
 function chamfer(mask,W,H,dx,dy) {
   const N = W*H, d = new Float32Array(N), dg = Math.hypot(dx,dy);
   for (let i=0;i<N;i++) d[i] = mask[i] ? 0 : 1e9;
@@ -3757,81 +3810,112 @@ async function planLandcover(r,year) {
 }
 // The land-cover map for the policy year: the latest map not after it, else the first one.
 function planLcYear(pYear) { const ys = landcover?.tiles?.years || [];if (!ys.length) return null;const before = ys.filter(y => y <= pYear);return before.length ? before[before.length-1] : ys[0]; }
-const PLAN_GREEN_TARGET = .15;   // SDG 11.7: open green space as a share of the urban area (UN-Habitat: about 15 %)
-const PLAN_SDG = {M1:'11.3',M2:'11.3',M3:'11.3 · 15.3',M4:'11.2 · 11.3',M5:'11.3 · 15.3',M6:'2.4 · 15.3',M7:'15.1 · 11.7'};
-function planCompute(r) {
+// ---------- Plan: a plan in force from a chosen year for a mandate, with a mid-term review ----------
+// Codes: a pixel's grid value is the raw step code; step index i ↔ code baseOff()+1+i. Codes past the last
+// step are projected years (Tracker and the joined series, to PLAN_HORIZON).
+function planYearName(t) { const off = baseOff(), steps = period().steps, last = off+steps.length;return t > last ? String(steps[steps.length-1].year+(t-last)) : steps[t-off-1]?.short || ''; }
+function planCodeOfYear(y) { const off = baseOff(), steps = period().steps, k = steps.findIndex(s => s.year >= y);return k >= 0 ? off+1+k : off+steps.length+(y-steps[steps.length-1].year); }
+// Everything that does not depend on the implementation level: boundary, land, blocks, yearly construction.
+function planBase(r) {
   if (!r || r.mode !== 'steps' || !r.firstSub) return null;
-  if (state.planYear == null || state.planYear < 1 || state.planYear > count()-2) state.planYear = planDefaultYear();
-  const off = baseOff(), a = off+1, p = off+1+state.planYear, steps = period().steps;
-  const pYear = steps[p-off-1]?.year, yL = planLcYear(pYear);
+  const n = count(), steps = period().steps, off = baseOff();
+  if (state.planYear == null || state.planYear < 1 || state.planYear > n-2) state.planYear = planDefaultYear();
+  const a = off+1, p = off+1+state.planYear, last = off+n, lastYear = steps[n-1].year, pYear = steps[state.planYear].year;
+  const K = state.period !== 'evolution' ? Math.max(0,PLAN_HORIZON-lastYear) : 0;
+  const eWanted = pYear+state.planMandate, eCode = planCodeOfYear(eWanted), E = Math.min(eCode,last+K), cut = eCode > last+K;
+  const R = Math.max(p+1,Math.min(E,planCodeOfYear(pYear+Math.round(state.planMandate/2))));
+  const yL = planLcYear(pYear);
   if (yL != null && !r.lcMaps?.[yL]) planLandcover(r,yL);
   const LC = yL != null && r.lcMaps?.[yL] && !r.lcMaps[yL].none ? r.lcMaps[yL] : null;
-  const key = `${a}|${p}|${state.stageCuts.join(',')}|${r.key}|${LC ? 'lc'+yL : ''}`;
-  if (r.plan?.key === key) return r.plan;
+  const key = `${a}|${p}|${E}|${R}|${state.stageCuts.join(',')}|${r.key}|${LC ? 'lc'+yL : ''}`;
+  if (r.planB?.key === key) return r.planB;
+  r.planRuns = new Map();
   const t0 = performance.now(), {grid,domain:dom,w} = r, W = w.W, H = w.H, N = W*H, dx = w.dx, dy = w.dy;
-  let last = 0;for (let i=0;i<N;i++) if (grid[i] > last) last = grid[i];
-  const lastYear = steps[last-off-1]?.year ?? steps[steps.length-1].year;
-  const K = state.period === 'tracker' ? Math.max(0,PLAN_HORIZON-lastYear) : 0;
   const rowHa = r.rowHa, haOf = i => rowHa[(i-i%W)/W];
   const builtBy = (i,t) => grid[i] >= 1 && grid[i] <= t;
-  // Body and new nuclei in the policy year: the urban growth boundary of that year.
+  // Body and new nuclei when the plan takes effect: the urban growth boundary (UGB) of that year.
   const S = sprawlStages(r), nuc = new Uint8Array(N), seed = new Uint8Array(N);
   if (S) for (let j=0;j<S.M;j++) { const s = stageAt(S,j,p);if (s === 3 || s === 4) nuc[S.pix[j]] = 1; }
   for (let i=0;i<N;i++) { const c = grid[i];if (c >= 1 && c <= p && (r.firstSub[i] <= p || nuc[i])) seed[i] = 1; }
-  const dSeed = chamfer(seed,W,H,dx,dy), ugbYear = new Uint16Array(N);
-  for (let i=0;i<N;i++) if (dSeed[i] <= 100 && dom[i]) ugbYear[i] = p;
-  const out = new Uint8Array(N);for (let i=0;i<N;i++) out[i] = ugbYear[i] ? 0 : 1;
+  const dSeed = chamfer(seed,W,H,dx,dy), ugb0 = new Uint16Array(N);
+  for (let i=0;i<N;i++) if (dSeed[i] <= 100 && dom[i]) ugb0[i] = p;
+  const out = new Uint8Array(N);for (let i=0;i<N;i++) out[i] = ugb0[i] ? 0 : 1;
   const dOut = chamfer(out,W,H,dx,dy), interior = new Uint8Array(N);
-  for (let i=0;i<N;i++) if (ugbYear[i] && dOut[i] > 100) interior[i] = 1;
-  // Local built-up share in a 500 m square in the policy year, to rank land.
+  for (let i=0;i<N;i++) if (ugb0[i] && dOut[i] > 100) interior[i] = 1;
+  // Local built-up share in a 500 m square in the start year, to rank land.
   const II = new Float64Array((W+1)*(H+1)), hx = Math.max(1,Math.round(250/dx)), hy = Math.max(1,Math.round(250/dy));
   for (let y=0;y<H;y++) { let row = 0;for (let x=0;x<W;x++) { const i = y*W+x;row += builtBy(i,p) ? 1 : 0;II[(y+1)*(W+1)+x+1] = II[y*(W+1)+x+1]+row; } }
   const share = i => { const x = i%W, y = (i-x)/W, x0 = Math.max(0,x-hx), x1 = Math.min(W,x+hx+1), y0 = Math.max(0,y-hy), y1 = Math.min(H,y+hy+1);return (II[y1*(W+1)+x1]-II[y0*(W+1)+x1]-II[y1*(W+1)+x0]+II[y0*(W+1)+x0])/((x1-x0)*(y1-y0)); };
   const bx = Math.max(1,Math.round(PLAN_BLOCK_M/dx)), by = Math.max(1,Math.round(PLAN_BLOCK_M/dy)), nbx = Math.ceil(W/bx), minPix = Math.max(2,Math.round(bx*by*.1));
   const blockOf = i => { const x = i%W, y = (i-x)/W;return Math.floor(y/by)*nbx+Math.floor(x/bx); };
-  // Land cover of the policy year, forest and shrub/grassland only: both are kept as recreational green space for the
-  // city (M7, SDG 15.1, 11.7), so they are never building land.
-  const prot = new Uint8Array(N), comm = new Uint8Array(N);
-  let ugbHaP = 0, greenHaP = 0;const commHa = 0;
+  // Land cover of the start year, forest and shrub/grassland only: kept as recreational green space (G1, G2).
+  const prot = new Uint8Array(N);
+  let ugbHaP = 0, gP = 0;
   for (let i=0;i<N;i++) {
     if (LC) { const c = LC.cls[i];prot[i] = c === LC.forest ? 1 : c === LC.range ? 2 : 0; }
-    if (ugbYear[i]) { const h = haOf(i);ugbHaP += h;if (prot[i] && !builtBy(i,p)) greenHaP += h; }
+    if (ugb0[i]) { const h = haOf(i);ugbHaP += h;if (prot[i] && !builtBy(i,p)) gP += h; }
   }
-  // Building land = open land that survives a morphological opening of PLAN_OPEN_M: the thin gaps between built
-  // pixels (streets, which WSF does not map as built) and slivers along kept land are left out.
-  const hard = new Uint8Array(N);for (let i=0;i<N;i++) hard[i] = builtBy(i,p) || prot[i] || comm[i] ? 1 : 0;
+  // Building land = open land that survives a morphological opening (no street strips), off kept land.
+  const hard = new Uint8Array(N);for (let i=0;i<N;i++) hard[i] = builtBy(i,p) || prot[i] ? 1 : 0;
   const dHard = chamfer(hard,W,H,dx,dy), core = new Uint8Array(N);
   for (let i=0;i<N;i++) core[i] = dHard[i] > PLAN_OPEN_M ? 1 : 0;
   const dCore = chamfer(core,W,H,dx,dy), land = new Uint8Array(N);
   for (let i=0;i<N;i++) land[i] = !hard[i] && dCore[i] <= PLAN_OPEN_M+.01 ? 1 : 0;
-  const cropPen = () => 0;
-  // Plan zones: candidates grouped into PLAN_BLOCK_M blocks, ranked by their mean score and allocated whole.
   const makeBlocks = (list,score) => {
     const m = new Map();
     for (const i of list) { const id = blockOf(i);let g = m.get(id);if (!g) m.set(id,g = {pix:[],s:0,core:0});g.pix.push(i);g.s += score(i);if (dHard[i] > g.core) g.core = dHard[i]; }
     return [...m.values()].filter(g => g.pix.length >= minPix && g.core > PLAN_CORE_M).map(g => ({pix:g.pix,s:g.s/g.pix.length})).sort((u,v) => v.s-u.s);
   };
-  const cand = new Uint8Array(N), cands = [];
-  for (let i=0;i<N;i++) if (ugbYear[i] && land[i]) cands.push(i);
-  let queue = makeBlocks(cands,i => (interior[i] ? 2 : 1)+share(i)-cropPen(i)), qi = 0;
+  const cand0 = new Uint8Array(N), cands = [];
+  for (let i=0;i<N;i++) if (ugb0[i] && land[i]) cands.push(i);
+  const queue0 = makeBlocks(cands,i => (interior[i] ? 2 : 1)+share(i));
   let capM1 = 0, capM2 = 0;
-  for (const g of queue) for (const i of g.pix) { cand[i] = interior[i] ? 1 : 2;if (interior[i]) capM1 += haOf(i); else capM2 += haOf(i); }
-  const alloc = new Uint16Array(N), years = [], expand = [];
-  // Mean yearly demand of the last five WSF years, for the projection.
-  const recent = new Float64Array(last+1);
-  for (let i=0;i<N;i++) if (dom[i] && grid[i] > a) recent[grid[i]] += haOf(i);
-  const from = Math.max(p+1,last-4), projDemand = (() => { let s = 0, n = 0;for (let t=from;t<=last;t++) { s += recent[t];n++; }return n ? s/n : 0; })();
-  let recentOut = 0, recentAll = 0, carry = 0;
-  for (let t=p+1;t<=last+K;t++) {
-    let need = 0, moved = 0, kept = 0, conflict = 0, lost = 0;
-    if (t <= last) for (let i=0;i<N;i++) {
-      if (grid[i] !== t || !dom[i]) continue;
-      const h = haOf(i);
-      if (prot[i] || comm[i]) { if (prot[i]) lost += h;moved += h;need += h; }
-      else if (!ugbYear[i]) { moved += h;need += h; } else { kept += h;if (alloc[i]) { conflict += h;need += h; } }
-    } else need = projDemand;
-    if (t <= last && t >= from) { recentOut += moved;recentAll += moved+kept; }
-    const goal = need-carry;
+  for (const g of queue0) for (const i of g.pix) { cand0[i] = interior[i] ? 1 : 2;if (interior[i]) capM1 += haOf(i); else capM2 += haOf(i); }
+  // Actual construction of every plan year, and how bad each non-conforming pixel is (worst relocated first):
+  // on forest, on shrubland, then by distance from the boundary.
+  const byYear = new Map(), bad = new Float32Array(N);
+  for (let t=p+1;t<=Math.min(E,last);t++) byYear.set(t,[]);
+  for (let i=0;i<N;i++) { const c = grid[i];if (c > p && c <= Math.min(E,last) && dom[i]) { byYear.get(c).push(i);bad[i] = (prot[i] === 1 ? 3 : prot[i] === 2 ? 2 : 0)+Math.min(1,dSeed[i]/2000); } }
+  // Mean yearly growth and its non-conforming share in the last five WSF years, for the projection.
+  let sT = 0, sN = 0, nY = 0;
+  for (let t=Math.max(a+1,last-4);t<=last;t++) { nY++; }
+  for (let i=0;i<N;i++) { const c = grid[i];if (c >= Math.max(a+1,last-4) && c <= last && dom[i]) { const h = haOf(i);sT += h;if (!ugb0[i] || prot[i]) sN += h; } }
+  const projDemand = nY ? sT/nY : 0, projNcShare = sT ? sN/sT : 0;
+  return r.planB = {key,a,p,R,E,eWanted,cut,last,lastYear,pYear,K,ugb0,interior,nuc,prot,dSeed,land,cand0,queue0,capM1,capM2,makeBlocks,share,byYear,bad,
+    projDemand,projNcShare,LC,lcYear:yL,ugbHaP,gP,ms:performance.now()-t0};
+}
+// One implementation level f: each plan year, the share f of the non-conforming construction (worst first) is
+// relocated into whole plan blocks inside the boundary; the rest stays where it was built.
+function planRun(r,B,f) {
+  const rk = `${B.key}|${f}`;
+  if (r.planRuns?.has(rk)) return r.planRuns.get(rk);
+  const {grid,domain:dom,w} = r, W = w.W, H = w.H, N = W*H, dx = w.dx, dy = w.dy, rowHa = r.rowHa, haOf = i => rowHa[(i-i%W)/W];
+  const builtBy = (i,t) => grid[i] >= 1 && grid[i] <= t;
+  const ugbYear = B.ugb0.slice(), cand = B.cand0.slice(), alloc = new Uint16Array(N), st = new Uint8Array(N), years = [], expand = [];
+  let queue = B.queue0, qi = 0, carry = 0;
+  for (let t=B.p+1;t<=B.E;t++) {
+    const y = {t,conform:0,reloc:0,relocOut:0,relocProt:0,stay:0,stayOut:0,stayForest:0,stayShrub:0,stayGreenIn:0,placed:0,need:0,left:0,conflict:0,proj:t > B.last};
+    if (!y.proj) {
+      const nc = [];
+      for (const i of B.byYear.get(t)) {
+        const h = haOf(i);
+        if (B.prot[i] || !ugbYear[i]) nc.push(i);
+        else { y.conform += h;st[i] = 1;if (alloc[i]) { y.conflict += h;y.need += h; } }
+      }
+      nc.sort((u,v) => B.bad[v]-B.bad[u]);
+      let ncHa = 0;for (const i of nc) ncHa += haOf(i);
+      const target = f*ncHa;
+      for (const i of nc) {
+        const h = haOf(i), out = !ugbYear[i];
+        if (y.reloc < target-1e-9) { st[i] = 2;y.reloc += h;y.need += h;if (out) y.relocOut += h;if (B.prot[i]) y.relocProt += h; }
+        else { st[i] = 3;y.stay += h;if (out) y.stayOut += h;if (B.prot[i] === 1) y.stayForest += h;if (B.prot[i] === 2) y.stayShrub += h;if (B.prot[i] && B.ugb0[i]) y.stayGreenIn += h; }
+      }
+    } else {
+      // Projected year: the recent mean growth; the plan places the conforming part and the share f of the rest.
+      const d = B.projDemand, nc = d*B.projNcShare;
+      y.conform = d-nc;y.reloc = y.relocOut = f*nc;y.stay = y.stayOut = (1-f)*nc;y.need = d-nc+f*nc;
+    }
+    const goal = y.need-carry;
     let placed = 0;
     while (placed < goal) {
       if (qi >= queue.length) {
@@ -3839,39 +3923,80 @@ function planCompute(r) {
         const inside = new Uint8Array(N);for (let i=0;i<N;i++) inside[i] = ugbYear[i] ? 1 : 0;
         const dIn = chamfer(inside,W,H,dx,dy), ring = [];
         let added = 0;
-        for (let i=0;i<N;i++) if (!ugbYear[i] && dom[i] && dIn[i] <= 100) { ugbYear[i] = t;added++;if (land[i] && !builtBy(i,Math.min(t,last))) ring.push(i); }
+        for (let i=0;i<N;i++) if (!ugbYear[i] && dom[i] && dIn[i] <= 100) { ugbYear[i] = t;added++;if (B.land[i] && !builtBy(i,Math.min(t,B.last))) ring.push(i); }
         if (!added || expand.length > 40) break;
         expand.push(t);
-        queue = makeBlocks(ring,i => 1+share(i)-cropPen(i));qi = 0;
+        queue = B.makeBlocks(ring,i => 1+B.share(i));qi = 0;
         for (const g of queue) for (const i of g.pix) cand[i] = 2;
         continue;
       }
       const g = queue[qi++];
-      for (const i of g.pix) { if (alloc[i] || builtBy(i,Math.min(t,last))) continue;alloc[i] = t;placed += haOf(i); }
+      for (const i of g.pix) { if (alloc[i] || builtBy(i,Math.min(t,B.last))) continue;alloc[i] = t;placed += haOf(i); }
     }
+    y.placed = placed;
     carry = Math.max(0,placed-goal);
-    let left = 0;for (let q=qi;q<queue.length;q++) for (const i of queue[q].pix) if (!alloc[i] && !builtBy(i,Math.min(t,last))) left += haOf(i);
-    years.push({t,moved,kept,conflict,placed,need,left,lost,proj:t > last});
+    let left = 0;for (let q=qi;q<queue.length;q++) for (const i of queue[q].pix) if (!alloc[i] && !builtBy(i,Math.min(t,B.last))) left += haOf(i);
+    y.left = left;
+    years.push(y);
   }
-  return r.plan = {key,a,p,last,lastYear,K,ugbYear,interior,nuc,alloc,cand,prot,comm,dSeed,LC,lcYear:yL,pYear,ugbHaP,greenHaP,commHa,years,expand,capM1,capM2,projDemand,recentShare:recentAll ? recentOut/recentAll : 0,ms:performance.now()-t0};
+  const run = {f,ugbYear,cand,alloc,st,years,expand};
+  r.planRuns?.set(rk,run);
+  return run;
+}
+function planCompute(r) {
+  const B = planBase(r);
+  if (!B) return null;
+  const f = state.planImpl, key = `${B.key}|${f}`;
+  if (r.plan?.key === key) return r.plan;
+  return r.plan = {...B,...planRun(r,B,f),key,baseKey:B.key,B};
+}
+// Totals of a run to code Y, and the SDG indicators they give.
+function planSum(P,run,Y) {
+  const s = {conform:0,reloc:0,relocOut:0,relocProt:0,stay:0,stayOut:0,stayForest:0,stayShrub:0,stayGreenIn:0,placed:0,projected:0};
+  for (const y of run.years) { if (y.t > Y) break;for (const k of Object.keys(s)) if (k in y) s[k] += y[k];if (y.proj) s.projected += y.conform+y.reloc+y.stay; }
+  s.total = s.conform+s.reloc+s.stay;
+  s.conformity = s.total ? (s.conform+s.reloc)/s.total : 1;
+  s.green = P.ugbHaP ? (P.gP-s.stayGreenIn)/P.ugbHaP : 0;
+  s.expand = run.expand.filter(t => t <= Y).length;
+  return s;
+}
+// Traffic lights: 1 ✓ target met, 2 ! partly, 3 ✕ missed.
+const planLight = {
+  conf:s => s.conformity >= .9 ? 1 : s.conformity >= .7 ? 2 : 3,
+  out:s => !s.total || s.stayOut/s.total <= .05 ? 1 : s.stayOut/s.total <= .15 ? 2 : 3,
+  forest:s => s.stayForest <= .5 ? 1 : s.stayForest <= 5 ? 2 : 3,
+  shrub:s => !s.total || s.stayShrub/s.total <= .02 ? 1 : s.stayShrub/s.total <= .08 ? 2 : 3,
+  green:s => s.green >= PLAN_GREEN_TARGET ? 1 : s.green >= .1 ? 2 : 3,
+};
+const PLAN_LIGHT = ['','✓','!','✕'];
+function planVerdict(s,lc) {
+  const ls = [planLight.conf(s),planLight.out(s),...(lc ? [planLight.forest(s)] : [])];
+  return ls.every(v => v === 1) ? 1 : ls.some(v => v === 3) ? 3 : 2;
+}
+// The implementation levels over the whole plan (to its end, or the last year with data and projection).
+function planLevels(r) {
+  const P = r.plan;if (!P) return null;
+  if (r.planLevelsKey === P.baseKey) return r.planLevelsCache;
+  const rows = [0,...PLAN_LEVELS.slice().reverse()].map(f => ({f,s:planSum(P,planRun(r,P.B,f),P.E)}));
+  r.planLevelsKey = P.baseKey;
+  return r.planLevelsCache = rows;
 }
 // Class of every pixel for the year on display (code b, or a projected year).
 function planPixels(r,b) {
   const P = planCompute(r);
   if (!P) return null;
-  const {grid,domain:dom,w} = r, W = w.W, N = grid.length, Y = state.planExtra ? P.last+state.planExtra : b, shownUpTo = Math.min(b,P.last);
+  const {grid,domain:dom,w} = r, W = w.W, N = grid.length, Y = state.planExtra ? P.last+state.planExtra : b, shownUpTo = Math.min(Y,P.last);
   const ugbP = i => P.ugbYear[i] === P.p;
   const ugbAt = i => P.ugbYear[i] && P.ugbYear[i] <= Math.max(Y,P.p);
-  const zoneAt = i => P.alloc[i] && P.alloc[i] <= Y && b > P.p;
-  // A line two pixels wide along the inside of a region (the window border does not count).
-  const edgeOf = (f,i,wide) => {
-    if (!f(i)) return false;
+  const zoneAt = i => P.alloc[i] && P.alloc[i] <= Y && Y > P.p;
+  const edgeOf = (fn,i,wide) => {
+    if (!fn(i)) return false;
     const x = i%W;
     for (let o=1;o<=wide;o++) {
-      if (x-o >= 0 && !f(i-o)) return true;
-      if (x+o < W && !f(i+o)) return true;
-      if (i-o*W >= 0 && !f(i-o*W)) return true;
-      if (i+o*W < N && !f(i+o*W)) return true;
+      if (x-o >= 0 && !fn(i-o)) return true;
+      if (x+o < W && !fn(i+o)) return true;
+      if (i-o*W >= 0 && !fn(i-o*W)) return true;
+      if (i+o*W < N && !fn(i+o*W)) return true;
     }
     return false;
   };
@@ -3879,7 +4004,6 @@ function planPixels(r,b) {
   const px = r.planPix;px.fill(0);
   for (let i=0;i<N;i++) {
     if (!dom[i]) continue;
-    // The growth boundary of the policy year is drawn on top of everything; its later widening dashed.
     if (edgeOf(ugbP,i,2)) { px[i] = 8;continue; }
     if (P.ugbYear[i] > P.p && edgeOf(ugbAt,i,2)) { px[i] = 14;continue; }
     const c = grid[i];
@@ -3887,167 +4011,191 @@ function planPixels(r,b) {
       if (P.nuc[i] && c <= P.p) px[i] = 5;
       else if (c <= P.a) px[i] = 0;
       else if (c <= P.p) px[i] = 1;
-      else px[i] = ugbAt(i) && !P.prot[i] ? 2 : !state.planReal ? 0 : P.prot[i] ? 11 : 3;
+      else if (c > P.E) px[i] = 16;
+      else px[i] = P.st[i] === 1 ? 2 : P.st[i] === 3 ? 3 : state.planReal ? 17 : 0;
       continue;
     }
     if (zoneAt(i)) { px[i] = edgeOf(zoneAt,i,1) ? 12 : 4;continue; }
     if (P.prot[i] && P.dSeed[i] <= 400) { px[i] = P.prot[i] === 1 ? 9 : 13;continue; }
-    if (ugbAt(i) && P.cand[i]) px[i] = P.cand[i] === 1 ? 6 : 7;
+    if (ugbAt(i) && P.cand[i] && Y <= P.E) px[i] = P.cand[i] === 1 ? 6 : 7;
   }
   return P;
 }
+// Statistics for the panel and the plate at the year on display.
 function planStats() {
   const r = sprawlRes;
   if (!sprawlCurrent() || state.mapView !== 'plan') return null;
   sprawlView();
   const P = r.plan;
   if (!P) return null;
-  const b = baseOff()+state.index+1, Y = state.planExtra ? P.last+state.planExtra : b, W = r.w.W;
-  const upto = P.years.filter(y => y.t <= Y);
-  const sum = k => upto.reduce((s,y) => s+y[k],0);
-  const moved = sum('moved'), kept = sum('kept'), placed = sum('placed'), proj = upto.filter(y => y.proj).reduce((s,y) => s+y.need,0);
-  // By direction: avoided (actual outside the boundary) and relocated by the plan, from the centre of the view.
+  const b = baseOff()+state.index+1, Y = state.planExtra ? P.last+state.planExtra : b, W = r.w.W, Yp = Math.min(Y,P.E);
+  const s = planSum(P,P,Yp), real = planSum(P,planRun(r,P.B,0),Yp), mid = planSum(P,P,P.R), midReal = planSum(P,planRun(r,P.B,0),P.R);
+  // By direction from the centre of the view: conforming, non-conforming (relocated or staying) and plan zones.
   const cx = ((view.west+view.east)/2-r.w.west)/r.w.dlon, cy = (r.w.north-(view.north+view.south)/2)/r.w.dlat;
-  const dir = Array.from({length:4},() => ({moved:0,kept:0,plan:0}));
+  const dir = Array.from({length:4},() => ({moved:0,kept:0,plan:0,stay:0}));
+  let nucHa = 0, ugbHa = 0;const protHa = [0,0,0];
   for (let i=0;i<r.grid.length;i++) {
-    const c = r.grid[i];
     if (!r.domain[i]) continue;
+    const c = r.grid[i], h = r.rowHa[(i-i%W)/W];
+    if (P.nuc[i] && c <= P.p) nucHa += h;
+    if (P.ugbYear[i] && P.ugbYear[i] <= Math.max(Yp,P.p)) ugbHa += h;
+    if (P.prot[i] && P.dSeed[i] <= 400 && !(c >= 1 && c <= Math.min(Y,P.last) && P.st[i] !== 2)) protHa[P.prot[i]] += h;
     let k = null;
-    if (c > P.p && c <= Math.min(b,P.last)) k = P.ugbYear[i] && P.ugbYear[i] <= Y && !P.prot[i] && !P.comm[i] ? 'kept' : 'moved';
-    else if (P.alloc[i] && P.alloc[i] <= Y && b > P.p) k = 'plan';
+    if (c > P.p && c <= Math.min(Yp,P.last)) k = P.st[i] === 1 ? 'kept' : 'moved';
+    else if (P.alloc[i] && P.alloc[i] <= Yp && Y > P.p) k = 'plan';
     if (!k) continue;
-    const x = i%W, y = (i-x)/W, ang = (Math.atan2((x+.5-cx)*r.w.dx,-(y+.5-cy)*r.w.dy)+Math.PI*2.25)%(Math.PI*2);
-    dir[Math.min(3,Math.floor(ang/(Math.PI/2)))][k] += r.rowHa[y];
+    const x = i%W, yy = (i-x)/W, ang = (Math.atan2((x+.5-cx)*r.w.dx,-(yy+.5-cy)*r.w.dy)+Math.PI*2.25)%(Math.PI*2), d = dir[Math.min(3,Math.floor(ang/(Math.PI/2)))];
+    d[k] += h;if (k === 'moved' && P.st[i] === 3) d.stay += h;
   }
-  let nucHa = 0, ugbHa = 0;
-  for (let i=0;i<r.grid.length;i++) { if (!r.domain[i]) continue;if (P.nuc[i] && r.grid[i] <= P.p) nucHa += r.rowHa[(i-i%W)/W];if (P.ugbYear[i] && P.ugbYear[i] <= Math.max(Y,P.p)) ugbHa += r.rowHa[(i-i%W)/W]; }
-  r.planAllShare = moved+kept ? moved/(moved+kept) : .2;
+  r.planAllShare = real.total ? (real.reloc+real.stay)/real.total : .2;
   r.planDirCache = dir;
-  // On what land (map of the policy year): actual construction after the measures and the plan zones; and the open
-  // green space (forest, water, grass and shrubland) left inside the boundary of the policy year.
-  const real = new Float64Array(8), scen = new Float64Array(8), LC = P.LC, protHa = [0,0,0];
-  let gP = 0, gReal = 0, gScen = 0, commHa = 0;
-  if (LC) for (let i=0;i<r.grid.length;i++) {
-    if (!r.domain[i]) continue;
-    const c = r.grid[i], cl = LC.cls[i], k = cl === 255 ? 7 : cl, h = r.rowHa[(i-i%W)/W], realNew = c > P.p && c <= Math.min(b,P.last);
-    const zone = P.alloc[i] && P.alloc[i] <= Y && b > P.p;
-    if (realNew) real[k] += h;
-    else if (zone) scen[k] += h;
-    const builtNow = c >= 1 && c <= Math.min(b,P.last);
-    if (P.prot[i] && !builtNow && P.dSeed[i] <= 400) protHa[P.prot[i]] += h;
-    if (P.comm[i] && !builtNow) commHa += h;
-    if (P.ugbYear[i] === P.p && (cl === LC.forest || cl === LC.range) && !(c >= 1 && c <= P.p)) {
-      gP += h;
-      if (realNew) gReal += h;
-      if (zone || (realNew && !P.prot[i] && !P.comm[i])) gScen += h;
-    }
-  }
-  const greenReal = P.ugbHaP ? (gP-gReal)/P.ugbHaP : 0, greenScen = P.ugbHaP ? (gP-gScen)/P.ugbHaP : 0;
-  return {P,b,Y,moved,kept,placed,proj,dir,nucHa,ugbHa,real,scen,protHa,commHa,greenReal,greenScen,lost:upto.reduce((s,y) => s+y.lost,0),left:upto.length ? upto[upto.length-1].left : P.capM1+P.capM2,expand:P.expand.filter(t => t <= Y)};
+  return {P,b,Y,Yp,s,real,mid,midReal,dir,nucHa,ugbHa,protHa,moved:real.reloc+real.stay,kept:s.conform,expand:P.expand.filter(t => t <= Yp)};
 }
-function planYearName(t) { const P = sprawlRes?.plan, steps = period().steps;if (P && t > P.last) return String(P.lastYear+(t-P.last));return steps[t-baseOff()-1]?.short || ''; }
 function planDirMeasure(d) {
   const t = d.moved+d.kept;
   if (!t) return L('Pa ndërtim të ri','No new construction');
   const all = sprawlRes?.planAllShare ?? .2;
-  if (d.moved/t >= Math.max(.15,all)) return L('M5 Ndal kërcimet · M6 Ruaj tokën','M5 Stop leapfrog · M6 Protect land');
-  if (d.plan > d.kept*.5) return L('M1 Densifiko','M1 Densify');
-  return L('M2 Konsolido skajin','M2 Consolidate the edge');
+  if (d.moved/t >= Math.max(.15,all)) return L('M5 Ndal zhvillimin jokonform · M6 Ruaj tokën rurale','M5 Stop non-conforming development · M6 Protect rural land');
+  if (d.plan > d.kept*.5) return L('M1 Densifiko (Z1)','M1 Densify (Z1)');
+  return L('M2 Konsolido skajin (Z2)','M2 Consolidate the edge (Z2)');
+}
+function planDirSdg(d) {
+  const dd = sprawlRes?.planDirCache?.[d];if (!dd) return '';
+  const codes = [...new Set((planDirMeasure(dd).match(/M\d/g) || []).flatMap(m => PLAN_SDG[m].split(' · ')))];
+  return codes.length ? 'SDG '+codes.join(' · ') : '';
+}
+// Radial diagram of the plan: one bar per plan year (and after expiry), stacked K, Z3, JK, PS.
+function planRadial(r,cx,cy) {
+  const P = r.plan, {grid,domain,w} = r, W = w.W, off = baseOff();
+  const k0 = P.p+1, k1 = Math.max(P.E,P.last), n = k1-k0+1;
+  const rad = Array.from({length:4},() => Array.from({length:4},() => new Float64Array(n)));
+  const dirOf = i => { const x = i%W, y = (i-x)/W, ang = (Math.atan2((x+.5-cx)*w.dx,-(y+.5-cy)*w.dy)+Math.PI*2.25)%(Math.PI*2);return Math.min(3,Math.floor(ang/(Math.PI/2))); };
+  for (let i=0;i<grid.length;i++) {
+    if (!domain[i]) continue;
+    const h = r.rowHa[(i-i%W)/W]/100, c = grid[i], t = P.alloc[i];
+    if (t && t >= k0 && t <= k1) rad[dirOf(i)][1][t-k0] += h;
+    if (c >= k0 && c <= P.last) { const g = c > P.E ? 3 : P.st[i] === 1 ? 0 : P.st[i] === 3 ? 2 : -1;if (g >= 0) rad[dirOf(i)][g][c-k0] += h; }
+  }
+  // Projected years: conforming growth is in the plan zones; the part not relocated has no place, so it is not drawn.
+  const b = off+state.index+1, Y = state.planExtra ? P.last+state.planExtra : b;
+  const z = planSum(P,P,Math.min(Y,P.E));
+  rad.meta = {n,labels:Array.from({length:n},(_,k) => planYearName(k0+k)),now:Y-k0,marks:{[P.R-k0]:L('VLERËSIMI','REVIEW'),[P.E-k0]:L('SKADIMI','EXPIRY')},
+    pick:k => { const t = k0+k;if (t <= P.last) { state.planExtra = 0;setIndex(t-off-1); } else planSetExtra(t-P.last); },
+    center:Y <= P.p ? [L(`Plani ${P.pYear}–${planYearName(P.E)}`,`Plan ${P.pYear}–${planYearName(P.E)}`),L('nuk ka hyrë ende në fuqi','not yet in force')]
+      : [L(`Zbatimi ${Math.round(P.f*100)}% · konform ${Math.round(z.conformity*100)}%`,`Implementation ${Math.round(P.f*100)}% · conforming ${Math.round(z.conformity*100)}%`),
+        `11.3 ${PLAN_LIGHT[planLight.conf(z)]}  ·  15.3 ${PLAN_LIGHT[planLight.out(z)]}${P.LC ? `  ·  15.1 ${PLAN_LIGHT[planLight.forest(z)]}  ·  11.7 ${PLAN_LIGHT[planLight.green(z)]}` : ''}`]};
+  return rad;
+}
+// Scorecard of the implementation levels: reality (0 %) and 25–100 %, with SDG traffic lights.
+function planLevelsHtml(z) {
+  const r = sprawlRes, P = z.P, rows = planLevels(r);
+  if (!rows) return '';
+  const pc = v => Math.round(v*100)+'%', cur = P.f, lc = !!P.LC;
+  const name = f => f === 0 ? L('Realiteti','Reality') : f < .25 ? L('nën 25%','under 25%') : pc(f), short = f => f === 0 ? L('Pa plan','None') : f < .25 ? '<25' : String(Math.round(f*100));
+  const cell = (light,txt) => `<td class="num pl${light || 0}">${txt}${light ? `<i>${PLAN_LIGHT[light]}</i>` : ''}</td>`;
+  const lines = [
+    ['11.3',L('Konformiteti i zhvillimit','Conformity of development'),x => cell(planLight.conf(x.s),pc(x.s.conformity))],
+    ['11.3.1',L('Jokonform jashtë UGB, ha','Non-conforming outside the UGB, ha'),x => cell(planLight.out(x.s),fmtHa(x.s.stayOut))],
+    ['15.3 · 2.4',L('Tokë rurale e shpëtuar, ha','Rural land saved, ha'),x => cell(0,fmtHa(x.s.relocOut))],
+    ...(lc ? [['15.1',L('Pyll i humbur, ha','Forest lost, ha'),x => cell(planLight.forest(x.s),fmtHa(x.s.stayForest))],
+      ['15.1 · 11.7',L('Shkurre e humbur, ha','Shrubland lost, ha'),x => cell(planLight.shrub(x.s),fmtHa(x.s.stayShrub))],
+      ['11.7.1',L('Gjelbërim brenda UGB','Green space inside the UGB'),x => cell(planLight.green(x.s),pc(x.s.green))]] : []),
+    ['11.3',L('Zgjerime të UGB','UGB extensions'),x => cell(0,x.s.expand ? `${x.s.expand} × 100 m` : '—')],
+  ];
+  const verdict = v => ['',`✓ ${L('Po','Yes')}`,`! ${L('Pjesë','Part')}`,`✕ ${L('Jo','No')}`][v];
+  const head = rows.map(x => `<th class="${Math.abs(x.f-cur) < .001 ? 'pl-cur' : ''}${x.f === 0 ? ' pl-real' : ''}">${short(x.f)}</th>`).join('');
+  // Ladder: conformity by level against the 90 % target.
+  const Wd = 300, rowH = 15, Hh = rows.length*rowH+18, x0 = 62, x1 = Wd-34, X = v => x0+v*(x1-x0);
+  let lad = `<svg viewBox="0 0 ${Wd} ${Hh}" class="sprawl-chart pl-ladder" role="img"><line x1="${X(.9)}" x2="${X(.9)}" y1="2" y2="${Hh-14}" stroke="#40b878" stroke-dasharray="3 2"/><text x="${X(.9)}" y="${Hh-4}" text-anchor="middle" font-size="7.5" fill="#40b878">${L('synimi 90%','target 90%')}</text>`;
+  rows.forEach((x,k) => {
+    const y = 4+k*rowH, v = x.s.conformity, col = ['','#40b878','#ffb000','#ff4d6d'][planLight.conf(x.s)];
+    lad += `<text x="${x0-6}" y="${y+9}" text-anchor="end" font-size="8.5" fill="${Math.abs(x.f-cur) < .001 ? '#e8eef6' : '#9fb2c8'}" font-weight="${Math.abs(x.f-cur) < .001 ? 700 : 400}">${esc(name(x.f))}</text>`
+      +`<rect x="${x0}" y="${y+1}" width="${x1-x0}" height="10" rx="2" fill="#16233a"/><rect x="${x0}" y="${y+1}" width="${Math.max(1,X(v)-x0).toFixed(1)}" height="10" rx="2" fill="${col}"${x.f === 0 ? ' opacity=".6"' : ''}/>`
+      +`<text x="${X(v)+4}" y="${y+9}" font-size="8" fill="#c8d3e0">${pc(v)}</text>`;
+  });
+  lad += '</svg>';
+  const real = rows[0].s, now = planSum(P,P,P.E);
+  const gain = L(`Me zbatim <b>${pc(cur)}</b> deri në ${esc(planYearName(P.E))}: shpëtohen <b>${fmtHa(now.relocOut-real.relocOut)} ha</b> tokë rurale${lc ? `, <b>${fmtHa(real.stayForest-now.stayForest)} ha</b> pyll dhe <b>${fmtHa(real.stayShrub-now.stayShrub)} ha</b> shkurre` : ''}; konformiteti rritet nga ${pc(real.conformity)} në <b>${pc(now.conformity)}</b>.${now.expand ? ` Kostoja: UGB zgjerohet ${now.expand} herë me 100 m.` : ''}`,
+    `With <b>${pc(cur)}</b> implementation to ${esc(planYearName(P.E))}: <b>${fmtHa(now.relocOut-real.relocOut)} ha</b> of rural land${lc ? `, <b>${fmtHa(real.stayForest-now.stayForest)} ha</b> of forest and <b>${fmtHa(real.stayShrub-now.stayShrub)} ha</b> of shrubland` : ''} are saved; conformity rises from ${pc(real.conformity)} to <b>${pc(now.conformity)}</b>.${now.expand ? ` The cost: the UGB widens ${now.expand} times by 100 m.` : ''}`);
+  return `<p>${L(`Çfarë fitohet ose humbet nëse plani ${P.pYear}–${esc(planYearName(P.E))} zbatohet 100%, 75%, 50%, 25% ose nën 25%. «Realiteti» është zhvillimi që ndodhi pa plan (zbatim 0%).`,`What is gained or lost if the plan ${P.pYear}–${esc(planYearName(P.E))} is implemented 100%, 75%, 50%, 25% or under 25%. "Reality" is what happened without the plan (0% implementation).`)}</p>
+    <div class="pl-wrap"><table class="pd-table pl-card"><thead><tr><th>${L(`Deri në ${esc(planYearName(P.E))} · zbatimi %`,`To ${esc(planYearName(P.E))} · implementation %`)}</th>${head}</tr></thead><tbody>
+    ${lines.map(([c,t,fn]) => `<tr><td><small class="pd-sdgc">SDG ${c}</small><br>${esc(t)}</td>${rows.map(fn).join('')}</tr>`).join('')}
+    <tr class="pd-sum"><td>${L('Synimet SDG','SDG targets')}</td>${rows.map(x => { const v = planVerdict(x.s,lc);return `<td class="pl${v}">${verdict(v)}</td>`; }).join('')}</tr></tbody></table></div>
+    ${lad}<p class="pd-finding">${gain}</p>`;
 }
 function planDocHtml() {
   const z = planStats();
   if (!z) return '';
-  const P = z.P, steps = period().steps, i = state.index, n = count();
+  const P = z.P, steps = period().steps, n = count(), s = z.s, real = z.real, pc = v => Math.round(v*100)+'%';
   const zone = (() => { const ch = filterUnits();return state.aoi ? state.aoi.name : ch.length ? (ch.length === 1 ? unitLabel(ch[0]) : `${ch.length} ${L('njësi','units')}`) : state.name; })();
-  const yName = planYearName, Yn = yName(z.Y);
-  const before = z.b <= P.p && !state.planExtra;
-  const opts = Array.from({length:n-2},(_,k) => k+1).map(k => `<option value="${k}"${k === state.planYear ? ' selected' : ''}>${esc(steps[k].label)}</option>`).join('');
-  const total = z.moved+z.kept, mean = total/Math.max(1,P.years.filter(y => !y.proj && y.t <= Math.min(z.b,P.last)).length);
-  const capYears = mean > 0 ? (P.capM1+P.capM2)/mean : null;
-  const dirRows = z.dir.map((d,k) => ({k,...d})).sort((p,q) => q.moved-p.moved);
-  const topDirs = dirRows.filter(d => d.moved > 0).slice(0,2).map(d => DIR_GEN[d.k]);
+  const yName = planYearName, Yn = yName(z.Y), eName = yName(P.E), rName = yName(P.R), lc = !!P.LC;
+  const before = z.Y <= P.p;
+  const yearOfPlan = Math.max(0,Math.min(state.planMandate,(Number(String(Yn).replace(/\D/g,'').slice(-4)) || P.pYear)-P.pYear));
+  const opts = Array.from({length:n-2},(_,k) => k+1).map(k => `<option value="${k}"${k === state.planYear ? ' selected' : ''}>${esc(steps[k].short)}</option>`).join('');
+  const mand = [5,10,15,20].map(v => `<option value="${v}"${v === state.planMandate ? ' selected' : ''}>${v} ${L('vjet','years')}</option>`).join('');
+  const lvBtns = PLAN_LEVELS.map(f => `<button type="button" data-impl="${f}" class="${Math.abs(f-P.f) < .001 ? 'on' : ''}">${f < .25 ? '&lt;25%' : Math.round(f*100)+'%'}</button>`).join('');
   const chip = k => `<i class="pd-chip" style="background:rgb(${PLANC[k].c.slice(0,3).join(',')})${PLANC[k].c[3] ? ';opacity:.7' : ''}"></i>`;
-  const measures = [
-    ['M1',6,L('Densifiko / mbush','Densify / infill'),L('Toka e lirë brenda kufirit, më shumë se 100 m nga skaji i tij','Free land inside the boundary, more than 100 m from its edge'),`${fmtHa(P.capM1)} ha`,L('I lartë','High')],
-    ['M2',7,L('Konsolido skajin','Consolidate the edge'),L('Brezi i lirë brenda kufirit, pranë skajit','The free band inside the boundary, near its edge'),`${fmtHa(P.capM2)} ha`,L('Mesatar','Medium')],
-    ['M3',8,L('Kufi i rritjes urbane','Urban growth boundary'),L(`Trupi urban e suburban i ${yName(P.p)} dhe qendrat e reja, me brez 100 m${z.expand.length ? `; zgjerohet në ${z.expand.map(yName).join(', ')}` : ''}`,`The urban and suburban body of ${yName(P.p)} and the new centres, with a 100 m band${z.expand.length ? `; widened in ${z.expand.map(yName).join(', ')}` : ''}`),`${fmtHa(z.ugbHa)} ha`,L('I lartë','High')],
-    ['M4',5,L('Fuqizo qendrat e reja','Strengthen the new centres'),L('Bërthamat C dhe D: shërbime, transport publik','Nuclei C and D: services, public transport'),`${fmtHa(z.nucHa)} ha`,L('Mesatar','Medium')],
-    ['M5',3,L('Ndal / sano shpërndarjen','Stop / repair dispersal'),L('Ndërtimi jashtë kufirit pas masave','Construction outside the boundary after the measures'),before ? '—' : `${fmtHa(z.moved)} ha`,L('I lartë','High')],
-    ['M6',null,L('Ruaj tokën rurale e bujqësore','Protect rural and farm land'),topDirs.length ? L(`Sidomos në drejtim të ${topDirs.join(' dhe ')}`,`Above all towards the ${topDirs.join(' and ')}`) : L('Jashtë kufirit','Outside the boundary'),before ? '—' : `${fmtHa(z.moved)} ha`,L('I lartë','High')],
-    ...(P.LC ? [['M7',9,L('Ruaj pyjet dhe shkurret si hapësira rekreative','Keep forests and shrubland as recreational space'),L('Pyjet, shkurret e kullotat brenda dhe pranë kufirit (400 m): parqe, pyll urban, shëtitore, lojëra e sport për komunitetin','Forests, shrub and grassland inside and near the boundary (400 m): parks, urban forest, promenades, play and sport for the community'),`${fmtHa(z.protHa[1]+z.protHa[2])} ha`,L('I lartë','High')]] : []),
-  ];
-  // What was lost: the land under actual construction against the land the plan uses.
   let sn = 0;const S = () => ++sn;
-  const lcSec = () => !(P.LC && !before) ? '' : (() => {
-    const cl = landcover.classes, rows = [[P.LC.forest,L('Pyll','Forest')],[P.LC.range,L('Shkurre, kullotë','Shrub, grassland')]];
-    const other = (arr) => arr.reduce((s,v,k) => s+(rows.some(r => r[0] === k) ? 0 : v),0);
-    const sR = z.real.reduce((s,v) => s+v,0), sS = z.scen.reduce((s,v) => s+v,0);
-    const tr = (c,t,vR,vS,bold) => `<tr${bold ? ' class="pd-loss"' : ''}><td>${c != null ? `<i class="pd-chip" style="background:${cl[c].color}"></i>` : ''}${esc(t)}</td><td class="num">${fmtHa(vR)}</td><td class="num">${fmtHa(vS)}</td></tr>`;
-    const green = z.real[P.LC.forest]+z.real[P.LC.range], Rn = esc(yName(Math.min(z.b,P.last))), gr = z.real[P.LC.range];
-    return `<section><h4><span>§ ${S()}</span>${L('Çfarë humbëm','What was lost')}</h4>
-      <p>${green >= 1 ? L(`Nga ${esc(yName(P.p))} deri në ${Rn} u ndërtuan <b>${fmtHa(z.real[P.LC.forest])} ha pyll</b> dhe <b>${fmtHa(gr)} ha shkurre e kullota</b>. Aty ku sot ka një zonë ndërtimi, do të mund të kishim një hapësirë rekreative për qytetin: park, pyll urban, kënd lojërash ose fushë sporti. Skenari i ruan këto toka (M7) dhe të njëjtën rritje e vendos në blloqet e lira brenda kufirit.`,`From ${esc(yName(P.p))} to ${Rn}, <b>${fmtHa(z.real[P.LC.forest])} ha of forest</b> and <b>${fmtHa(gr)} ha of shrub and grassland</b> were built on. Where there is a building zone today, the city could have had recreational space: a park, an urban forest, a playground or a sports field. The scenario keeps this land (M7) and places the same growth on the free blocks inside the boundary.`)
-        : L(`Nga ${esc(yName(P.p))} deri në ${Rn} pothuajse nuk u ndërtua mbi pyje ose shkurre (${fmtHa(green)} ha).`,`From ${esc(yName(P.p))} to ${Rn} almost nothing was built on forest or shrubland (${fmtHa(green)} ha).`)}</p>
-      <table class="pd-table"><thead><tr><th>${L('Mbulesa e tokës para ndërtimit','Land cover before construction')}</th><th>${L(`Realiteti deri ${Rn}, ha`,`Reality to ${Rn}, ha`)}</th><th>${L(`Skenari deri ${esc(Yn)}, ha`,`Scenario to ${esc(Yn)}, ha`)}</th></tr></thead><tbody>
-      ${rows.map(([c,t]) => tr(c,t,z.real[c],z.scen[c],true)).join('')}${tr(null,L('Tokë tjetër (bujqësore, brenda vendbanimit, e zhveshur)','Other land (farm, inside settlement, bare)'),other(z.real),other(z.scen))}
-      <tr class="pd-sum"><td>${L('Gjithsej','Total')}</td><td class="num">${fmtHa(sR)}</td><td class="num">${fmtHa(sS)}</td></tr></tbody></table>
-      <p class="note">${L(`Mbulesa e tokës sipas hartës Esri të ${P.lcYear}${P.lcYear > P.pYear ? `, harta më e hershme që ekziston (masat nisin në ${P.pYear}): toka e ndërtuar para ${P.lcYear} del si e ndërtuar, prandaj humbja nënvlerësohet` : `, viti i hyrjes së masave në fuqi`}. Me ndryshimin e vitit të masave ndryshojnë edhe kufiri dhe tokat e ruajtura.`,`Land cover from the Esri map of ${P.lcYear}${P.lcYear > P.pYear ? `, the earliest map available (the measures start in ${P.pYear}): land built before ${P.lcYear} shows as built, so the loss is underestimated` : `, the year the measures take effect`}. Changing the policy year also changes the boundary and the land kept.`)}</p></section>`;
-  })();
-  // SDG balance: reality against the scenario for the targets the measures serve.
-  const sdgSec = () => {
-    if (before) return '';
-    const Rn = esc(yName(Math.min(z.b,P.last))), pc = v => fmt1(v*100)+'%';
-    const rows = [['11.3.1',L('Ndërtim jashtë kufirit të rritjes','Construction outside the growth boundary'),`${fmtHa(z.moved)} ha`,'0 ha',z.moved > .05 ? 1 : 0],['15.3.1 · 2.4',L('Tokë rurale e shpëtuar','Rural land saved'),'0 ha',`${fmtHa(z.moved)} ha`,z.moved > .05 ? 1 : 0]];
-    if (P.LC) {
-      rows.push(['11.7.1',L(`Hapësirë e gjelbër rekreative brenda kufirit (pyll, shkurre; synimi ≥ ${PLAN_GREEN_TARGET*100}%)`,`Recreational green space inside the boundary (forest, shrub; target ≥ ${PLAN_GREEN_TARGET*100}%)`),pc(z.greenReal),pc(z.greenScen),z.greenScen >= PLAN_GREEN_TARGET-.001 ? (z.greenScen > z.greenReal+.0005 ? 1 : 0) : z.greenScen > z.greenReal+.0005 ? 2 : 3]);
-      rows.push(['15.1.1',L('Pyll i humbur nën ndërtim','Forest lost to construction'),`${fmtHa(z.real[P.LC.forest])} ha`,'0 ha',z.real[P.LC.forest] > .05 ? 1 : 0]);
-      rows.push(['15.1 · 11.7',L('Shkurre e kullota të humbura nën ndërtim','Shrub and grassland lost to construction'),`${fmtHa(z.real[P.LC.range])} ha`,'0 ha',z.real[P.LC.range] > .05 ? 1 : 0]);
-    }
-    rows.push(['11.3',L('Zgjerim i kufirit (kosto e kompaktësisë)','Boundary widening (cost to compactness)'),'—',z.expand.length ? `${z.expand.length} × 100 m` : L('pa zgjerim','none'),z.expand.length ? 2 : 0]);
-    const st = [['=',L('njësoj','equal')],['✓',L('më mirë','better')],['!',L('kompromis','trade-off')],['✕',L('nën synim','below target')]];
-    const good = rows.filter(r => r[4] === 1).map(r => r[0]), trade = rows.filter(r => r[4] >= 2).map(r => r[0]);
-    return `<section><h4><span>§ ${S()}</span>${L('Bilanci i SDG-ve','SDG balance')}</h4>
-      <p>${L(`Nga viti i masave, skenari ka të njëjtën rritje vjetore si realiteti, por e vendos sipas synimeve SDG: brenda kufirit të rritjes (11.3), jashtë pyjeve dhe shkurreve, që mbeten hapësira rekreative për qytetin (15.1, 11.7), dhe pa zënë tokë rurale (15.3, 2.4). Kufiri zgjerohet vetëm kur toka e lirë nuk mjafton.`,`From the policy year, the scenario has the same yearly growth as reality but places it by the SDG targets: inside the growth boundary (11.3), off forests and shrubland, which stay recreational space for the city (15.1, 11.7), and without taking rural land (15.3, 2.4). The boundary widens only when free land runs short.`)}
-      ${good.length ? L(` Më mirë se realiteti: <b>SDG ${good.join(', ')}</b>.`,` Better than reality: <b>SDG ${good.join(', ')}</b>.`) : ''}${trade.length ? L(` Kompromis: <b>SDG ${trade.join(', ')}</b>.`,` Trade-off: <b>SDG ${trade.join(', ')}</b>.`) : ''}${P.LC && z.greenScen < PLAN_GREEN_TARGET-.001 ? L(` Hapësira e gjelbër mbetet nën ${PLAN_GREEN_TARGET*100}%: brenda kufirit nuk ka më pyje ose shkurre të lira për ta plotësuar. Pjesa që mungon (${fmtHa(Math.max(0,(PLAN_GREEN_TARGET-z.greenScen)*P.ugbHaP))} ha) duhet krijuar si parqe të reja mbi tokë tjetër, si pjesë e rigjenerimit urban.`,` Green space stays below ${PLAN_GREEN_TARGET*100}%: there is no more free forest or shrubland inside the boundary to make it up. The missing part (${fmtHa(Math.max(0,(PLAN_GREEN_TARGET-z.greenScen)*P.ugbHaP))} ha) must be created as new parks on other land, as part of urban regeneration.`) : ''}</p>
-      <table class="pd-table pd-sdg"><thead><tr><th>SDG</th><th>${L('Treguesi','Indicator')}</th><th>${L(`Realiteti ${Rn}`,`Reality ${Rn}`)}</th><th>${L(`Skenari ${esc(Yn)}`,`Scenario ${esc(Yn)}`)}</th><th></th></tr></thead><tbody>
-      ${rows.map(([c,t,vR,vS,s]) => `<tr><td class="pd-code">${c}</td><td>${esc(t)}</td><td class="num">${vR}</td><td class="num">${vS}</td><td class="pd-st pd-st${s}" title="${esc(st[s][1])}">${st[s][0]}</td></tr>`).join('')}</tbody></table></section>`;
-  };
-  const yrs = P.years.filter(y => y.t <= z.Y);
-  // Chart: for every year after the measures, actual construction inside the boundary, relocated, and avoided.
-  const chart = planChartSvg(z);
-  const proj = P.K ? `<div class="pd-proj"><label>${L(`Projeksioni deri në ${PLAN_HORIZON}`,`Projection to ${PLAN_HORIZON}`)} <input type="range" id="planExtra" min="0" max="${P.K}" step="1" value="${state.planExtra}" ${state.index < n-1 ? 'disabled' : ''}><output>${state.planExtra ? P.lastYear+state.planExtra : P.lastYear}</output></label><button id="planPlay" type="button" ${state.index < n-1 ? 'disabled' : ''}>▶ ${L(`Luaj deri në ${PLAN_HORIZON}`,`Play to ${PLAN_HORIZON}`)}</button>${state.index < n-1 ? `<small>${L('Shkoni te viti i fundit për projeksionin.','Go to the last year for the projection.')}</small>` : ''}</div>` : '';
-  const bau = P.K ? L(`Nëse vazhdon trendi i viteve të fundit, deri në ${PLAN_HORIZON} ndërtohen edhe rreth <b>${fmtHa(P.projDemand*P.K)} ha</b>, prej të cilave rreth <b>${fmtHa(P.projDemand*P.K*P.recentShare)} ha</b> jashtë kufirit. Me planin, e gjithë kjo rritje hyn brenda kufirit${P.expand.some(t => t > P.last) ? `, por kufiri duhet zgjeruar në ${P.expand.filter(t => t > P.last).map(yName).join(', ')}` : ''}.`,`If the trend of recent years continues, about <b>${fmtHa(P.projDemand*P.K)} ha</b> more are built by ${PLAN_HORIZON}, about <b>${fmtHa(P.projDemand*P.K*P.recentShare)} ha</b> of them outside the boundary. With the plan, all of this growth fits inside the boundary${P.expand.some(t => t > P.last) ? `, but the boundary must be widened in ${P.expand.filter(t => t > P.last).map(yName).join(', ')}` : ''}.`) : '';
-  const saved = z.moved, share = total ? z.moved/total*100 : 0;
-  const finding = before ? L(`Masat hyjnë në fuqi në <b>${esc(yName(P.p))}</b>. Lëvizni vitin përpara, ose shtypni «Luaj», për të parë si do të ishte rritur zona nën to.`,`The measures take effect in <b>${esc(yName(P.p))}</b>. Move the year forward, or press Play, to see how the area would have grown under them.`)
-    : L(`Nga ${esc(yName(P.p))} deri në ${esc(Yn)} u ndërtuan <b>${fmtHa(total)} ha</b>. <b>${fmt1(share)}%</b> e tyre (${fmtHa(saved)} ha) ra jashtë kufirit të rritjes. Plani i vendos brenda tij: toka rurale e shpëtuar është <b>${fmtHa(saved)} ha</b>, dhe kapaciteti i mbetur brenda kufirit është <b>${fmtHa(z.left)} ha</b>${capYears != null ? `, rreth ${fmt1(z.left/Math.max(mean,1e-9))} vjet rritje me ritmin e deritanishëm` : ''}.`,`From ${esc(yName(P.p))} to ${esc(Yn)}, <b>${fmtHa(total)} ha</b> were built. <b>${fmt1(share)}%</b> of it (${fmtHa(saved)} ha) fell outside the growth boundary. The plan puts it inside: rural land saved is <b>${fmtHa(saved)} ha</b>, and the capacity left inside the boundary is <b>${fmtHa(z.left)} ha</b>${capYears != null ? `, about ${fmt1(z.left/Math.max(mean,1e-9))} years of growth at the pace so far` : ''}.`);
+  // Mid-term review: what happened from the start to the review year, and the implementation the targets need.
+  const mr = z.midReal, ncMid = mr.reloc+mr.stay, need90 = ncMid > 0 ? Math.max(0,Math.min(1,(.9*mr.total-mr.conform)/ncMid)) : 0;
+  const review = () => `<section><h4><span>§ ${S()}</span>${L(`Vlerësimi afatmesëm · ${rName}`,`Mid-term review · ${rName}`)}</h4>
+    <p>${L(`Nga ${P.pYear} deri në ${esc(rName)} u ndërtuan <b>${fmtHa(mr.total)} ha</b>; pa plan, <b>${pc(mr.conformity)}</b> e tyre ishte konform. Me zbatim ${pc(P.f)}, konformiteti në vlerësim është <b>${pc(z.mid.conformity)}</b> ${PLAN_LIGHT[planLight.conf(z.mid)]}. ${need90 > 0 ? `Për të arritur 90% duhet zbatim i masave të paktën <b>${pc(need90)}</b>.` : 'Pa plan konformiteti e kalon tashmë synimin 90%; masat ruajnë këtë nivel dhe mbrojnë pyjet e shkurret.'}`,
+      `From ${P.pYear} to ${esc(rName)}, <b>${fmtHa(mr.total)} ha</b> were built; without the plan <b>${pc(mr.conformity)}</b> of it conformed. With ${pc(P.f)} implementation, conformity at the review is <b>${pc(z.mid.conformity)}</b> ${PLAN_LIGHT[planLight.conf(z.mid)]}. ${need90 > 0 ? `Reaching 90% needs an implementation of at least <b>${pc(need90)}</b>.` : 'Without the plan conformity already exceeds the 90% target; the measures keep it there and protect forest and shrubland.'}`)}</p>
+    <table class="pd-table"><thead><tr><th>${L('Treguesi','Indicator')}</th><th>${L('Pa plan','No plan')}</th><th>${L(`Zbatim ${pc(P.f)}`,`${pc(P.f)} implemented`)}</th></tr></thead><tbody>
+    <tr><td>${L('Zhvillim konform (K), ha','Conforming (K), ha')}</td><td class="num">${fmtHa(mr.conform)}</td><td class="num">${fmtHa(z.mid.conform)}</td></tr>
+    <tr><td>${L('Zhvendosur në Z3, ha','Relocated to Z3, ha')}</td><td class="num">0</td><td class="num">${fmtHa(z.mid.reloc)}</td></tr>
+    <tr><td>${L('Mbetet jokonform (JK), ha','Stays non-conforming (JK), ha')}</td><td class="num">${fmtHa(ncMid)}</td><td class="num">${fmtHa(z.mid.stay)}</td></tr></tbody></table></section>`;
+  const measures = [
+    ['M1','Z1',6,L('Densifiko / mbush','Densify / infill'),L('Toka e lirë brenda UGB, më shumë se 100 m nga skaji','Free land inside the UGB, more than 100 m from its edge'),`${fmtHa(P.capM1)} ha`],
+    ['M2','Z2',7,L('Konsolido skajin','Consolidate the edge'),L('Brezi i lirë brenda UGB, pranë skajit','The free band inside the UGB, near its edge'),`${fmtHa(P.capM2)} ha`],
+    ['M3','UGB',8,L('Kufi i rritjes urbane','Urban growth boundary'),L(`Trupi urban i ${P.pYear} dhe qendrat e reja, me brez 100 m${z.expand.length ? `; zgjerohet në ${z.expand.map(yName).join(', ')}` : ''}`,`The urban body of ${P.pYear} and the new centres, with a 100 m band${z.expand.length ? `; widened in ${z.expand.map(yName).join(', ')}` : ''}`),`${fmtHa(z.ugbHa)} ha`],
+    ['M4','Q',5,L('Fuqizo qendrat dytësore','Strengthen secondary centres'),L('Bërthamat C dhe D: shërbime, transport publik','Nuclei C and D: services, public transport'),`${fmtHa(z.nucHa)} ha`],
+    ['M5','JK',3,L('Ndal / zhvendos zhvillimin jokonform','Stop / relocate non-conforming development'),L(`Zhvendoset ${pc(P.f)}, së pari mbi pyje, shkurre dhe më larg UGB`,`${pc(P.f)} relocated, first on forest, shrubland and furthest from the UGB`),before ? '—' : `${fmtHa(s.reloc)} ha`],
+    ['M6','',null,L('Ruaj tokën rurale','Protect rural land'),L('Jashtë UGB','Outside the UGB'),before ? '—' : `${fmtHa(s.relocOut)} ha`],
+    ...(lc ? [['M7','G1 · G2',9,L('Ruaj pyjet dhe shkurret si hapësira rekreative','Keep forests and shrubland as recreational space'),L('Brenda dhe pranë UGB (400 m): parqe, pyll urban, lojëra, sport','Inside and near the UGB (400 m): parks, urban forest, play, sport'),`${fmtHa(z.protHa[1]+z.protHa[2])} ha`]] : []),
+  ];
+  const finding = before ? L(`Plani hyn në fuqi në <b>${P.pYear}</b> me mandat ${state.planMandate} vjet (deri në ${esc(eName)}); vlerësimi afatmesëm në ${esc(rName)}. Shtyni «Luaj» ose zgjidhni një vit brenda periudhës.`,`The plan takes effect in <b>${P.pYear}</b> for ${state.planMandate} years (to ${esc(eName)}); mid-term review in ${esc(rName)}. Press Play or pick a year inside the period.`)
+    : L(`Viti <b>${yearOfPlan}</b> nga ${state.planMandate} i planit. Nga ${P.pYear} deri në ${esc(yName(z.Yp))} u ndërtuan <b>${fmtHa(real.total)} ha</b>; pa plan <b>${pc(real.conformity)}</b> ishte konform. Me zbatim <b>${pc(P.f)}</b>, ${fmtHa(s.reloc)} ha zhvendosen në zonat Z3 dhe konformiteti bëhet <b>${pc(s.conformity)}</b>; mbeten jokonform ${fmtHa(s.stay)} ha.${z.Y > P.E ? ` Plani ka skaduar në ${esc(eName)}: ndërtimet pas tij shënohen PS.` : ''}`,
+      `Year <b>${yearOfPlan}</b> of ${state.planMandate} of the plan. From ${P.pYear} to ${esc(yName(z.Yp))}, <b>${fmtHa(real.total)} ha</b> were built; without the plan <b>${pc(real.conformity)}</b> conformed. With <b>${pc(P.f)}</b> implementation, ${fmtHa(s.reloc)} ha move to Z3 zones and conformity becomes <b>${pc(s.conformity)}</b>; ${fmtHa(s.stay)} ha stay non-conforming.${z.Y > P.E ? ` The plan expired in ${esc(eName)}: later construction is marked PS.` : ''}`);
+  const proj = P.K ? `<div class="pd-proj"><label>${L(`Projeksioni deri në ${PLAN_HORIZON}`,`Projection to ${PLAN_HORIZON}`)} <input type="range" id="planExtra" min="0" max="${P.K}" step="1" value="${state.planExtra}" ${state.index < n-1 ? 'disabled' : ''}><output>${state.planExtra ? P.lastYear+state.planExtra : P.lastYear}</output></label><button id="planPlay" type="button" ${state.index < n-1 ? 'disabled' : ''}>▶ ${L(`Luaj deri në ${PLAN_HORIZON}`,`Play to ${PLAN_HORIZON}`)}</button></div>` : '';
+  const lcSec = () => !lc || before ? '' : `<section><h4><span>§ ${S()}</span>${L('Çfarë humbëm: pyje dhe shkurre','What was lost: forest and shrubland')}</h4>
+    <p>${L(`Pa plan, nga ${P.pYear} deri në ${esc(yName(z.Yp))} u ndërtuan <b>${fmtHa(real.stayForest)} ha pyll</b> dhe <b>${fmtHa(real.stayShrub)} ha shkurre</b>, tokë që mund të ishte bërë park, pyll urban ose fushë sporti. Me zbatim ${pc(P.f)} humbasin ${fmtHa(s.stayForest)} ha pyll dhe ${fmtHa(s.stayShrub)} ha shkurre.`,`Without the plan, from ${P.pYear} to ${esc(yName(z.Yp))}, <b>${fmtHa(real.stayForest)} ha of forest</b> and <b>${fmtHa(real.stayShrub)} ha of shrubland</b> were built on, land that could have become a park, an urban forest or a sports field. With ${pc(P.f)} implementation, ${fmtHa(s.stayForest)} ha of forest and ${fmtHa(s.stayShrub)} ha of shrubland are lost.`)}</p>
+    <p class="note">${L(`Mbulesa e tokës: harta Esri e ${P.lcYear}${P.lcYear > P.pYear ? ', më e hershmja që ekziston' : ''}; përdoren vetëm klasat pyll dhe shkurre/kullotë.`,`Land cover: Esri map of ${P.lcYear}${P.lcYear > P.pYear ? ', the earliest available' : ''}; only the forest and shrub/grassland classes are used.`)}</p></section>`;
+  const joined = manifest.periods[state.period]?.combined;
   return `<article class="plan-doc">
-    <div class="pd-head"><div class="pd-kicker">${L('Atlasi urban · Dokument planifikimi · Skenar','Urban atlas · Planning document · Scenario')}</div>
-      <h3>${L('Plan i zhvillimit kompakt','Compact development plan')} — ${esc(zone)}</h3>
-      <table class="pd-meta"><tr><th>${L('Zona','Area')}</th><td>${esc(zone)}</td></tr><tr><th>${L('Periudha','Period')}</th><td>${esc(steps[0].label)} – ${esc(steps[n-1].label)}${P.K ? ` · ${L('projeksion','projection')} ${PLAN_HORIZON}` : ''}</td></tr>
-      <tr><th>${L('Masat në fuqi nga','Measures in force from')}</th><td><select id="planYear">${opts}</select></td></tr><tr><th>${L('Gjendja e paraqitur','State shown')}</th><td>${esc(Yn)}${state.planExtra ? ' · '+L('projeksion','projection') : ''}</td></tr>
-      <tr><th>${L('Skenari','Scenario')}</th><td>${P.LC ? L('Kompakt, sipas SDG: M1–M7','Compact, by the SDGs: M1–M7') : L('Kompakt: M1–M6','Compact: M1–M6')}</td></tr></table></div>
-    <section><h4><span>§ ${S()}</span>${L('Qëllimi','Purpose')}</h4><p>${L('Rritja e zonës së ndërtuar të drejtohet brenda qytetit dhe qendrave ekzistuese, që toka rurale të ruhet, pyjet e shkurret të mbeten hapësira rekreative për qytetin dhe të arrihen synimet SDG 11.3, 11.7, 15.1, 15.3 dhe 2.4. Nga viti kur masat hyjnë në fuqi, skenari rritet çdo vit sa realiteti, por jo në të njëjtin vend: rritja vendoset aty ku e kërkojnë SDG-të. Harta tregon vetëm skenarin; vendi real i ndërtimit të shmangur shfaqet vetëm me «Krahaso».','Growth of the built-up area is directed inside the city and existing centres, so that rural land is kept, forests and shrubland stay recreational space for the city, and SDG targets 11.3, 11.7, 15.1, 15.3 and 2.4 are met. From the year the measures take effect, the scenario grows each year as much as reality, but not in the same place: growth goes where the SDGs ask. The map shows the scenario only; where the avoided construction really went appears only with Compare.')}</p></section>
-    <section><h4><span>§ ${S()}</span>${L('Përfundimi','Finding')}</h4><p class="pd-finding">${finding}</p>${bau ? `<p>${bau}</p>` : ''}${proj}</section>
-    <section><h4><span>§ ${S()}</span>${L('Masat','Measures')}</h4><table class="pd-table"><thead><tr><th></th><th>${L('Masa','Measure')}</th><th>${L('Ku','Where')}</th><th>ha</th><th>SDG</th></tr></thead><tbody>
-      ${measures.map(([c,k,t,where,ha,pr]) => `<tr><td class="pd-code">${k ? chip(k) : '<i class="pd-chip pd-hatch"></i>'}${c}</td><td><b>${esc(t)}</b></td><td>${esc(where)}</td><td class="num">${ha}</td><td class="pd-code pd-sdgc">${PLAN_SDG[c]}</td></tr>`).join('')}</tbody></table></section>
-      <p class="note pd-regen">${L('<b>Shënim.</b> Densifikimi mund të ndodhë edhe në hapësira të tjera, jo vetëm në tokën e lirë: parcela të ndërtuara me dendësi të ulët, objekte të braktisura, zona industriale e depo (brownfield), si pjesë e masave të rigjenerimit urban. Modeli përdor vetëm tokën e lirë, prandaj kapaciteti real brenda kufirit është më i madh.','<b>Note.</b> Densification can also happen on other spaces, not only on free land: low-density built plots, abandoned buildings, industrial sites and depots (brownfield), as part of urban regeneration measures. The model uses free land only, so the real capacity inside the boundary is larger.')}</p>
-    ${sdgSec()}
+    <div class="pd-head"><div class="pd-kicker">${L('Atlasi urban · Skenar planifikimi analitik','Urban atlas · Analytical planning scenario')}</div>
+      <h3>${L('Plani','Plan')} ${P.pYear}–${esc(eName)} — ${esc(zone)}</h3>
+      <table class="pd-meta">
+      <tr><th>${L('Hyrja në fuqi','In force from')}</th><td><select id="planYear">${opts}</select></td></tr>
+      <tr><th>${L('Mandati','Mandate')}</th><td><select id="planMandate">${mand}</select>${P.cut ? ` <small>${L(`deri në ${esc(eName)} (fundi i të dhënave)`,`to ${esc(eName)} (end of the data)`)}</small>` : ''}</td></tr>
+      <tr><th>${L('Vlerësimi afatmesëm','Mid-term review')}</th><td>${esc(rName)} <button type="button" class="pd-go" data-go="${P.R}">${L('Shko','Go')}</button></td></tr>
+      <tr><th>${L('Skadimi','Expiry')}</th><td>${esc(eName)} <button type="button" class="pd-go" data-go="${P.E}">${L('Shko','Go')}</button></td></tr>
+      <tr><th>${L('Gjendja e paraqitur','State shown')}</th><td>${esc(Yn)}${state.planExtra ? ' · '+L('projeksion','projection') : ''}</td></tr>
+      <tr><th>${L('Zbatimi i planit','Implementation')}</th><td><div class="pd-impl">${lvBtns}</div><label class="pd-implr"><input type="range" id="planImpl" min="0" max="100" step="5" value="${Math.round(P.f*100)}"><output>${pc(P.f)}</output></label></td></tr></table></div>
+    <section><h4><span>§ ${S()}</span>${L('Përfundimi','Finding')}</h4><p class="pd-finding">${finding}</p>${proj}</section>
+    <section><h4><span>§ ${S()}</span>${L('Shkallët e zbatimit dhe SDG','Implementation levels and the SDGs')}</h4>${planLevelsHtml(z)}</section>
+    ${review()}
+    <section><h4><span>§ ${S()}</span>${L('Masat','Measures')}</h4><table class="pd-table"><thead><tr><th></th><th>${L('Kodi','Code')}</th><th>${L('Masa','Measure')}</th><th>${L('Ku','Where')}</th><th>ha</th><th>SDG</th></tr></thead><tbody>
+      ${measures.map(([c,code,k,t,where,ha]) => `<tr><td class="pd-code">${k ? chip(k) : '<i class="pd-chip pd-hatch"></i>'}${c}</td><td class="pd-code">${code}</td><td><b>${esc(t)}</b></td><td>${esc(where)}</td><td class="num">${ha}</td><td class="pd-code pd-sdgc">${PLAN_SDG[c]}</td></tr>`).join('')}</tbody></table>
+      <p class="note pd-regen">${L('<b>Shënim.</b> Densifikimi mund të ndodhë edhe në hapësira të tjera: parcela me dendësi të ulët, objekte të braktisura, zona industriale (brownfield), si pjesë e rigjenerimit urban. Modeli përdor vetëm tokën e lirë.','<b>Note.</b> Densification can also happen on other spaces: low-density plots, abandoned buildings, industrial sites (brownfield), as part of urban regeneration. The model uses free land only.')}</p></section>
     ${lcSec()}
-    <section><h4><span>§ ${S()}</span>${L('Skenari kundrejt realitetit, vit pas viti','Scenario against reality, year by year')}</h4>
-      <div class="sdg-legend"><span><i style="background:rgb(${PLANC[2].c.join(',')})"></i>${L('brenda kufirit','inside the boundary')}</span><span><i style="background:rgb(${PLANC[4].c.join(',')})"></i>${L('zhvendosur nga plani','relocated by the plan')}</span><span><i style="background:rgb(${PLANC[3].c.join(',')})"></i>${L('jashtë kufirit në realitet','outside the boundary in reality')}</span></div>
-      <p class="note">${L('Shtylla majtas: skenari. Shtylla djathtas: realiteti.','Left bar: scenario. Right bar: reality.')}</p>${chart}</section>
-    <section><h4><span>§ ${S()}</span>${L('Masat sipas drejtimit','Measures by direction')}</h4><table class="pd-table"><thead><tr><th>${L('Drejtimi','Direction')}</th><th>${L('Jashtë kufirit, ha','Outside, ha')}</th><th>${L('Brenda, ha','Inside, ha')}</th><th>${L('Masa kryesore','Main measure')}</th></tr></thead><tbody>
-      ${z.dir.map((d,k) => `<tr><td><b>${esc(DIRS[k])}</b></td><td class="num">${fmtHa(d.moved)}</td><td class="num">${fmtHa(d.kept)}</td><td>${esc(planDirMeasure(d))}</td></tr>`).join('')}</tbody></table></section>
-    <section><h4><span>§ ${S()}</span>${L('Shënime dhe kufizime','Notes and limitations')}</h4><p class="note">${L(`Ky është skenar analitik, jo plan ligjor (PZHK ose HZK). Modeli e vendos ndërtimin në blloqe ${PLAN_BLOCK_M} m × ${PLAN_BLOCK_M} m te toka e lirë me dendësinë më të lartë përreth, mbushjen para skajit dhe tokën bujqësore në fund. Hapësirat e lira të ngushta e të gjata mes ndërtimeve (nën rreth ${2*PLAN_CORE_M} m gjerësi; rrugët, që WSF nuk i shënon si të ndërtuara) nuk llogariten tokë ndërtimi${P.LC ? `, ndërsa pyjet, shkurret e kullotat (harta Esri e ${P.lcYear}) ruhen si hapësira rekreative; nga mbulesa e tokës përdoren vetëm këto dy klasa. Synimi i gjelbërimit ${PLAN_GREEN_TARGET*100}% ndjek rekomandimin e UN-Habitat për hapësirë publike të hapur` : ''}. Modeli nuk njeh pronësinë, pjerrësinë, përmbytjet ose çmimet. Kufiri zgjerohet me 100 m vetëm kur toka brenda tij mbaron. ${P.K ? `Projeksioni deri në ${PLAN_HORIZON} përdor mesataren e pesë viteve të fundit dhe është më i pasigurt sa më larg në kohë.` : ''} Llogaritja: ${number(Math.round(P.ms))} ms.`,`This is an analytical scenario, not a statutory plan. The model places construction in ${PLAN_BLOCK_M} m × ${PLAN_BLOCK_M} m blocks on the free land with the highest surrounding density, infill before edge and farm land last. Long narrow open gaps between buildings (under about ${2*PLAN_CORE_M} m wide; streets, which WSF does not map as built) are not counted as building land${P.LC ? `, and forests, shrub and grassland (Esri map of ${P.lcYear}) are kept as recreational space; only these two land-cover classes are used. The ${PLAN_GREEN_TARGET*100}% green target follows UN-Habitat's recommendation for open public space` : ''}. It knows nothing of ownership, slope, floods or prices. The boundary grows by 100 m only when the land inside it runs out. ${P.K ? `The projection to ${PLAN_HORIZON} uses the mean of the last five years and is less certain the further it goes.` : ''} Computed in ${number(Math.round(P.ms))} ms.`)}</p></section>
+    <section><h4><span>§ ${S()}</span>${L('Vit pas viti','Year by year')}</h4>
+      <div class="sdg-legend"><span><i style="background:rgb(${PLANC[2].c.join(',')})"></i>K</span><span><i style="background:rgb(${PLANC[4].c.join(',')})"></i>${L('Z3, zhvendosur','Z3, relocated')}</span><span><i style="background:rgb(${PLANC[3].c.join(',')})"></i>JK</span></div>
+      <p class="note">${L('Shtylla majtas: skenari me zbatimin e zgjedhur. Shtylla djathtas: pa plan.','Left bar: the scenario at the chosen implementation. Right bar: without the plan.')}</p>${planChartSvg(z)}</section>
+    <section><h4><span>§ ${S()}</span>${L('Sipas drejtimit','By direction')}</h4><table class="pd-table"><thead><tr><th>${L('Drejtimi','Direction')}</th><th>K, ha</th><th>${L('Jokonform, ha','Non-conf., ha')}</th><th>${L('Masa kryesore','Main measure')}</th></tr></thead><tbody>
+      ${z.dir.map((d,k) => `<tr><td><b>${esc(DIRS[k])}</b></td><td class="num">${fmtHa(d.kept)}</td><td class="num">${fmtHa(d.moved)}</td><td>${esc(planDirMeasure(d))}</td></tr>`).join('')}</tbody></table></section>
+    <section><h4><span>§ ${S()}</span>${L('Shënime dhe kufizime','Notes and limitations')}</h4><p class="note">${L(`Skenar analitik, jo plan ligjor (PZHK ose HZK). K = ndërtim brenda UGB, jashtë pyjeve e shkurreve; JK = jashtë UGB ose mbi to; PS = ndërtim pas skadimit të planit. Plani vendos ndërtimin në blloqe ${PLAN_BLOCK_M} m te toka e lirë me dendësinë më të lartë përreth; hapësirat e ngushta mes ndërtimeve (rrugët) përjashtohen. Me zbatim nën 100%, zhvendoset së pari zhvillimi mbi pyje, mbi shkurre dhe më larg UGB. ${joined ? 'Seria e bashkuar: Evolution (30 m) deri në 2015, pastaj shtesat e Tracker-it nga janari 2017, në rrjetin 30 m; hapi 2015→2017 mbulon dy vjet. ' : ''}${P.K ? `Projeksioni deri në ${PLAN_HORIZON} përdor mesataren e pesë viteve të fundit. ` : ''}Llogaritja: ${number(Math.round(P.ms))} ms.`,`An analytical scenario, not a statutory plan. K = built inside the UGB, off forest and shrubland; JK = outside the UGB or on them; PS = built after the plan expired. The plan places construction in ${PLAN_BLOCK_M} m blocks on the free land with the highest surrounding density; narrow gaps between buildings (streets) are left out. Below 100% implementation, development on forest, on shrubland and furthest from the UGB is relocated first. ${joined ? 'Joined series: Evolution (30 m) to 2015, then the Tracker additions from January 2017, on the 30 m grid; the 2015→2017 step spans two years. ' : ''}${P.K ? `The projection to ${PLAN_HORIZON} uses the mean of the last five years. ` : ''}Computed in ${number(Math.round(P.ms))} ms.`)}</p></section>
     <div class="pd-sign">${L('Përgatiti: Atlasi urban i Kosovës · Rizah Murseli','Prepared by: Urban Atlas of Kosovo · Rizah Murseli')} · ${(d => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`)(new Date())}</div>
   </article>`;
 }
 let planTimer = 0;
+function planRefresh() { if (sprawlRes) { sprawlRes.viewKey = null;sprawlRes.radialKey = null; }sprawlView();renderSprawlPanel();paint(true);if (sample) updateHash(); }
 function planSetExtra(v) {
   state.planExtra = v;
   if (v && state.index !== count()-1) state.index = count()-1;
-  if (sprawlRes) { sprawlRes.viewKey = null;sprawlRes.radialKey = null; }
-  sprawlView();renderSprawlPanel();paint(true);
+  planRefresh();
 }
+function planGo(t) { const P = sprawlRes?.plan;if (!P) return;stop();if (t <= P.last) { state.planExtra = 0;setIndex(t-baseOff()-1); } else planSetExtra(t-P.last); }
 // The main Play button runs on into the projection years in the Plan view.
 function planStep() {
   const P = sprawlRes?.plan;
@@ -4055,25 +4203,43 @@ function planStep() {
   planSetExtra((state.planExtra || 0)+1);
   return true;
 }
-// Projection years (to PLAN_HORIZON) as extra steps of the timeline, in the Plan view.
+// Projection years as extra steps of the timeline, and the plan's start, review and expiry marked on it.
 function planTimeline() {
   const lg = $('legend');if (!lg) return;
   const P = state.mapView === 'plan' && sprawlCurrent() ? sprawlRes?.plan : null, K = P?.K || 0;
   const have = lg.querySelectorAll('[data-proj]');
-  if (have.length === K && (!K || have[0].dataset.y === String(P.lastYear+1))) return;
-  have.forEach(e => e.remove());
-  for (let k=1;k<=K;k++) {
-    const btn = document.createElement('button');
-    btn.dataset.proj = k;btn.dataset.y = P.lastYear+k;btn.className = 'proj';btn.textContent = String(P.lastYear+k);
-    btn.title = L(`Projeksion ${P.lastYear+k} (skenar)`,`Projection ${P.lastYear+k} (scenario)`);
-    btn.onclick = () => { stop();planSetExtra(k); };
-    lg.append(btn);
+  let changed = false;
+  if (!(have.length === K && (!K || have[0].dataset.y === String(P.lastYear+1)))) {
+    changed = true;
+    have.forEach(e => e.remove());
+    for (let k=1;k<=K;k++) {
+      const btn = document.createElement('button');
+      btn.dataset.proj = k;btn.dataset.y = P.lastYear+k;btn.className = 'proj';btn.textContent = String(P.lastYear+k);
+      btn.title = L(`Projeksion ${P.lastYear+k} (skenar)`,`Projection ${P.lastYear+k} (scenario)`);
+      btn.onclick = () => { stop();planSetExtra(k); };
+      lg.append(btn);
+    }
   }
-  paint(true);
+  const off = baseOff();
+  [...lg.children].forEach((el,i) => {
+    const t = el.dataset.proj ? P.last+Number(el.dataset.proj) : off+1+i;
+    el.classList.toggle('pl-in',!!P && t > P.p && t <= P.E);
+    el.classList.toggle('pl-start',!!P && t === P.p);
+    el.classList.toggle('pl-mid',!!P && t === P.R);
+    el.classList.toggle('pl-end',!!P && t === P.E);
+    if (P) { el.dataset.ps = L('HYRJA','START');el.dataset.pm = L('VLERËSIMI','REVIEW');el.dataset.pe = L('SKADIMI','EXPIRY'); }
+  });
+  if (changed) paint(true);
 }
 function planWire() {
   const sel = $('planYear');
-  if (sel) sel.onchange = () => { state.planYear = Number(sel.value);state.planExtra = 0;if (sprawlRes) { sprawlRes.viewKey = null;sprawlRes.radialKey = null; }sprawlView();renderSprawlPanel();paint(true);if (sample) updateHash(); };
+  if (sel) sel.onchange = () => { state.planYear = Number(sel.value);state.planExtra = 0;planRefresh(); };
+  const md = $('planMandate');
+  if (md) md.onchange = () => { state.planMandate = Number(md.value);planRefresh(); };
+  document.querySelectorAll('.pd-impl [data-impl]').forEach(b => { b.onclick = () => { state.planImpl = Number(b.dataset.impl);planRefresh(); }; });
+  const im = $('planImpl');
+  if (im) { im.oninput = () => { im.nextElementSibling.textContent = im.value+'%'; };im.onchange = () => { state.planImpl = Number(im.value)/100;planRefresh(); }; }
+  document.querySelectorAll('.pd-go[data-go]').forEach(b => { b.onclick = () => planGo(Number(b.dataset.go)); });
   const ex = $('planExtra');
   if (ex) ex.oninput = () => planSetExtra(Number(ex.value));
   const pl = $('planPlay');
@@ -4084,42 +4250,40 @@ function planWire() {
     planTimer = setInterval(() => { v++;if (v > P.K) { clearInterval(planTimer);return; }planSetExtra(v); },900);
   };
 }
-// SDG targets served in one direction, from its main measures.
-function planDirSdg(d) {
-  const z = sprawlRes?.planDirCache;
-  const dd = z?.[d];if (!dd) return '';
-  const codes = [...new Set((planDirMeasure(dd).match(/M\d/g) || []).flatMap(m => PLAN_SDG[m].split(' · ')))];
-  return codes.length ? 'SDG '+[...new Set(codes)].join(' · ') : '';
-}
-
+// Year by year over the plan period: scenario (K + Z3 + JK left) against no plan (K + JK right).
 function planChartSvg(z,opts={}) {
   const P = z.P, yName = planYearName;
-    const W2 = opts.w || 300, H2 = opts.h || 120, m = {l:30,r:6,t:opts.h ? 14 : 18,b:20}, pw = W2-m.l-m.r, ph = H2-m.t-m.b, list = P.years, nn = list.length, slot = pw/Math.max(1,nn), bw = Math.max(1.5,slot*.72);
-    const max = niceMax(Math.max(...list.map(y => Math.max(y.kept+y.placed,y.kept+y.moved)),1e-6)*1.1);
-    let svg = `<svg viewBox="0 0 ${W2} ${H2}" class="sprawl-chart" role="img">`;
-    for (const t of [0,max/2,max]) { const yy = m.t+ph-t/max*ph;svg += `<line x1="${m.l}" x2="${W2-m.r}" y1="${yy}" y2="${yy}" stroke="#1e2a3a"/><text x="${m.l-4}" y="${yy+3}" text-anchor="end" font-size="8" fill="#7f93ab">${fmtHa(t)}</text>`; }
-    list.forEach((y,j) => {
-      const x = m.l+j*slot+(slot-bw)/2, op = y.t > z.Y ? .3 : 1;
-      const hK = y.kept/max*ph, hP = y.placed/max*ph, hM = y.moved/max*ph;
-      svg += `<g opacity="${op}"><title>${esc(yName(y.t))}${y.proj ? ' (projeksion)' : ''}: ${L('brenda kufirit','inside the boundary')} ${fmtHa(y.kept)} ha · ${L('zhvendosur','relocated')} ${fmtHa(y.placed)} ha · ${L('jashtë kufirit në realitet','outside the boundary in reality')} ${fmtHa(y.moved)} ha</title>`;
-      svg += `<rect x="${x.toFixed(1)}" y="${(m.t+ph-hK).toFixed(1)}" width="${(bw/2).toFixed(1)}" height="${Math.max(0,hK-.5).toFixed(1)}" fill="rgb(${PLANC[2].c.join(',')})"/>`;
-      svg += `<rect x="${x.toFixed(1)}" y="${(m.t+ph-hK-hP).toFixed(1)}" width="${(bw/2).toFixed(1)}" height="${Math.max(0,hP-.5).toFixed(1)}" fill="rgb(${PLANC[4].c.join(',')})"/>`;
-      svg += `<rect x="${(x+bw/2).toFixed(1)}" y="${(m.t+ph-hK).toFixed(1)}" width="${(bw/2).toFixed(1)}" height="${Math.max(0,hK-.5).toFixed(1)}" fill="rgb(${PLANC[2].c.join(',')})" opacity=".55"/>`;
-      svg += `<rect x="${(x+bw/2).toFixed(1)}" y="${(m.t+ph-hK-hM).toFixed(1)}" width="${(bw/2).toFixed(1)}" height="${Math.max(0,hM-.5).toFixed(1)}" fill="rgb(${PLANC[3].c.join(',')})"/></g>`;
-      // On top of each year: the SDG targets the plan serves that year.
-      const codes = [];
-      if (y.moved > 0 || y.proj) codes.push('11.3');
-      if (y.lost > 0) codes.push('15.1');
-      if (codes.length && y.t <= z.Y) { const top = m.t+ph-Math.max(hK+hP,hK+hM)-3;codes.forEach((c,q) => { svg += `<text x="${(x+bw/2).toFixed(1)}" y="${(top-q*7).toFixed(1)}" text-anchor="middle" font-size="${opts.h ? 5.6 : 6.4}" fill="#9fd7ff">${c}</text>`; }); }
-    });
-    const ticks = list.map((_,j) => j).filter(j => nn <= 12 || Number(yName(list[j].t).replace(/\D/g,'').slice(-4))%5 === 0 || j === nn-1);
-    for (const j of ticks) svg += `<text x="${(m.l+j*slot+slot/2).toFixed(1)}" y="${H2-6}" text-anchor="middle" font-size="8" fill="#7f93ab">${esc(yName(list[j].t))}</text>`;
-    return svg+'</svg>';
+  const W2 = opts.w || 300, H2 = opts.h || 120, m = {l:30,r:6,t:opts.h ? 14 : 18,b:20}, pw = W2-m.l-m.r, ph = H2-m.t-m.b, list = P.years, nn = list.length, slot = pw/Math.max(1,nn), bw = Math.max(1.5,slot*.72);
+  const max = niceMax(Math.max(...list.map(y => Math.max(y.conform+y.placed+y.stay,y.conform+y.reloc+y.stay)),1e-6)*1.1);
+  const col = k => `rgb(${PLANC[k].c.slice(0,3).join(',')})`;
+  let svg = `<svg viewBox="0 0 ${W2} ${H2}" class="sprawl-chart" role="img">`;
+  for (const t of [0,max/2,max]) { const yy = m.t+ph-t/max*ph;svg += `<line x1="${m.l}" x2="${W2-m.r}" y1="${yy}" y2="${yy}" stroke="#1e2a3a"/><text x="${m.l-4}" y="${yy+3}" text-anchor="end" font-size="8" fill="#7f93ab">${fmtHa(t)}</text>`; }
+  list.forEach((y,j) => {
+    const x = m.l+j*slot+(slot-bw)/2, op = y.t > z.Y ? .3 : 1, H = v => v/max*ph;
+    const hK = H(y.conform), hZ = H(y.placed), hS = H(y.stay), hN = H(y.reloc+y.stay);
+    svg += `<g opacity="${op}"><title>${esc(yName(y.t))}${y.proj ? ' ('+L('projeksion','projection')+')' : ''}: K ${fmtHa(y.conform)} ha · Z3 ${fmtHa(y.placed)} ha · JK ${fmtHa(y.stay)} ha · ${L('pa plan JK','no plan JK')} ${fmtHa(y.reloc+y.stay)} ha</title>`;
+    const bar = (xx,y0,h,c,o=1) => h > 0 ? `<rect x="${xx.toFixed(1)}" y="${(m.t+ph-y0-h).toFixed(1)}" width="${(bw/2).toFixed(1)}" height="${Math.max(0,h-.5).toFixed(1)}" fill="${c}" opacity="${o}"/>` : '';
+    svg += bar(x,0,hK,col(2))+bar(x,hK,hZ,col(4))+bar(x,hK+hZ,hS,col(3));
+    svg += bar(x+bw/2,0,hK,col(2),.55)+bar(x+bw/2,hK,hN,col(3),.8)+'</g>';
+    const codes = [];
+    if (y.reloc > 0) codes.push('11.3');
+    if (y.relocProt > 0) codes.push('15.1');
+    if (codes.length && y.t <= z.Y) { const top = m.t+ph-Math.max(hK+hZ+hS,hK+hN)-3;codes.forEach((c,q) => { svg += `<text x="${(x+bw/2).toFixed(1)}" y="${(top-q*7).toFixed(1)}" text-anchor="middle" font-size="${opts.h ? 5.6 : 6.4}" fill="#9fd7ff">${c}</text>`; }); }
+  });
+  // Mid-term review and expiry.
+  for (const [t,lab] of [[P.R,L('vlerësimi','review')],[P.E,L('skadimi','expiry')]]) {
+    const j = list.findIndex(y => y.t === t);if (j < 0) continue;
+    const xx = m.l+j*slot+slot/2;
+    svg += `<line x1="${xx.toFixed(1)}" x2="${xx.toFixed(1)}" y1="${m.t-2}" y2="${m.t+ph}" stroke="#66e0d1" stroke-dasharray="2 2" opacity=".7"/><text x="${xx.toFixed(1)}" y="${m.t-4}" text-anchor="middle" font-size="6.5" fill="#66e0d1">${lab}</text>`;
+  }
+  const ticks = list.map((_,j) => j).filter(j => nn <= 12 || Number(yName(list[j].t).replace(/\D/g,'').slice(-4))%5 === 0 || j === nn-1);
+  for (const j of ticks) svg += `<text x="${(m.l+j*slot+slot/2).toFixed(1)}" y="${H2-6}" text-anchor="middle" font-size="8" fill="#7f93ab">${esc(yName(list[j].t))}</text>`;
+  return svg+'</svg>';
 }
 
 window.atlasExport = exportSvg;   // for testing from the console
 // Static page text, translated on load when the page is in English.
-const EN_STATIC = {"ATLASI URBAN":"URBAN ATLAS","Plan":"Plan","Zona":"Area","Komuna":"Municipality","Statistikat e formave":"Forms statistics","Pragjet e madhësisë: kur një strukturë kalon shkallë":"Size thresholds: when a structure moves up a stage","Shkallën e strukturës: A → E":"Stage of the structure: A → E","Madhësia ku kërcimi nuk është më sprawl":"Size at which leapfrog is no longer sprawl","≥ 5 ha: bërthamë e re":"≥ 5 ha: new nucleus","≥ 10 ha: bërthamë e re (parazgjedhur)":"≥ 10 ha: new nucleus (default)","≥ 25 ha: bërthamë e re":"≥ 25 ha: new nucleus","≥ 50 ha: bërthamë e re":"≥ 50 ha: new nucleus","Pa prag: çdo kërcim është sprawl":"No limit: all leapfrog is sprawl","Zgjerim i shpërndarë (sprawl) = kërcim në struktura nën pragun e madhësisë. Mbushja dhe zgjerimi në skaj nuk konsiderohen sprawl.":"Sprawl = leapfrog in structures below the size threshold. Infill and edge extension are not counted as sprawl.","5. Madhësia: pikselat e kërcimit deri në 100 m larg njëri-tjetrit formojnë një strukturë. Nën 1 ha janë ndërtime të shpërndara (rritja e izoluar te Wilson et al. 2003); nga 1 ha deri te pragu janë grumbuj të shkëputur (degëzimi i grumbulluar); bërthamë e re është struktura e shkëputur, më shumë se 100 m larg ndërtimit urban e suburban të vitit bazë, ku ndërtimi i ri arrin pragun; madhësia matet në vitin e zgjedhur për gjithë strukturën, bashkë me mbushjen dhe skajin e mëvonshëm rreth farës së kërcimit, sepse sapo struktura dendësohet, pikselat e saj nuk janë më kërcim. Pragjet ndryshohen në legjendën e hartës; parazgjedhjet janë 1, 10 dhe 50 ha. Me pragun 10 ha struktura mbulon vetë të paktën 10% të rrethit 1 km² rreth saj, pra arrin dendësinë suburbane sipas rregullit të Angel et al. (2010) dhe krijon skajin e vet; ajo trajtohet si vendbanim i ri, jo si shpërndarje. Literatura nuk jep një prag të vetëm: Angel et al. e quajnë kërcim çdo ndërtim jashtë 100 m pa kufi madhësie, ndërsa Wilson et al. ia lënë përdoruesit vendimin se cilat lloje janë sprawl.":"5. Size: leapfrog pixels at most 100 m apart form one structure. Below 1 ha they are scattered buildings (isolated growth in Wilson et al. 2003); from 1 ha up to the threshold they are detached clusters (clustered branch); a new nucleus is a detached structure, more than 100 m from the base year's urban and suburban built-up, whose new construction reaches the threshold; its size is measured in the chosen year on the whole structure, including the later infill and edge growth around the leapfrog seed, because once the structure densifies its pixels are no longer leapfrog. The thresholds can be changed in the map legend; the defaults are 1, 10 and 50 ha. With the 10 ha threshold a structure on its own covers at least 10% of the 1 km² circle around it, so it reaches suburban density under the rule of Angel et al. (2010) and creates its own fringe; it is treated as a new settlement, not as dispersal. The literature gives no single threshold: Angel et al. call any construction beyond 100 m leapfrog with no size limit, while Wilson et al. leave it to the user to decide which types are sprawl.","Zgjerim i shpërndarë (sprawl) = kërcim. Mbushja dhe zgjerimi në skaj nuk konsiderohen sprawl.":"Sprawl = leapfrog. Infill and edge extension are not counted as sprawl.","Kufizime: rrugët nuk përdoren drejtpërdrejt. Ndërtimi jashtë kufirit të shtetit nuk është në të dhëna, prandaj dendësia afër kufirit mund të nënvlerësohet.":"Limitations: roads are not used directly. Built-up land beyond the national border is not in the data, so density near the border may be underestimated.","Pamja e hartës":"Map view","Zgjerimi në kohë":"Growth over time","Format e zgjerimit":"Forms of expansion","(mbushje, skaj, kërcim) ·":"(infill, edge, leapfrog) ·","Metoda":"Method","4. Klasa aktuale: ndërtimi i mëparshëm rivlerësohet në gjurmën e vitit të zgjedhur. Pikseli bëhet mbushje kur është urban ose suburban dhe brenda 100 m nuk ka hapësirë të lirë të jashtme (skaj i jashtëm ose rurale); skaj kur është urban ose suburban, por ka të tillë afër; përndryshe mbetet në klasën kur u ndërtua. Kalimi shkon vetëm përpara (sprawl → skaj → mbushje), sepse WSF nuk heq ndërtime.":"4. Current class: earlier construction is re-evaluated in the footprint of the chosen year. A pixel becomes infill when it is urban or suburban with no exterior open space (exterior fringe or rural) within 100 m; edge when it is urban or suburban but has such space nearby; otherwise it keeps its class from when it was built. The change only goes forward (sprawl → edge → infill), because WSF never removes built-up land.","Klasën aktuale në vitin e zgjedhur":"Current class in the chosen year","Shfaq në hartë":"Show on map","Klasën kur u ndërtua":"Class when built","Vetëm shtesat e vitit":"This year's additions only","Statusin në vitin e zgjedhur":"Status in the chosen year","Shkarko CSV të ndryshimeve në kohë":"Download the change-over-time CSV","Krahasimi":"Comparison","Hap pas hapi: çdo vit me vitin paraprak":"Step by step: each year against the year before","Dy data: viti bazë me vitin e zgjedhur":"Two dates: base year against the chosen year","Klasifikimi bëhet në rezolucionin burimor të WSF (10 m Tracker, rreth 30 m Evolution), në një dritare që e kalon zonën me 700 m për kontekst. «Hap pas hapi» krahason ndërtimin e ri të çdo viti me gjurmën e vitit paraprak dhe i mbledh rezultatet nga viti bazë deri në vitin e zgjedhur; kështu ruhet radha kohore e rritjes. «Dy data» krahason gjurmën e vitit bazë me gjithë ndërtimin e ri deri në vitin e zgjedhur, si te Angel et al. (2010), ku intervalet janë rreth 10 vjet; në intervale të gjata copat e njëpasnjëshme bashkohen.":"The classification runs at the WSF source resolution (10 m Tracker, about 30 m Evolution), in a window that extends 700 m beyond the area for context. “Step by step” compares each year's new construction with the footprint of the year before and adds the results from the base year to the chosen year, which keeps the order in which growth happened. “Two dates” compares the base-year footprint with all new construction up to the chosen year, as in Angel et al. (2010), whose intervals are about 10 years; over long intervals successive patches merge.","4. Linear (shirit): copë zgjerimi ose kërcimi me gjerësi ≤ 100 m, gjatësi ≥ 250 m dhe gjatësi/gjerësi ≥ 4, që shtrihet të paktën për gjysmën e saj në hapësirë rurale. Gjerësia vlerësohet nga distanca mesatare deri te skaji i copës.":"4. Linear (ribbon): an extension or leapfrog patch at most 100 m wide, at least 250 m long, with length/width ≥ 4 and at least half of it in rural space. Width is estimated from the mean distance to the patch edge.","Klasifikimi i ndërtimit të ri: mbushje, zgjerim, linear, kërcim":"Classification of new construction: infill, extension, linear, leapfrog","Zgjerimi i shpërndarë":"Urban sprawl","(Urban Sprawl) ·":"·","Metoda e klasifikimit":"Classification method","Krahasohet ndërtimi i vitit bazë me atë të vitit të zgjedhur, në rezolucionin burimor të WSF (10 m Tracker, rreth 30 m Evolution), në një dritare që e kalon zonën me 700 m për kontekst.":"The built-up area of the base year is compared with that of the selected year, at the WSF source resolution (10 m Tracker, about 30 m Evolution), in a window that extends 700 m beyond the area for context.","1. Çdo piksel i ndërtuar i vitit bazë merr dendësinë e ndërtimit në rrethin 1 km² rreth tij: urban ≥ 50%, suburban 10–50%, rural < 10% (llogaritur në qeliza 30 m).":"1. Every built-up pixel of the base year gets the built-up share in the 1 km² circle around it: urban ≥ 50%, suburban 10–50%, rural < 10% (computed on 30 m cells).","2. Hapësira e lirë nën 100 m nga ndërtimi urban ose suburban është skaj (fringe); më larg është rurale. Hapësira rurale e rrethuar plotësisht deri në 200 ha është e kapur dhe i përket gjurmës urbane. Skaji nën 100 m nga hapësira rurale është i jashtëm; pjesa tjetër është e brendshme.":"2. Open space less than 100 m from urban or suburban built-up is fringe; farther away it is rural. Rural space fully enclosed and up to 200 ha is captured and belongs to the urban footprint. Fringe less than 100 m from rural space is exterior; the rest is interior.","3. Copat e ndërtimit të ri janë piksela të ri të lidhur (8 fqinjë; te Tracker bashkohen boshllëqet deri në 20 m). Mbushje: copa është tërësisht në hapësirën e brendshme. Kërcim: copa është tërësisht në hapësirën rurale. Zgjerim në skaj: të gjitha të tjerat.":"3. Patches of new construction are connected new pixels (8 neighbours; in Tracker gaps of up to 20 m are bridged). Infill: the patch lies entirely in interior space. Leapfrog: the patch lies entirely in rural space. Edge extension: all others.","4. Linear (shirit): copë zgjerimi ose kërcimi me gjatësi ≥ 250 m dhe gjatësi/gjerësi ≥ 4, që shtrihet të paktën për gjysmën e saj në hapësirë rurale. Gjerësia vlerësohet nga distanca mesatare deri te skaji i copës.":"4. Linear (ribbon): an extension or leapfrog patch at least 250 m long with length/width ≥ 4, at least half of it in rural space. Width is estimated from the mean distance to the patch edge.","Zgjerim i shpërndarë (sprawl) = linear + kërcim. Mbushja dhe zgjerimi në skaj nuk konsiderohen sprawl.":"Sprawl = linear + leapfrog. Infill and edge extension are not counted as sprawl.","Burimet: Angel, S., Parent, J. & Civco, D. L. (2010). The Fragmentation of Urban Footprints: Global Evidence of Sprawl, 1990–2000. Lincoln Institute of Land Policy. · Wilson, E. H., Hurd, J. D., Civco, D. L., Prisloe, M. P. & Arnold, C. (2003). Development of a geospatial model to quantify, describe and map urban growth. Remote Sensing of Environment, 86(3), 275–285.":"Sources: Angel, S., Parent, J. & Civco, D. L. (2010). The Fragmentation of Urban Footprints: Global Evidence of Sprawl, 1990–2000. Lincoln Institute of Land Policy. · Wilson, E. H., Hurd, J. D., Civco, D. L., Prisloe, M. P. & Arnold, C. (2003). Development of a geospatial model to quantify, describe and map urban growth. Remote Sensing of Environment, 86(3), 275–285.","Kufizime: pragjet e klasës lineare janë zgjedhje e këtij atlasi (Wilson et al. nuk japin vlera numerike të njëjta); rrugët nuk përdoren drejtpërdrejt. Ndërtimi jashtë kufirit të shtetit nuk është në të dhëna, prandaj dendësia afër kufirit mund të nënvlerësohet.":"Limitations: the thresholds of the linear class are this atlas's choice (Wilson et al. do not give the same numbers); roads are not used directly. Built-up land beyond the national border is not in the data, so density near the border may be underestimated.","Shkarko CSV të copave":"Download the patches CSV","Përkufizim":"Definition","Zgjerimi i shpërndarë urban":"Urban sprawl","(Urban Sprawl)":"(Zgjerimi i shpërndarë urban)","Zgjerimi i shpërndarë urban (Urban Sprawl) është zhvillimi hapësinor i shpërndarë, me dendësi të ulët ndërtimi, në periferi të zonave urbane, i karakterizuar nga fragmentimi i strukturës urbane, shtrirja lineare e ndërtimeve përgjatë korridoreve të transportit dhe varësia e lartë nga përdorimi i automjeteve.":"Urban sprawl is dispersed, low-density spatial development on the periphery of urban areas, characterised by a fragmented urban structure, linear development along transport corridors and a high dependence on car use.","Burimi: McCann, E. J. (2009). Sprawl. Në The Dictionary of Human Geography, botimi i pestë, Wiley-Blackwell, f. 719.":"Source: McCann, E. J. (2009). Sprawl. In The Dictionary of Human Geography, 5th edition, Wiley-Blackwell, p. 719.","Shënim: Ky është përkthim dhe përmbledhje në shqip e përkufizimit të librit, jo citim fjalë për fjalë.":"Note: this is a summary of the book's definition, not a verbatim quotation.","Në këtë atlas, kategoria «Shpërndarje» është treguesi sasior i këtij procesi: popullsia rritet, por zona e ndërtuar rritet më shpejt (SDG 11.3.1, LCRPGR > 1). Dendësia, fragmentimi dhe shtrirja përgjatë rrugëve nuk maten drejtpërdrejt.":"In this atlas, the “Sprawl” category is the quantitative indicator of this process: population grows, but the built-up area grows faster (SDG 11.3.1, LCRPGR > 1). Density, fragmentation and ribbon development along roads are not measured directly.","Animacion me seri kohore":"Time-series animation","I njëjti shabllon si harta e printuar, një kuadër për çdo vit, nga viti bazë deri në vitin e fundit.":"The same template as the printed map, one frame per year, from the base year to the last year.","Kohëzgjatja e çdo viti":"Duration of each year","0,5 sekonda":"0.5 seconds","0,8 sekonda":"0.8 seconds","1,2 sekonda":"1.2 seconds","2 sekonda":"2 seconds","Madhësia":"Size","Kalim i butë mes viteve":"Smooth transition between years","● Krijo videon":"● Create the video","Ndalo":"Stop","Zgjerimi urban në Kosovë": "Urban expansion in Kosovo", "Zgjerimi urban": "Urban expansion", "në Kosovë": "in Kosovo", "Një atlas nga": "An atlas by", "Zgjidh vendbanimin dhe ndiq ndryshimin e tij në kohë.": "Pick a settlement and follow how it changed over time.", "Shteti": "Country", "Vendbanimi": "Settlement", "Periudha": "Period", "Viti bazë": "Base year", "nga cili vit nis analiza": "the year the analysis starts", "Ndërtimi deri në vitin bazë shfaqet gri; shtesat, grafikët dhe CSV-të llogariten që nga ky vit.": "Construction up to the base year is shown in grey; additions, charts and CSVs are computed from this year on.", "Mbulimi i hartës": "Map extent", "Shfaq gjithë Kosovën": "Show all of Kosovo", "Zona e interesit": "Zone of interest", "Vizatoni një zonë në hartë ose ngarkoni kufirin e saj. Statistikat, grafikët, harta dhe CSV-të llogariten vetëm për të.": "Draw a zone on the map or upload its boundary. Statistics, charts, the map and CSVs are computed for it alone.", "✎ Vizato në hartë": "✎ Draw on the map", "⤒ Ngarko skedar": "⤒ Upload file", "SHP (në .zip, ose .shp + .shx + .dbf + .prj), KML, KMZ, GeoJSON. Pranohen WGS84, UTM, KOSOVAREF01 dhe Gauss-Krüger. Skedari mund të tërhiqet edhe mbi hartë.": "SHP (in a .zip, or .shp + .shx + .dbf + .prj), KML, KMZ, GeoJSON. WGS84, UTM, KOSOVAREF01 and Gauss-Krüger are accepted. You can also drag the file onto the map.", "Shfaq": "Show", "✕ Hiq": "✕ Remove", "Harta bazë": "Base map", "Burimi": "Source", "Asnjë": "None", "Esri · imazh satelitor": "Esri · satellite imagery", "Paraqitja e sfondit": "Background style", "E errët · thekson ngjyrat e viteve": "Dark · highlights the year colours", "RGB · ngjyrat natyrale": "RGB · natural colours", "Pankromatike · bardhë e zi": "Panchromatic · black and white", "Transparenca": "Transparency", "Zonë e ndërtuar në pamje": "Built-up area in view", "Shtesa nga kuadri i mëparshëm": "Added since the previous frame", "Shkarko hartën e kësaj zone": "Download the map of this area", "Pamja aktuale, me legjendë, statistika dhe autorësi": "Current view, with legend, statistics and credits", "Rreth të dhënave": "About the data", "WSF identifikon zonat e ndërtuara në imazhe satelitore. Ngjyra tregon periudhën kur zona u identifikua.": "WSF detects built-up areas in satellite imagery. The colour shows the period in which an area was detected.", "Evolution ka rezolucion burimor rreth 30 m. Tracker ka rezolucion burimor 10 m. Pamja në ekran përshtatet sipas zmadhimit.": "Evolution has a source resolution of about 30 m. Tracker has a source resolution of 10 m. The on-screen view adapts to the zoom level.", "Tracker nis me gjendjen e korrikut 2016. Kuadrot e mëvonshme paraqesin janarin e vitit përkatës. Periudhat shfaqen veçmas sepse produktet përdorin metoda të ndryshme.": "Tracker starts with the state of July 2016. Later frames show January of each year. The periods are shown separately because the products use different methods.", "Sipërfaqet janë vlerësime brenda pamjes dhe kufirit të shtetit. Katalogu i emrave vjen nga GeoNames, me variante të emrave për kërkim. Harta bazë vjen nga OpenStreetMap.": "Areas are estimates within the view and the country boundary. The place-name catalogue comes from GeoNames, with name variants for search. The base map comes from OpenStreetMap.", "Kufijtë e komunave dhe të zonave kadastrale janë në sistemin KOSOVAREF01 (EPSG:9141).": "Municipal and cadastral zone boundaries are in KOSOVAREF01 (EPSG:9141).", "Të dhënat e Tracker përditësohen automatikisht sapo DLR publikon një hap të ri": "Tracker data update automatically as soon as DLR publishes a new step", "Shkarko versionin offline (një skedar HTML)": "Download the offline version (one HTML file)", "Si ta citoni": "How to cite", "Kopjo": "Copy", "© Rizah Murseli · Atlasi urban i Kosovës": "© Rizah Murseli · Urban Atlas of Kosovo", "GJENDJA FILLESTARE": "BASELINE", "↶ Kthe": "↶ Undo", "✓ Përfundo": "✓ Finish", "Anulo": "Cancel", "Filtri:": "Filter:", "◎ Diagrami radial": "◎ Radial diagram", "▢ Kufijtë": "▢ Boundaries", "Diagrami radial": "Radial diagram", "Shtesat vjetore brenda rrethit (rrezja": "Annual additions inside the circle (radius", "), sipas drejtimit.": "), by direction.", "Çdo shtyllë është një vit, me ngjyrën e vitit në hartë; koha ecën në drejtim të akrepave të orës.": "Each bar is one year, in that year's map colour; time runs clockwise.", "afër qendrës": "near the centre", "në mes": "middle", "në skaj": "outer edge", "kontribuuesit e OpenStreetMap": "OpenStreetMap contributors", "Gjendja": "State", "Shtesat e vitit": "Year's additions", "Krahaso": "Compare", "Majtas": "Left", "Djathtas 2015": "Right 2015", "Shko te filtri": "Go to the filter", "Hiq filtrin": "Clear filter", "Duke ngarkuar të dhënat…": "Loading data…", "Tërhiq hartën · Rrota për zmadhim": "Drag the map · Wheel to zoom", "Luaj": "Play", "Çdo ngjyrë i përket një viti. Grija tregon gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.": "Each colour belongs to one year. Grey shows the baseline. Shortcuts: ← → for the year, space to play.", "Kjo zonë": "This area", "Njësitë": "Units", "Qëndrueshmëria": "Sustainability", "Gara 5 km": "5 km race", "Kosova": "Kosovo", "Rritja": "Growth", "Viti më aktiv": "Most active year", "Mesatarja vjetore": "Annual average", "Zona e ndërtuar, kumulative": "Built-up area, cumulative", "Shtesa sipas vitit": "Added area by year", "Statistikat përshkruese": "Descriptive statistics", "shtesat dhe rritja vjetore, pa gjendjen fillestare": "annual additions and growth, excluding the baseline", "Tabela për çdo vit": "Table for every year", "ha dhe %": "ha and %", "Shkarko CSV të zonës": "Download the area's CSV", "Qendër apo periferi?": "Centre or periphery?", "% e tokës së ndërtuar sipas largësisë nga qendra e pamjes": "% of land built up by distance from the centre of the view", "1 · Komunat": "1 · Municipalities", "një ose disa": "one or more", "Gjithë Kosova · 38 komunat": "All of Kosovo · 38 municipalities", "Gjithë Kosova": "All of Kosovo", "Mbyll": "Close", "2 · Zonat kadastrale": "2 · Cadastral zones", "opsionale · pa zgjedhje = njësitë e plota": "optional · none chosen = whole units", "Zgjidh fillimisht komunën": "Choose the municipality first", "Komunat e plota": "Whole municipalities", "Treguesi": "Indicator", "Pjesa e territorit të ndërtuar (%)": "Share of territory built up (%)", "Sipërfaqja e ndërtuar": "Built-up area", "Rritja nga gjendja fillestare (%)": "Growth since the baseline (%)", "Shtesa nga gjendja fillestare": "Added since the baseline", "Shtesa për km² territor (ha/km²)": "Added per km² of territory (ha/km²)", "Përzgjedhja": "Selection", "kliko njësitë në hartë, në hartën tematike ose në tabelë": "click units on the map, the thematic map or the table", "Shfaq në hartë": "Show on map", "Shkarko CSV": "Download CSV", "Ecuria në kohë": "Change over time", "Renditja": "Ranking", "Burimi i popullsisë": "Population source", "Harta e efikasitetit të tokës": "Land-use efficiency map", "SDG 11.3.1 · kliko për ta shtuar ose hequr nga filtri": "SDG 11.3.1 · click to add or remove from the filter", "Toka kundrejt popullsisë": "Land versus population", "rritja vjetore": "annual growth", "Zonë e ndërtuar për banor, 2024": "Built-up area per inhabitant, 2024", "m² sipas WSF Tracker": "m² from WSF Tracker", "Lidhja me objektivat e zhvillimit të qëndrueshëm": "Link to the Sustainable Development Goals", "Ndërtimet sipas përshtatshmërisë së tokës bujqësore": "Construction by agricultural land suitability", "Mbi çfarë u ndërtua?": "What was built on?", "Metoda dhe kufizimet": "Method and limitations", ": zona e ndërtuar nga WSF Tracker, janar 2017 → janar 2024.": ": built-up area from WSF Tracker, January 2017 → January 2024.", "Kur popullsia bie, raporti nuk ka kuptim dhe njësia renditet te \"zgjerim me popullsi në rënie\".": "When population falls, the ratio is meaningless and the unit is listed under \"expansion with declining population\".", "Periudhat e popullsisë dhe të tokës nuk përputhen plotësisht; krahasohen shpejtësitë vjetore. Për katër komunat veriore të dy vitet janë vlerësime: ato janë jashtë totalit. Bojkoti i pjesshëm i 2011 në disa komuna me shumicë serbe mund ta fryjë rritjen e tyre. Diaspora nuk numërohet si popullsi rezidente, por shtëpitë e saj e rrisin zonën e ndërtuar.": "The population and land periods do not match exactly; annual rates are compared. For the four northern municipalities both years are estimates: they are left out of the total. The partial 2011 boycott in some Serb-majority municipalities may inflate their growth. The diaspora is not counted as resident population, but its houses do add to the built-up area.", "Popullsia jepet për njësitë e nivelit të parë. Zonat më të vogla dhe rrethi radial nuk përdoren këtu.": "Population is given for first-level units. Smaller zones and the radial circle are not used here.", "Shkarko CSV (SDG 11.3.1)": "Download CSV (SDG 11.3.1)", "38 qendrat komunale, krahasuar në rreze të njëjtë prej 5 km nga qendra. Renditja ndjek vitin në kohëzgjatje; luaje animacionin për ta parë garën.": "38 municipal centres, compared within the same 5 km radius of the centre. The ranking follows the timeline; play the animation to watch the race.", "Rendit sipas": "Sort by", "Sipërfaqes së ndërtuar": "Built-up area", "Rritjes nga viti bazë (%)": "Growth since the base year (%)", "Shtesës së vitit": "Year's addition", "Gjithë Kosova · 1985–2015": "All of Kosovo · 1985–2015", "Gjithë Kosova · 2016–2026": "All of Kosovo · 2016–2026", "Dy produktet maten ndryshe (30 m kundrejt 10 m), ndaj vlerat e tyre nuk vazhdojnë njëra-tjetrën. Krahasoni ritmin, jo nivelin.": "The two products measure differently (30 m versus 10 m), so their values do not continue each other. Compare the pace, not the level.", "Vendbanimet me shtesën më të madhe": "Settlements with the largest additions", "Koncepti, analiza dhe zhvillimi:": "Concept, analysis and development:", "· Harta bazë ©": "· Base map ©", "Analiza": "Analysis", "Diagrami radial i shtesave sipas drejtimit": "Radial diagram of additions by direction", "Eksploro historinë e zgjerimit urban të çdo vendbanimi në Kosovë, nga të dhënat satelitore të DLR.": "Explore the history of urban expansion of every settlement in Kosovo, from DLR satellite data.", "Filtro komunat": "Filter municipalities", "Filtro komunat…": "Filter municipalities…", "Filtro zonat kadastrale": "Filter cadastral zones", "Filtro zonat sipas emrit…": "Filter zones by name…", "Harta e zonave të ndërtuara. Tërhiq për lëvizje, përdor rrotën për zmadhim dhe kliko dy herë për qendrim.": "Map of built-up areas. Drag to move, use the wheel to zoom and double-click to centre.", "Harta interaktive": "Interactive map", "Hiq filtrin e njësive": "Clear the unit filter", "Hiq kulmin e fundit (Backspace)": "Remove the last vertex (Backspace)", "Kliko për të zgjedhur një pikë në Kosovë": "Click to pick a point in Kosovo", "Kërko qytet ose fshat…": "Search for a town or village…", "Legjenda e viteve": "Year legend", "Luaj animacionin": "Play the animation", "Mënyra e shfaqjes": "Display mode", "Ndarësi i krahasimit": "Comparison divider", "Rikthe pamjen e vendbanimit": "Return to the settlement view", "Shpejtësia": "Speed", "Transparenca e hartës bazë": "Base map transparency", "Viti": "Year", "Viti në anën e majtë": "Year on the left side", "Zgjidh shtetin": "Choose the country", "Zmadho hartën": "Zoom in", "Zvogëlo hartën": "Zoom out", "Murseli, R. (2026). Zgjerimi urban në Kosovë: atlas interaktiv i zonave të ndërtuara, 1985–2026. Të dhënat: DLR World Settlement Footprint.": "Murseli, R. (2026). Urban expansion in Kosovo: an interactive atlas of built-up areas, 1985–2026. Data: DLR World Settlement Footprint.", "Esc": "Esc"};
+const EN_STATIC = {"ATLASI URBAN":"URBAN ATLAS","Plan":"Plan","Zona":"Area","Komuna":"Municipality","Statistikat e formave":"Forms statistics","Pragjet e madhësisë: kur një strukturë kalon shkallë":"Size thresholds: when a structure moves up a stage","Shkallën e strukturës: A → E":"Stage of the structure: A → E","Madhësia ku kërcimi nuk është më sprawl":"Size at which leapfrog is no longer sprawl","≥ 5 ha: bërthamë e re":"≥ 5 ha: new nucleus","≥ 10 ha: bërthamë e re (parazgjedhur)":"≥ 10 ha: new nucleus (default)","≥ 25 ha: bërthamë e re":"≥ 25 ha: new nucleus","≥ 50 ha: bërthamë e re":"≥ 50 ha: new nucleus","Pa prag: çdo kërcim është sprawl":"No limit: all leapfrog is sprawl","Zgjerim i shpërndarë (sprawl) = kërcim në struktura nën pragun e madhësisë. Mbushja dhe zgjerimi në skaj nuk konsiderohen sprawl.":"Sprawl = leapfrog in structures below the size threshold. Infill and edge extension are not counted as sprawl.","5. Madhësia: pikselat e kërcimit deri në 100 m larg njëri-tjetrit formojnë një strukturë. Nën 1 ha janë ndërtime të shpërndara (rritja e izoluar te Wilson et al. 2003); nga 1 ha deri te pragu janë grumbuj të shkëputur (degëzimi i grumbulluar); bërthamë e re është struktura e shkëputur, më shumë se 100 m larg ndërtimit urban e suburban të vitit bazë, ku ndërtimi i ri arrin pragun; madhësia matet në vitin e zgjedhur për gjithë strukturën, bashkë me mbushjen dhe skajin e mëvonshëm rreth farës së kërcimit, sepse sapo struktura dendësohet, pikselat e saj nuk janë më kërcim. Pragjet ndryshohen në legjendën e hartës; parazgjedhjet janë 1, 10 dhe 50 ha. Me pragun 10 ha struktura mbulon vetë të paktën 10% të rrethit 1 km² rreth saj, pra arrin dendësinë suburbane sipas rregullit të Angel et al. (2010) dhe krijon skajin e vet; ajo trajtohet si vendbanim i ri, jo si shpërndarje. Literatura nuk jep një prag të vetëm: Angel et al. e quajnë kërcim çdo ndërtim jashtë 100 m pa kufi madhësie, ndërsa Wilson et al. ia lënë përdoruesit vendimin se cilat lloje janë sprawl.":"5. Size: leapfrog pixels at most 100 m apart form one structure. Below 1 ha they are scattered buildings (isolated growth in Wilson et al. 2003); from 1 ha up to the threshold they are detached clusters (clustered branch); a new nucleus is a detached structure, more than 100 m from the base year's urban and suburban built-up, whose new construction reaches the threshold; its size is measured in the chosen year on the whole structure, including the later infill and edge growth around the leapfrog seed, because once the structure densifies its pixels are no longer leapfrog. The thresholds can be changed in the map legend; the defaults are 1, 10 and 50 ha. With the 10 ha threshold a structure on its own covers at least 10% of the 1 km² circle around it, so it reaches suburban density under the rule of Angel et al. (2010) and creates its own fringe; it is treated as a new settlement, not as dispersal. The literature gives no single threshold: Angel et al. call any construction beyond 100 m leapfrog with no size limit, while Wilson et al. leave it to the user to decide which types are sprawl.","Zgjerim i shpërndarë (sprawl) = kërcim. Mbushja dhe zgjerimi në skaj nuk konsiderohen sprawl.":"Sprawl = leapfrog. Infill and edge extension are not counted as sprawl.","Kufizime: rrugët nuk përdoren drejtpërdrejt. Ndërtimi jashtë kufirit të shtetit nuk është në të dhëna, prandaj dendësia afër kufirit mund të nënvlerësohet.":"Limitations: roads are not used directly. Built-up land beyond the national border is not in the data, so density near the border may be underestimated.","Pamja e hartës":"Map view","Zgjerimi në kohë":"Growth over time","Format e zgjerimit":"Forms of expansion","(mbushje, skaj, kërcim) ·":"(infill, edge, leapfrog) ·","Metoda":"Method","4. Klasa aktuale: ndërtimi i mëparshëm rivlerësohet në gjurmën e vitit të zgjedhur. Pikseli bëhet mbushje kur është urban ose suburban dhe brenda 100 m nuk ka hapësirë të lirë të jashtme (skaj i jashtëm ose rurale); skaj kur është urban ose suburban, por ka të tillë afër; përndryshe mbetet në klasën kur u ndërtua. Kalimi shkon vetëm përpara (sprawl → skaj → mbushje), sepse WSF nuk heq ndërtime.":"4. Current class: earlier construction is re-evaluated in the footprint of the chosen year. A pixel becomes infill when it is urban or suburban with no exterior open space (exterior fringe or rural) within 100 m; edge when it is urban or suburban but has such space nearby; otherwise it keeps its class from when it was built. The change only goes forward (sprawl → edge → infill), because WSF never removes built-up land.","Klasën aktuale në vitin e zgjedhur":"Current class in the chosen year","Shfaq në hartë":"Show on map","Klasën kur u ndërtua":"Class when built","Vetëm shtesat e vitit":"This year's additions only","Statusin në vitin e zgjedhur":"Status in the chosen year","Shkarko CSV të ndryshimeve në kohë":"Download the change-over-time CSV","Krahasimi":"Comparison","Hap pas hapi: çdo vit me vitin paraprak":"Step by step: each year against the year before","Dy data: viti bazë me vitin e zgjedhur":"Two dates: base year against the chosen year","Klasifikimi bëhet në rezolucionin burimor të WSF (10 m Tracker, rreth 30 m Evolution), në një dritare që e kalon zonën me 700 m për kontekst. «Hap pas hapi» krahason ndërtimin e ri të çdo viti me gjurmën e vitit paraprak dhe i mbledh rezultatet nga viti bazë deri në vitin e zgjedhur; kështu ruhet radha kohore e rritjes. «Dy data» krahason gjurmën e vitit bazë me gjithë ndërtimin e ri deri në vitin e zgjedhur, si te Angel et al. (2010), ku intervalet janë rreth 10 vjet; në intervale të gjata copat e njëpasnjëshme bashkohen.":"The classification runs at the WSF source resolution (10 m Tracker, about 30 m Evolution), in a window that extends 700 m beyond the area for context. “Step by step” compares each year's new construction with the footprint of the year before and adds the results from the base year to the chosen year, which keeps the order in which growth happened. “Two dates” compares the base-year footprint with all new construction up to the chosen year, as in Angel et al. (2010), whose intervals are about 10 years; over long intervals successive patches merge.","4. Linear (shirit): copë zgjerimi ose kërcimi me gjerësi ≤ 100 m, gjatësi ≥ 250 m dhe gjatësi/gjerësi ≥ 4, që shtrihet të paktën për gjysmën e saj në hapësirë rurale. Gjerësia vlerësohet nga distanca mesatare deri te skaji i copës.":"4. Linear (ribbon): an extension or leapfrog patch at most 100 m wide, at least 250 m long, with length/width ≥ 4 and at least half of it in rural space. Width is estimated from the mean distance to the patch edge.","Klasifikimi i ndërtimit të ri: mbushje, zgjerim, linear, kërcim":"Classification of new construction: infill, extension, linear, leapfrog","Zgjerimi i shpërndarë":"Urban sprawl","(Urban Sprawl) ·":"·","Metoda e klasifikimit":"Classification method","Krahasohet ndërtimi i vitit bazë me atë të vitit të zgjedhur, në rezolucionin burimor të WSF (10 m Tracker, rreth 30 m Evolution), në një dritare që e kalon zonën me 700 m për kontekst.":"The built-up area of the base year is compared with that of the selected year, at the WSF source resolution (10 m Tracker, about 30 m Evolution), in a window that extends 700 m beyond the area for context.","1. Çdo piksel i ndërtuar i vitit bazë merr dendësinë e ndërtimit në rrethin 1 km² rreth tij: urban ≥ 50%, suburban 10–50%, rural < 10% (llogaritur në qeliza 30 m).":"1. Every built-up pixel of the base year gets the built-up share in the 1 km² circle around it: urban ≥ 50%, suburban 10–50%, rural < 10% (computed on 30 m cells).","2. Hapësira e lirë nën 100 m nga ndërtimi urban ose suburban është skaj (fringe); më larg është rurale. Hapësira rurale e rrethuar plotësisht deri në 200 ha është e kapur dhe i përket gjurmës urbane. Skaji nën 100 m nga hapësira rurale është i jashtëm; pjesa tjetër është e brendshme.":"2. Open space less than 100 m from urban or suburban built-up is fringe; farther away it is rural. Rural space fully enclosed and up to 200 ha is captured and belongs to the urban footprint. Fringe less than 100 m from rural space is exterior; the rest is interior.","3. Copat e ndërtimit të ri janë piksela të ri të lidhur (8 fqinjë; te Tracker bashkohen boshllëqet deri në 20 m). Mbushje: copa është tërësisht në hapësirën e brendshme. Kërcim: copa është tërësisht në hapësirën rurale. Zgjerim në skaj: të gjitha të tjerat.":"3. Patches of new construction are connected new pixels (8 neighbours; in Tracker gaps of up to 20 m are bridged). Infill: the patch lies entirely in interior space. Leapfrog: the patch lies entirely in rural space. Edge extension: all others.","4. Linear (shirit): copë zgjerimi ose kërcimi me gjatësi ≥ 250 m dhe gjatësi/gjerësi ≥ 4, që shtrihet të paktën për gjysmën e saj në hapësirë rurale. Gjerësia vlerësohet nga distanca mesatare deri te skaji i copës.":"4. Linear (ribbon): an extension or leapfrog patch at least 250 m long with length/width ≥ 4, at least half of it in rural space. Width is estimated from the mean distance to the patch edge.","Zgjerim i shpërndarë (sprawl) = linear + kërcim. Mbushja dhe zgjerimi në skaj nuk konsiderohen sprawl.":"Sprawl = linear + leapfrog. Infill and edge extension are not counted as sprawl.","Burimet: Angel, S., Parent, J. & Civco, D. L. (2010). The Fragmentation of Urban Footprints: Global Evidence of Sprawl, 1990–2000. Lincoln Institute of Land Policy. · Wilson, E. H., Hurd, J. D., Civco, D. L., Prisloe, M. P. & Arnold, C. (2003). Development of a geospatial model to quantify, describe and map urban growth. Remote Sensing of Environment, 86(3), 275–285.":"Sources: Angel, S., Parent, J. & Civco, D. L. (2010). The Fragmentation of Urban Footprints: Global Evidence of Sprawl, 1990–2000. Lincoln Institute of Land Policy. · Wilson, E. H., Hurd, J. D., Civco, D. L., Prisloe, M. P. & Arnold, C. (2003). Development of a geospatial model to quantify, describe and map urban growth. Remote Sensing of Environment, 86(3), 275–285.","Kufizime: pragjet e klasës lineare janë zgjedhje e këtij atlasi (Wilson et al. nuk japin vlera numerike të njëjta); rrugët nuk përdoren drejtpërdrejt. Ndërtimi jashtë kufirit të shtetit nuk është në të dhëna, prandaj dendësia afër kufirit mund të nënvlerësohet.":"Limitations: the thresholds of the linear class are this atlas's choice (Wilson et al. do not give the same numbers); roads are not used directly. Built-up land beyond the national border is not in the data, so density near the border may be underestimated.","Shkarko CSV të copave":"Download the patches CSV","Përkufizim":"Definition","Zgjerimi i shpërndarë urban":"Urban sprawl","(Urban Sprawl)":"(Zgjerimi i shpërndarë urban)","Zgjerimi i shpërndarë urban (Urban Sprawl) është zhvillimi hapësinor i shpërndarë, me dendësi të ulët ndërtimi, në periferi të zonave urbane, i karakterizuar nga fragmentimi i strukturës urbane, shtrirja lineare e ndërtimeve përgjatë korridoreve të transportit dhe varësia e lartë nga përdorimi i automjeteve.":"Urban sprawl is dispersed, low-density spatial development on the periphery of urban areas, characterised by a fragmented urban structure, linear development along transport corridors and a high dependence on car use.","Burimi: McCann, E. J. (2009). Sprawl. Në The Dictionary of Human Geography, botimi i pestë, Wiley-Blackwell, f. 719.":"Source: McCann, E. J. (2009). Sprawl. In The Dictionary of Human Geography, 5th edition, Wiley-Blackwell, p. 719.","Shënim: Ky është përkthim dhe përmbledhje në shqip e përkufizimit të librit, jo citim fjalë për fjalë.":"Note: this is a summary of the book's definition, not a verbatim quotation.","Në këtë atlas, kategoria «Shpërndarje» është treguesi sasior i këtij procesi: popullsia rritet, por zona e ndërtuar rritet më shpejt (SDG 11.3.1, LCRPGR > 1). Dendësia, fragmentimi dhe shtrirja përgjatë rrugëve nuk maten drejtpërdrejt.":"In this atlas, the “Sprawl” category is the quantitative indicator of this process: population grows, but the built-up area grows faster (SDG 11.3.1, LCRPGR > 1). Density, fragmentation and ribbon development along roads are not measured directly.","Animacion me seri kohore":"Time-series animation","I njëjti shabllon si harta e printuar, një kuadër për çdo vit, nga viti bazë deri në vitin e fundit.":"The same template as the printed map, one frame per year, from the base year to the last year.","Kohëzgjatja e çdo viti":"Duration of each year","0,5 sekonda":"0.5 seconds","0,8 sekonda":"0.8 seconds","1,2 sekonda":"1.2 seconds","2 sekonda":"2 seconds","Madhësia":"Size","Kalim i butë mes viteve":"Smooth transition between years","● Krijo videon":"● Create the video","Ndalo":"Stop","Zgjerimi urban në Kosovë": "Urban expansion in Kosovo", "Zgjerimi urban": "Urban expansion", "në Kosovë": "in Kosovo", "Një atlas nga": "An atlas by", "Zgjidh vendbanimin dhe ndiq ndryshimin e tij në kohë.": "Pick a settlement and follow how it changed over time.", "Shteti": "Country", "Vendbanimi": "Settlement", "Periudha": "Period", "Viti bazë": "Base year", "nga cili vit nis analiza": "the year the analysis starts", "Ndërtimi deri në vitin bazë shfaqet gri; shtesat, grafikët dhe CSV-të llogariten që nga ky vit.": "Construction up to the base year is shown in grey; additions, charts and CSVs are computed from this year on.", "Mbulimi i hartës": "Map extent", "Shfaq gjithë Kosovën": "Show all of Kosovo", "Zona e interesit": "Zone of interest", "Vizatoni një zonë në hartë ose ngarkoni kufirin e saj. Statistikat, grafikët, harta dhe CSV-të llogariten vetëm për të.": "Draw a zone on the map or upload its boundary. Statistics, charts, the map and CSVs are computed for it alone.", "✎ Vizato në hartë": "✎ Draw on the map", "⤒ Ngarko skedar": "⤒ Upload file", "SHP (në .zip, ose .shp + .shx + .dbf + .prj), KML, KMZ, GeoJSON. Pranohen WGS84, UTM, KOSOVAREF01 dhe Gauss-Krüger. Skedari mund të tërhiqet edhe mbi hartë.": "SHP (in a .zip, or .shp + .shx + .dbf + .prj), KML, KMZ, GeoJSON. WGS84, UTM, KOSOVAREF01 and Gauss-Krüger are accepted. You can also drag the file onto the map.", "Shfaq": "Show", "✕ Hiq": "✕ Remove", "Harta bazë": "Base map", "Burimi": "Source", "Asnjë": "None", "Esri · imazh satelitor": "Esri · satellite imagery", "Paraqitja e sfondit": "Background style", "E errët · thekson ngjyrat e viteve": "Dark · highlights the year colours", "RGB · ngjyrat natyrale": "RGB · natural colours", "Pankromatike · bardhë e zi": "Panchromatic · black and white", "Transparenca": "Transparency", "Zonë e ndërtuar në pamje": "Built-up area in view", "Shtesa nga kuadri i mëparshëm": "Added since the previous frame", "Shkarko hartën e kësaj zone": "Download the map of this area", "Pamja aktuale, me legjendë, statistika dhe autorësi": "Current view, with legend, statistics and credits", "Rreth të dhënave": "About the data", "WSF identifikon zonat e ndërtuara në imazhe satelitore. Ngjyra tregon periudhën kur zona u identifikua.": "WSF detects built-up areas in satellite imagery. The colour shows the period in which an area was detected.", "Evolution ka rezolucion burimor rreth 30 m. Tracker ka rezolucion burimor 10 m. Pamja në ekran përshtatet sipas zmadhimit.": "Evolution has a source resolution of about 30 m. Tracker has a source resolution of 10 m. The on-screen view adapts to the zoom level.", "Tracker nis me gjendjen e korrikut 2016. Kuadrot e mëvonshme paraqesin janarin e vitit përkatës. Periudhat shfaqen veçmas sepse produktet përdorin metoda të ndryshme.": "Tracker starts with the state of July 2016. Later frames show January of each year. The periods are shown separately because the products use different methods.", "Sipërfaqet janë vlerësime brenda pamjes dhe kufirit të shtetit. Katalogu i emrave vjen nga GeoNames, me variante të emrave për kërkim. Harta bazë vjen nga OpenStreetMap.": "Areas are estimates within the view and the country boundary. The place-name catalogue comes from GeoNames, with name variants for search. The base map comes from OpenStreetMap.", "Kufijtë e komunave dhe të zonave kadastrale janë në sistemin KOSOVAREF01 (EPSG:9141).": "Municipal and cadastral zone boundaries are in KOSOVAREF01 (EPSG:9141).", "Të dhënat e Tracker përditësohen automatikisht sapo DLR publikon një hap të ri": "Tracker data update automatically as soon as DLR publishes a new step", "Shkarko versionin offline (një skedar HTML)": "Download the offline version (one HTML file)", "Si ta citoni": "How to cite", "Kopjo": "Copy", "© Rizah Murseli · Atlasi urban i Kosovës": "© Rizah Murseli · Urban Atlas of Kosovo", "GJENDJA FILLESTARE": "BASELINE", "↶ Kthe": "↶ Undo", "✓ Përfundo": "✓ Finish", "Anulo": "Cancel", "Filtri:": "Filter:", "◎ Diagrami radial": "◎ Radial diagram", "▢ Kufijtë": "▢ Boundaries", "Diagrami radial": "Radial diagram", "Shtesat vjetore brenda rrethit (rrezja": "Annual additions inside the circle (radius", "), sipas drejtimit.": "), by direction.", "Çdo shtyllë është një vit, me ngjyrën e vitit në hartë; koha ecën në drejtim të akrepave të orës.": "Each bar is one year, in that year's map colour; time runs clockwise.", "afër qendrës": "near the centre", "në mes": "middle", "në skaj": "outer edge", "kontribuuesit e OpenStreetMap": "OpenStreetMap contributors", "Gjendja": "State", "Shtesat e vitit": "Year's additions", "Krahaso": "Compare", "Majtas": "Left", "Djathtas 2015": "Right 2015", "Shko te filtri": "Go to the filter", "Hiq filtrin": "Clear filter", "Duke ngarkuar të dhënat…": "Loading data…", "Tërhiq hartën · Rrota për zmadhim": "Drag the map · Wheel to zoom", "Luaj": "Play", "Çdo ngjyrë i përket një viti. Grija tregon gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.": "Each colour belongs to one year. Grey shows the baseline. Shortcuts: ← → for the year, space to play.", "Kjo zonë": "This area", "Njësitë": "Units", "Qëndrueshmëria": "Sustainability", "Gara 5 km": "5 km race", "Kosova": "Kosovo", "Rritja": "Growth", "Viti më aktiv": "Most active year", "Mesatarja vjetore": "Annual average", "Zona e ndërtuar, kumulative": "Built-up area, cumulative", "Shtesa sipas vitit": "Added area by year", "Statistikat përshkruese": "Descriptive statistics", "shtesat dhe rritja vjetore, pa gjendjen fillestare": "annual additions and growth, excluding the baseline", "Tabela për çdo vit": "Table for every year", "ha dhe %": "ha and %", "Shkarko CSV të zonës": "Download the area's CSV", "Qendër apo periferi?": "Centre or periphery?", "% e tokës së ndërtuar sipas largësisë nga qendra e pamjes": "% of land built up by distance from the centre of the view", "1 · Komunat": "1 · Municipalities", "një ose disa": "one or more", "Gjithë Kosova · 38 komunat": "All of Kosovo · 38 municipalities", "Gjithë Kosova": "All of Kosovo", "Mbyll": "Close", "2 · Zonat kadastrale": "2 · Cadastral zones", "opsionale · pa zgjedhje = njësitë e plota": "optional · none chosen = whole units", "Zgjidh fillimisht komunën": "Choose the municipality first", "Komunat e plota": "Whole municipalities", "Treguesi": "Indicator", "Pjesa e territorit të ndërtuar (%)": "Share of territory built up (%)", "Sipërfaqja e ndërtuar": "Built-up area", "Rritja nga gjendja fillestare (%)": "Growth since the baseline (%)", "Shtesa nga gjendja fillestare": "Added since the baseline", "Shtesa për km² territor (ha/km²)": "Added per km² of territory (ha/km²)", "Përzgjedhja": "Selection", "kliko njësitë në hartë, në hartën tematike ose në tabelë": "click units on the map, the thematic map or the table", "Shfaq në hartë": "Show on map", "Shkarko CSV": "Download CSV", "Ecuria në kohë": "Change over time", "Renditja": "Ranking", "Burimi i popullsisë": "Population source", "Harta e efikasitetit të tokës": "Land-use efficiency map", "SDG 11.3.1 · kliko për ta shtuar ose hequr nga filtri": "SDG 11.3.1 · click to add or remove from the filter", "Toka kundrejt popullsisë": "Land versus population", "rritja vjetore": "annual growth", "Zonë e ndërtuar për banor, 2024": "Built-up area per inhabitant, 2024", "m² sipas WSF Tracker": "m² from WSF Tracker", "Lidhja me objektivat e zhvillimit të qëndrueshëm": "Link to the Sustainable Development Goals", "Ndërtimet sipas përshtatshmërisë së tokës bujqësore": "Construction by agricultural land suitability", "Mbi çfarë u ndërtua?": "What was built on?", "Metoda dhe kufizimet": "Method and limitations", ": zona e ndërtuar nga WSF Tracker, janar 2017 → janar 2024.": ": built-up area from WSF Tracker, January 2017 → January 2024.", "Kur popullsia bie, raporti nuk ka kuptim dhe njësia renditet te \"zgjerim me popullsi në rënie\".": "When population falls, the ratio is meaningless and the unit is listed under \"expansion with declining population\".", "Periudhat e popullsisë dhe të tokës nuk përputhen plotësisht; krahasohen shpejtësitë vjetore. Për katër komunat veriore të dy vitet janë vlerësime: ato janë jashtë totalit. Bojkoti i pjesshëm i 2011 në disa komuna me shumicë serbe mund ta fryjë rritjen e tyre. Diaspora nuk numërohet si popullsi rezidente, por shtëpitë e saj e rrisin zonën e ndërtuar.": "The population and land periods do not match exactly; annual rates are compared. For the four northern municipalities both years are estimates: they are left out of the total. The partial 2011 boycott in some Serb-majority municipalities may inflate their growth. The diaspora is not counted as resident population, but its houses do add to the built-up area.", "Popullsia jepet për njësitë e nivelit të parë. Zonat më të vogla dhe rrethi radial nuk përdoren këtu.": "Population is given for first-level units. Smaller zones and the radial circle are not used here.", "Shkarko CSV (SDG 11.3.1)": "Download CSV (SDG 11.3.1)", "38 qendrat komunale, krahasuar në rreze të njëjtë prej 5 km nga qendra. Renditja ndjek vitin në kohëzgjatje; luaje animacionin për ta parë garën.": "38 municipal centres, compared within the same 5 km radius of the centre. The ranking follows the timeline; play the animation to watch the race.", "Rendit sipas": "Sort by", "Sipërfaqes së ndërtuar": "Built-up area", "Rritjes nga viti bazë (%)": "Growth since the base year (%)", "Shtesës së vitit": "Year's addition", "Gjithë Kosova · 1985–2015": "All of Kosovo · 1985–2015", "Gjithë Kosova · 2016–2026": "All of Kosovo · 2016–2026", "Dy produktet maten ndryshe (30 m kundrejt 10 m), ndaj vlerat e tyre nuk vazhdojnë njëra-tjetrën. Krahasoni ritmin, jo nivelin.": "The two products measure differently (30 m versus 10 m), so their values do not continue each other. Compare the pace, not the level.", "Vendbanimet me shtesën më të madhe": "Settlements with the largest additions", "Koncepti, analiza dhe zhvillimi:": "Concept, analysis and development:", "· Harta bazë ©": "· Base map ©", "Analiza": "Analysis", "Diagrami radial i shtesave sipas drejtimit": "Radial diagram of additions by direction", "Eksploro historinë e zgjerimit urban të çdo vendbanimi në Kosovë, nga të dhënat satelitore të DLR.": "Explore the history of urban expansion of every settlement in Kosovo, from DLR satellite data.", "Filtro komunat": "Filter municipalities", "Filtro komunat…": "Filter municipalities…", "Filtro zonat kadastrale": "Filter cadastral zones", "Filtro zonat sipas emrit…": "Filter zones by name…", "Harta e zonave të ndërtuara. Tërhiq për lëvizje, përdor rrotën për zmadhim dhe kliko dy herë për qendrim.": "Map of built-up areas. Drag to move, use the wheel to zoom and double-click to centre.", "Harta interaktive": "Interactive map", "Hiq filtrin e njësive": "Clear the unit filter", "Hiq kulmin e fundit (Backspace)": "Remove the last vertex (Backspace)", "Kliko për të zgjedhur një pikë në Kosovë": "Click to pick a point in Kosovo", "Kërko qytet ose fshat…": "Search for a town or village…", "Legjenda e viteve": "Year legend", "Luaj animacionin": "Play the animation", "Mënyra e shfaqjes": "Display mode", "Ndarësi i krahasimit": "Comparison divider", "Rikthe pamjen e vendbanimit": "Return to the settlement view", "Shpejtësia": "Speed", "Transparenca e hartës bazë": "Base map transparency", "Viti": "Year", "Viti në anën e majtë": "Year on the left side", "Zgjidh shtetin": "Choose the country", "Zmadho hartën": "Zoom in", "Zvogëlo hartën": "Zoom out", "Murseli, R. (2026). Zgjerimi urban në Kosovë: atlas interaktiv i zonave të ndërtuara, 1985–2026. Të dhënat: DLR World Settlement Footprint.": "Murseli, R. (2026). Urban expansion in Kosovo: an interactive atlas of built-up areas, 1985–2026. Data: DLR World Settlement Footprint.", "Esc": "Esc", "Titulli i fletës": "Sheet title"};
 function translateStatic() {
   if (LANG !== 'en') return;
   const walker = document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
