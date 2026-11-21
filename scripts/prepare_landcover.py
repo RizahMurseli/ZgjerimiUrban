@@ -43,7 +43,7 @@ CONTAINERS = ['lulctimeseriesv003', 'lulctimeseriesv004', 'lulctimeseriesv005', 
 URL = HOST+'/{container}/lc{y}/{tile}_{y}0101-{y1}0101.tif'
 FIRST_YEAR = 2017
 URBAN_BUFFER_M = 100
-TILE_STEP = 2  # class tiles: every 2nd Tracker pixel
+TILE_STEP = 3  # class tiles: every 3rd Tracker pixel (~30 m), every map year
 # Classes shown in the atlas: key, Albanian label, colour, Esri class codes.
 CLASSES = [
     ('forest', 'Pyje', '#3f8f5a', [2]),
@@ -319,7 +319,7 @@ def main():
                 if yi == Y-1:
                     urban[k] += np.bincount(lab[urb], weights=w[urb], minlength=m)
                     green[k] += np.bincount(lab[is_green], weights=w[is_green], minlength=m)
-            if yi in (0, Y-1):
+            if True:
                 # Class raster (index into CLASSES, K = no data) on the Tracker grid at half
                 # resolution (~20 m), for the Plan tab: protected forest/water, lost green land.
                 img = Image.fromarray(cls.reshape(n, n)[::TILE_STEP, ::TILE_STEP].astype(np.uint8), 'P')
@@ -336,7 +336,7 @@ def main():
     out = dict(source='Esri / Impact Observatory, Sentinel-2 10m Land Use/Land Cover Time Series (Karra et al. 2021), CC BY 4.0',
                years=years, steps=[m for m in map_year if m], urbanBufferM=URBAN_BUFFER_M,
                classes=[dict(key=k, label=l, color=c) for k, l, c, _ in CLASSES],
-               tiles=dict(years=sorted({years[0], years[-1]}), size=n//TILE_STEP),
+               tiles=dict(years=years, size=-(-n//TILE_STEP)),
                national=pack('national', 1),
                municipalities={u['id']: pack('municipalities', i+1) for i, u in enumerate(units_web['municipalities'])},
                cadastral={u['id']: pack('cadastral', i+1) for i, u in enumerate(units_web['cadastral'])})
