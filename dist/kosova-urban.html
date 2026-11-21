@@ -449,6 +449,12 @@ body.view-plan label[for=sprawlShow],body.view-plan label[for=sprawlMode]{displa
 .pd-table tr.pd-loss td{color:#ffd9a8}
 .pd-table tr.pd-sum td{border-top:1px solid #2b3d57;font-weight:700;color:#e8eef6}
 .plan-doc .pd-regen{border-left:2px solid #40b878;padding:4px 0 4px 8px;margin-top:8px}
+#legend button.proj{border-top:6px dashed #40b878;color:#8fd6ae}
+#legend button.proj.active{color:#e8eef6;border-top-style:solid}
+.pd-table .pd-sdgc{font-size:9.5px;color:#9fd7ff;white-space:nowrap}
+.pd-table.pd-sdg td.pd-code{color:#9fd7ff}
+.pd-st{text-align:center;font-weight:700}
+.pd-st0{color:#8fa3bc}.pd-st1{color:#40b878}.pd-st2{color:#ffb000}.pd-st3{color:#ff4d6d}
 
 </style>
 </head>
@@ -854,7 +860,7 @@ function schedule() {
   clearTimeout(timer);
   timer = setTimeout(() => {
     if (!state.playing) return;
-    if (state.index >= count()-1) { stop(); return; }
+    if (state.index >= count()-1) { if (typeof planStep === 'function' && planStep()) { schedule();return; } stop(); return; }
     state.index++;
     paint();
     schedule();
@@ -862,6 +868,7 @@ function schedule() {
 }
 function setIndex(index) {
   stop();
+  if (state.planExtra && index !== state.index) { state.planExtra = 0;if (sprawlRes) { sprawlRes.viewKey = null;sprawlRes.radialKey = null; } }
   state.index = index;
   paint();
 }
@@ -1020,8 +1027,15 @@ function paint(mapOnly=false) {
   $('year').style.color = formsLike() ? '#e8eef6' : 'rgb('+color.join(',')+')';
   $('epoch').textContent = period().steps[state.index].epoch;
   $('time').value = state.index;
+  const projOn = state.mapView === 'plan' && state.planExtra > 0;
   [...$('legend').children].forEach((element,i) => {
-    element.classList.toggle('active',i === state.index);
+    if (element.dataset.proj) {
+      const k = Number(element.dataset.proj), at = state.index === count()-1 ? (state.mapView === 'plan' ? state.planExtra || 0 : 0) : 0;
+      element.classList.toggle('active',state.index === count()-1 && at === k);
+      element.classList.toggle('future',k > at);
+      return;
+    }
+    element.classList.toggle('active',i === state.index && !projOn);
     element.classList.toggle('future',i > state.index);
   });
   if (!mapOnly) updateAnalytics();
@@ -1253,7 +1267,8 @@ $('speed').onchange = () => { if (state.playing) schedule(); };
 $('play').onclick = () => {
   if (state.playing) { stop();return; }
   if (!sample) return;
-  if (state.index >= count()-1) { state.index = 0;paint(); }
+  const projEnd = state.mapView === 'plan' && sprawlRes?.plan?.K && (state.planExtra || 0) < sprawlRes.plan.K;
+  if (state.index >= count()-1 && !projEnd) { if (state.planExtra) { state.planExtra = 0;if (sprawlRes) { sprawlRes.viewKey = null;sprawlRes.radialKey = null; } }state.index = 0;paint(); }
   state.playing = true;
   $('play').innerHTML = L('Ⅱ <span>Ndalo</span>','Ⅱ <span>Pause</span>');
   schedule();
@@ -1850,7 +1865,7 @@ function renderRadial() {
       const total = dir.reduce((sum,band) => sum+band.reduce((a,b) => a+b,0),0);
       const flip = d === 2, R = RADIAL.outer*S+(flip ? 16 : 7);
       const [la,lb] = flip ? [ang(d,m-1)+4,ang(d,0)-4] : [ang(d,0)-4,ang(d,m-1)+4];
-      out += `<path id="radialArc${d}" d="M${f(pt(la,R))}A${R} ${R} 0 0 ${flip ? 0 : 1} ${f(pt(lb,R))}" fill="none"/><text class="radial-label"><textPath href="#radialArc${d}" startOffset="50%" text-anchor="middle">${DIRS[d]} · ${fr && sprawlRes.radSdg ? (() => { let ok = 0, br = 0;for (let k=0;k<=Math.min(m-1,state.index-1);k++) { ok += dir[0][k]+dir[1][k]+dir[2][k];br += dir[2][k]; }return ok ? '✕ '+fmt1(br/ok*100)+'%' : '—'; })() : '+'+ha(total)}</textPath></text>`;
+      out += `<path id="radialArc${d}" d="M${f(pt(la,R))}A${R} ${R} 0 0 ${flip ? 0 : 1} ${f(pt(lb,R))}" fill="none"/><text class="radial-label"><textPath href="#radialArc${d}" startOffset="50%" text-anchor="middle">${DIRS[d]} · ${fr && sprawlRes.radPlan && typeof planDirSdg === 'function' ? '+'+ha(total)+(planDirSdg(d) ? ' · '+planDirSdg(d) : '') : fr && sprawlRes.radSdg ? (() => { let ok = 0, br = 0;for (let k=0;k<=Math.min(m-1,state.index-1);k++) { ok += dir[0][k]+dir[1][k]+dir[2][k];br += dir[2][k]; }return ok ? '✕ '+fmt1(br/ok*100)+'%' : '—'; })() : '+'+ha(total)}</textPath></text>`;
       const Ro = RADIAL.outer*S+4, a0 = ang(d,0)-2, a1 = ang(d,m-1)+2;
       out += `<path class="radial-hit" data-d="${d}" d="M${f(pt(a0,r0-4))}L${f(pt(a0,Ro))}A${Ro} ${Ro} 0 0 1 ${f(pt(a1,Ro))}L${f(pt(a1,r0-4))}A${r0-4} ${r0-4} 0 0 0 ${f(pt(a0,r0-4))}Z"/>`;
     });
@@ -2495,10 +2510,10 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     const showNow = state.sprawlMode === 'steps' && (state.sprawlShow === 'now' || state.sprawlShow === 'stage'), showYear = state.sprawlMode === 'steps' && state.sprawlShow === 'year';
     text(state.mapView === 'plan' ? L(`Skenari kompakt: masat nga ${planYearName(sprawlRes.plan?.p ?? 0)}`,`Compact scenario: measures from ${planYearName(sprawlRes.plan?.p ?? 0)}`) : state.mapView === 'sdg' ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short} dhe SDG`,`New construction ${steps[0].short}–${steps[i].short} and the SDGs`) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: shkalla në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: stage in ${steps[i].short}`) : showNow ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: klasa në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: class in ${steps[i].short}`)
       : showYear ? L(`Shtesat e ${steps[i].short} sipas klasës`,`Additions of ${steps[i].short} by class`) : L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short} sipas klasës`,`New construction ${steps[0].short}–${steps[i].short} by class`),11,'',700,26);
-    const T = state.sprawlNucleus, legItems = state.mapView === 'plan' ? [8,6,7,5,2,4,3,1].map(k => [PLANC[k].c.slice(0,3),PLANC[k].t.replace(/ \((M\d)\)/,' $1')]).concat(sprawlRes?.plan?.LC ? [[PLANC[9].c.slice(0,3),L('Pyll i ruajtur M7','Forest kept M7')],[PLANC[10].c.slice(0,3),L('Ujë i ruajtur M7','Water kept M7')],[PLANC[11].c.slice(0,3),L('Humbur: pyll/ujë nën ndërtim','Lost: forest/water built on')]] : []) : state.mapView === 'sdg' ? [1,2,3].map(k => [SDGF[k].c,SDGF[k].s+' '+SDGF[k].k]) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? (stageNames(),[0,1,2,3,4,5].filter(k => k !== 3 || T).map(k => [STAGES[k].c,STAGES[k].t.replace(/ \(.*\)$/,'')])) : [[SPRAWL_CLASSES[0].c,SPRAWL_CLASSES[0].t],[SPRAWL_CLASSES[1].c,SPRAWL_CLASSES[1].t],[SPRAWL_SIZE[1].c,L('Kërcim < 1 ha','Leapfrog < 1 ha')],[SPRAWL_SIZE[2].c,T ? L(`Kërcim 1–${T} ha`,`Leapfrog 1–${T} ha`) : L('Kërcim ≥ 1 ha','Leapfrog ≥ 1 ha')],...(T ? [[SPRAWL_SIZE[3].c,L(`Bërthamë e re ≥ ${T} ha`,`New nucleus ≥ ${T} ha`)]] : [])];
+    const T = state.sprawlNucleus, legItems = state.mapView === 'plan' ? [8,6,7,5,2,4,3,1].map(k => [PLANC[k].c.slice(0,3),PLANC[k].t.replace(/ \((M\d)\)/,' $1')]).concat(sprawlRes?.plan?.LC ? [[PLANC[9].c.slice(0,3),L('Pyll i ruajtur M7','Forest kept M7')],[PLANC[10].c.slice(0,3),L('Ujë i ruajtur M7','Water kept M7')],[PLANC[13].c.slice(0,3),L('Gjelbërim komunitar M8','Community green M8')],[PLANC[11].c.slice(0,3),L('Humbur nën ndërtim','Lost to construction')]] : []) : state.mapView === 'sdg' ? [1,2,3].map(k => [SDGF[k].c,SDGF[k].s+' '+SDGF[k].k]) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? (stageNames(),[0,1,2,3,4,5].filter(k => k !== 3 || T).map(k => [STAGES[k].c,STAGES[k].t.replace(/ \(.*\)$/,'')])) : [[SPRAWL_CLASSES[0].c,SPRAWL_CLASSES[0].t],[SPRAWL_CLASSES[1].c,SPRAWL_CLASSES[1].t],[SPRAWL_SIZE[1].c,L('Kërcim < 1 ha','Leapfrog < 1 ha')],[SPRAWL_SIZE[2].c,T ? L(`Kërcim 1–${T} ha`,`Leapfrog 1–${T} ha`) : L('Kërcim ≥ 1 ha','Leapfrog ≥ 1 ha')],...(T ? [[SPRAWL_SIZE[3].c,L(`Bërthamë e re ≥ ${T} ha`,`New nucleus ≥ ${T} ha`)]] : [])];
     const one = state.mapView === 'plan';
     legItems.forEach(([c,t],k) => {
-      const rowP = k < 8 ? k : k === 8 ? 8 : k === 9 ? 8 : 9, lx = one ? ax+(k === 9 ? 150 : 0) : ax+(k%2)*150, ly = one ? y+16+rowP*(legItems.length > 8 ? 12.5 : 14) : y+16+Math.floor(k/2)*16;
+      const rowP = k < 8 ? k : k < 10 ? 8 : 9, lx = one ? ax+(k === 9 || k === 11 ? 150 : 0) : ax+(k%2)*150, ly = one ? y+16+rowP*(legItems.length > 8 ? 12.5 : 14) : y+16+Math.floor(k/2)*16;
       out += `<rect x="${lx}" y="${ly-9}" width="11" height="10" fill="rgb(${c.join(',')})"/><text x="${lx+17}" y="${ly}" font-size="9.5">${xml(t)}</text>`;
     });
     y += one ? (legItems.length > 8 ? 12.5*10+2 : 14*legItems.length+2) : 16*Math.ceil(legItems.length/2);
@@ -2641,8 +2656,8 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     for (const line of wrap(fin,cpl)) { out += `<text x="${bx}" y="${ty}" font-size="8.3">${xml(line)}</text>`;ty += 10.5; }
     ty += 6;
     out += `<text x="${bx}" y="${ty}" font-size="9" font-weight="700">${xml(L('Masat','Measures'))}</text>`;ty += 12;
-    const ms = [['M1',6,L('Densifiko / mbush','Densify / infill'),P.capM1],['M2',7,L('Konsolido skajin','Consolidate the edge'),P.capM2],['M3',8,L('Kufi i rritjes urbane','Urban growth boundary'),plz.ugbHa],['M4',5,L('Fuqizo qendrat e reja','Strengthen the new centres'),plz.nucHa],['M5',3,L('Ndal / sano shpërndarjen','Stop / repair dispersal'),plz.moved],['M6',null,L('Ruaj tokën rurale e bujqësore','Protect rural and farm land'),plz.moved],...(P.LC ? [['M7',9,L('Ruaj pyjet e ujërat: rekreacion','Keep forests and water: recreation'),plz.protHa[1]+plz.protHa[2]]] : [])];
-    for (const [c,k,t,h] of ms) { if (k) out += `<rect x="${bx}" y="${ty-8}" width="9" height="9" fill="rgb(${PLANC[k].c.slice(0,3).join(',')})"/>`;out += `<text x="${bx+14}" y="${ty}" font-size="8.3" font-weight="700" class="mono">${c}</text><text x="${bx+38}" y="${ty}" font-size="8.3">${xml(t)}</text><text x="${bRight}" y="${ty}" font-size="8.3" text-anchor="end" class="mono">${xml(fmtHa(h))} ha</text>`;ty += ms.length > 6 ? 10.5 : 12; }
+    const ms = [['M1',6,L('Densifiko / mbush','Densify / infill'),P.capM1],['M2',7,L('Konsolido skajin','Consolidate the edge'),P.capM2],['M3',8,L('Kufi i rritjes urbane','Urban growth boundary'),plz.ugbHa],['M4',5,L('Fuqizo qendrat e reja','Strengthen the new centres'),plz.nucHa],['M5',3,L('Ndal / sano shpërndarjen','Stop / repair dispersal'),plz.moved],['M6',null,L('Ruaj tokën rurale e bujqësore','Protect rural and farm land'),plz.moved],...(P.LC ? [['M7',9,L('Ruaj pyjet e ujërat','Keep forests and water'),plz.protHa[1]+plz.protHa[2]],['M8',13,L('Gjelbërim komunitar','Community green'),plz.commHa]] : [])];
+    for (const [c,k,t,h] of ms) { if (k) out += `<rect x="${bx}" y="${ty-8}" width="9" height="9" fill="rgb(${PLANC[k].c.slice(0,3).join(',')})"/>`;out += `<text x="${bx+14}" y="${ty}" font-size="8.3" font-weight="700" class="mono">${c}</text><text x="${bx+38}" y="${ty}" font-size="8.3">${xml(t)}</text><text x="${bRight-62}" y="${ty}" font-size="7.4" text-anchor="end" style="fill:#9fd7ff">${xml('SDG '+PLAN_SDG[c])}</text><text x="${bRight}" y="${ty}" font-size="8.3" text-anchor="end" class="mono">${xml(fmtHa(h))} ha</text>`;ty += ms.length > 7 ? 9.4 : ms.length > 6 ? 10.5 : 12; }
     // Measures by direction, in one line: the main measure codes and the construction outside the boundary.
     const dirLine = plz.dir.map((d,k) => `${DIRS[k][0]} ${(planDirMeasure(d).match(/M\d/g) || ['—']).join('·')} ${fmtHa(d.moved)}`).join(' · ');
     out += `<text x="${ax}" y="${ly0+16}" font-size="8.3"><tspan font-weight="700">${xml(L('Drejtimi, ha jashtë:','Direction, ha outside:'))}</tspan> ${xml(dirLine)}</text>`;
@@ -3449,7 +3464,7 @@ function sprawlOverlay(w,r,a,b) {
       if (!dom[i]) continue;
       const k = r.planPix[i], code = grid[i];
       let c;
-      if (k === 9 || k === 10) { const x = i%r.w.W, y = (i-x)/r.w.W;c = (x+y)%6 < 2 ? PLANC[k].c : [...PLANC[k].c.slice(0,3),45]; }   // hatched: kept as open space
+      if (k === 9 || k === 10 || k === 13) { const x = i%r.w.W, y = (i-x)/r.w.W;c = (x+y)%6 < 2 ? PLANC[k].c : [...PLANC[k].c.slice(0,3),45]; }   // hatched: kept as open space
       else if (k) c = PLANC[k].c;
       else if (code >= 1 && code <= a) c = r.firstSub ? SPRAWL_BASE[sprawlDens(r,i,b)] : SPRAWL_BASE[2];
       else continue;
@@ -3520,6 +3535,7 @@ function sprawlSummary() {
   return {total,spr,share:total ? spr/total*100 : null,patches,rows:SPRAWL_CLASSES.map(c => ({...c,ha:ha[c.k],pct:total ? ha[c.k]/total*100 : 0,n:r.stats.patches[c.k],mean:r.stats.patches[c.k] ? ha[c.k]/r.stats.patches[c.k] : 0})),base:r.stats.base,res:Math.round((r.w.dx+r.w.dy)/2)};
 }
 function renderSprawlPanel(busy=false) {
+  setTimeout(planTimeline,0);
   if ($('sdgMethodInfo') && !$('sdgMethodInfo').innerHTML) $('sdgMethodInfo').innerHTML = sdgInfoHtml().replace(' open>','>');
   { const h3 = $('sprawlBox').querySelector('h3');if (h3) { if (h3.dataset.forms == null) h3.dataset.forms = h3.firstChild.textContent;h3.firstChild.textContent = state.mapView === 'plan' ? L('Plan ','Plan ') : state.mapView === 'sdg' ? L('SDG dhe ndërtimi i ri ','SDGs and new construction ') : h3.dataset.forms; } }
   if (state.tab === 'units' && formsLike()) setTimeout(renderUnitForms,0);
@@ -3658,8 +3674,8 @@ function sprawlLegendHtml() {
   const show = state.sprawlMode === 'steps' ? state.sprawlShow : 'class';
   if (state.mapView === 'plan') {
     if (focused) return;
-    const P = sprawlRes?.plan, sw3 = k => { const rgb = `rgb(${PLANC[k].c.slice(0,3).join(',')})`;return `<span><i style="background:${k === 9 || k === 10 ? `repeating-linear-gradient(45deg,${rgb} 0 2px,transparent 2px 5px)` : rgb}${PLANC[k].c[3] && k < 9 ? ';opacity:.55' : ''}"></i>${esc(PLANC[k].t)}</span>`; };
-    $('sprawlLegend').innerHTML = `<b>${L(`Skenari kompakt${P ? `, masat nga ${esc(planYearName(P.p))}` : ''}:`,`Compact scenario${P ? `, measures from ${esc(planYearName(P.p))}` : ''}:`)}</b>`+[8,6,7,4,5,2,3,1,...(P?.LC ? [9,10,11] : [])].map(sw3).join('');
+    const P = sprawlRes?.plan, sw3 = k => { const rgb = `rgb(${PLANC[k].c.slice(0,3).join(',')})`;return `<span><i style="background:${k === 9 || k === 10 || k === 13 ? `repeating-linear-gradient(45deg,${rgb} 0 2px,transparent 2px 5px)` : rgb}${PLANC[k].c[3] && k < 9 ? ';opacity:.55' : ''}"></i>${esc(PLANC[k].t)}</span>`; };
+    $('sprawlLegend').innerHTML = `<b>${L(`Skenari kompakt${P ? `, masat nga ${esc(planYearName(P.p))}` : ''}:`,`Compact scenario${P ? `, measures from ${esc(planYearName(P.p))}` : ''}:`)}</b>`+[8,...(P?.expand?.length ? [14] : []),6,7,4,5,2,3,1,...(P?.LC ? [9,10,13,11,15] : [])].map(sw3).join('');
     return;
   }
   if (state.mapView === 'sdg') {
@@ -4369,48 +4385,18 @@ const PLANC = {
   5:{c:[184,132,255],t:L('Qendër e re për t\'u fuqizuar (M4)','New centre to strengthen (M4)')},
   6:{c:[64,184,120,70],t:L('Tokë për densifikim (M1)','Land to densify (M1)')},
   7:{c:[255,176,0,60],t:L('Skaj për konsolidim (M2)','Edge to consolidate (M2)')},
-  8:{c:[230,240,250],t:L('Kufiri i rritjes urbane (M3)','Urban growth boundary (M3)')},
+  8:{c:[102,224,209],t:L('Kufiri i rritjes urbane i vitit të masave (M3)','Urban growth boundary of the policy year (M3)')},
   9:{c:[120,200,80,230],t:L('Pyll i ruajtur → park, rekreacion (M7)','Forest kept → park, recreation (M7)')},
   10:{c:[70,160,255,230],t:L('Ujë i ruajtur → breg rekreativ (M7)','Water kept → recreational shore (M7)')},
   11:{c:[255,150,20],t:L('Humbur: pyll ose ujë nën ndërtim real','Lost: forest or water under actual construction')},
   12:{c:[16,96,56],t:L('Skaji i zonës së planit','Edge of the plan zone')},
+  13:{c:[214,206,90,220],t:L('Kullotë/shkurre e ruajtur → gjelbërim komunitar (M8)','Grass/shrubland kept → community green (M8)')},
+  14:{c:[255,190,70],t:L('Zgjerim i kufirit kur toka mbaron','Boundary widened when land runs out')},
+  15:{c:[255,150,20],t:L('Humbur: gjelbërim komunitar nën ndërtim real','Lost: community green under actual construction')},
 };
 const PLAN_OPEN_M = 25;   // open land narrower than ~2×20 m (road strips between buildings) is not building land
 const PLAN_BLOCK_M = 100; // the plan allocates whole blocks of this size
 const PLAN_CORE_M = 40;   // a block is building land only if its open land is at least ~2×40 m wide somewhere (no road strips)
-// Land cover classes on the analysis window (first and last map year), from the land-cover tiles.
-async function planLandcover(r) {
-  if (!landcover?.tiles || r.lcLoading || r.lc) return;
-  r.lcLoading = true;
-  try {
-    const w = r.w, ys = landcover.tiles.years, size = landcover.tiles.size, N = w.W*w.H;
-    const pal = new Map(landcover.classes.map((c,k) => [parseInt(c.color.slice(1),16),k]));
-    const tiles = manifest.tiles.filter(t => t.bbox[2] > w.west && t.bbox[0] < w.east && t.bbox[3] > w.south && t.bbox[1] < w.north);
-    const out = [];
-    for (const y of ys) {
-      const g = new Uint8Array(N).fill(255);
-      for (const tile of tiles) {
-        const res = await fetch(BASE+`landcover-${tile.id}-${y}.png`).catch(() => null);
-        if (!res?.ok) continue;
-        const bm = await createImageBitmap(await res.blob(),{colorSpaceConversion:'none',premultiplyAlpha:'none'});
-        const cv = document.createElement('canvas');cv.width = cv.height = size;
-        const ctx = cv.getContext('2d',{willReadFrequently:true});ctx.imageSmoothingEnabled = false;ctx.drawImage(bm,0,0,size,size);bm.close();
-        const px = ctx.getImageData(0,0,size,size).data, [tw,ts,te,tn] = tile.bbox, sx = size/(te-tw), sy = size/(tn-ts);
-        const cols = new Int32Array(w.W);for (let x=0;x<w.W;x++) { const lon = w.west+(x+.5)*w.dlon;cols[x] = lon >= tw && lon < te ? Math.floor((lon-tw)*sx) : -1; }
-        for (let yy=0;yy<w.H;yy++) {
-          const lat = w.north-(yy+.5)*w.dlat;if (lat < ts || lat >= tn) continue;
-          const row = Math.floor((tn-lat)*sy)*size;
-          for (let x=0;x<w.W;x++) { const c = cols[x];if (c < 0) continue;const q = (row+c)*4, k = pal.get((px[q]<<16)|(px[q+1]<<8)|px[q+2]);if (k != null) g[yy*w.W+x] = k; }
-        }
-      }
-      out.push(g);
-    }
-    const key = k => landcover.classes.findIndex(c => c.key === k);
-    r.lc = {first:out[0],last:out[out.length-1],y0:ys[0],y1:ys[ys.length-1],forest:key('forest'),water:key('water'),crop:key('crop'),range:key('range')};
-  } catch(e) { console.warn('land cover',e);r.lc = {none:true}; }
-  r.lcLoading = false;
-  if (sprawlRes === r && state.mapView === 'plan') { r.viewKey = null;r.radialKey = null;sprawlView();renderSprawlPanel();paint(true); }
-}
 function planDefaultYear() { const n = count();return Math.max(1,Math.min(n-2,state.period === 'tracker' ? Math.round((n-1)*.35) : period().steps.findIndex(s => s.year >= 2000) > 0 ? period().steps.findIndex(s => s.year >= 2000) : Math.round((n-1)/2))); }
 function chamfer(mask,W,H,dx,dy) {
   const N = W*H, d = new Float32Array(N), dg = Math.hypot(dx,dy);
@@ -4419,13 +4405,50 @@ function chamfer(mask,W,H,dx,dy) {
   for (let y=H-1;y>=0;y--) for (let x=W-1;x>=0;x--) { const i = y*W+x;let v = d[i];if (x < W-1 && d[i+1]+dx < v) v = d[i+1]+dx;if (y < H-1) { if (d[i+W]+dy < v) v = d[i+W]+dy;if (x < W-1 && d[i+W+1]+dg < v) v = d[i+W+1]+dg;if (x > 0 && d[i+W-1]+dg < v) v = d[i+W-1]+dg; }d[i] = v; }
   return d;
 }
+// Land cover classes on the analysis window for one map year, from the land-cover tiles.
+async function planLandcover(r,year) {
+  r.lcMaps ||= {};r.lcPending ||= {};
+  if (!landcover?.tiles || r.lcPending[year] || r.lcMaps[year]) return;
+  r.lcPending[year] = true;
+  try {
+    const w = r.w, size = landcover.tiles.size, N = w.W*w.H;
+    const pal = new Map(landcover.classes.map((c,k) => [parseInt(c.color.slice(1),16),k]));
+    const tiles = manifest.tiles.filter(t => t.bbox[2] > w.west && t.bbox[0] < w.east && t.bbox[3] > w.south && t.bbox[1] < w.north);
+    const g = new Uint8Array(N).fill(255);
+    let loaded = 0;
+    for (const tile of tiles) {
+      const res = await fetch(BASE+`landcover-${tile.id}-${year}.png`).catch(() => null);
+      if (!res?.ok) continue;
+      const bm = await createImageBitmap(await res.blob(),{colorSpaceConversion:'none',premultiplyAlpha:'none'});
+      const cv = document.createElement('canvas');cv.width = cv.height = size;
+      const ctx = cv.getContext('2d',{willReadFrequently:true});ctx.imageSmoothingEnabled = false;ctx.drawImage(bm,0,0,size,size);bm.close();
+      const px = ctx.getImageData(0,0,size,size).data, [tw,ts,te,tn] = tile.bbox, sx = size/(te-tw), sy = size/(tn-ts);
+      const cols = new Int32Array(w.W);for (let x=0;x<w.W;x++) { const lon = w.west+(x+.5)*w.dlon;cols[x] = lon >= tw && lon < te ? Math.min(size-1,Math.floor((lon-tw)*sx)) : -1; }
+      for (let yy=0;yy<w.H;yy++) {
+        const lat = w.north-(yy+.5)*w.dlat;if (lat < ts || lat >= tn) continue;
+        const row = Math.min(size-1,Math.floor((tn-lat)*sy))*size;
+        for (let x=0;x<w.W;x++) { const c = cols[x];if (c < 0) continue;const q = (row+c)*4, k = pal.get((px[q]<<16)|(px[q+1]<<8)|px[q+2]);if (k != null) g[yy*w.W+x] = k; }
+      }
+      loaded++;
+    }
+    const key = k => landcover.classes.findIndex(c => c.key === k);
+    r.lcMaps[year] = loaded ? {cls:g,year,forest:key('forest'),water:key('water'),crop:key('crop'),range:key('range')} : {none:true,year};
+  } catch(e) { console.warn('land cover',e);r.lcMaps[year] = {none:true,year}; }
+  r.lcPending[year] = false;
+  if (sprawlRes === r && state.mapView === 'plan') { r.viewKey = null;r.radialKey = null;sprawlView();renderSprawlPanel();paint(true); }
+}
+// The land-cover map for the policy year: the latest map not after it, else the first one.
+function planLcYear(pYear) { const ys = landcover?.tiles?.years || [];if (!ys.length) return null;const before = ys.filter(y => y <= pYear);return before.length ? before[before.length-1] : ys[0]; }
+const PLAN_GREEN_TARGET = .15;   // SDG 11.7: open green space as a share of the urban area (UN-Habitat: about 15 %)
+const PLAN_SDG = {M1:'11.3',M2:'11.3',M3:'11.3 · 15.3',M4:'11.2 · 11.3',M5:'11.3 · 15.3',M6:'2.4 · 15.3',M7:'15.1 · 6.6 · 11.7',M8:'11.7 · 11.3'};
 function planCompute(r) {
   if (!r || r.mode !== 'steps' || !r.firstSub) return null;
   if (state.planYear == null || state.planYear < 1 || state.planYear > count()-2) state.planYear = planDefaultYear();
-  if (!r.lc && landcover?.tiles) planLandcover(r);
-  const LC = r.lc && !r.lc.none ? r.lc : null;
   const off = baseOff(), a = off+1, p = off+1+state.planYear, steps = period().steps;
-  const key = `${a}|${p}|${state.stageCuts.join(',')}|${r.key}|${LC ? 'lc' : ''}`;
+  const pYear = steps[p-off-1]?.year, yL = planLcYear(pYear);
+  if (yL != null && !r.lcMaps?.[yL]) planLandcover(r,yL);
+  const LC = yL != null && r.lcMaps?.[yL] && !r.lcMaps[yL].none ? r.lcMaps[yL] : null;
+  const key = `${a}|${p}|${state.stageCuts.join(',')}|${r.key}|${LC ? 'lc'+yL : ''}`;
   if (r.plan?.key === key) return r.plan;
   const t0 = performance.now(), {grid,domain:dom,w} = r, W = w.W, H = w.H, N = W*H, dx = w.dx, dy = w.dy;
   let last = 0;for (let i=0;i<N;i++) if (grid[i] > last) last = grid[i];
@@ -4433,10 +4456,7 @@ function planCompute(r) {
   const K = state.period === 'tracker' ? Math.max(0,PLAN_HORIZON-lastYear) : 0;
   const rowHa = r.rowHa, haOf = i => rowHa[(i-i%W)/W];
   const builtBy = (i,t) => grid[i] >= 1 && grid[i] <= t;
-  // Forest and water (first or last land-cover map) are kept as green and blue space: never building land (M7).
-  const prot = new Uint8Array(N);
-  if (LC) for (let i=0;i<N;i++) { const f = LC.first[i], l = LC.last[i];prot[i] = f === LC.forest || l === LC.forest ? 1 : f === LC.water || l === LC.water ? 2 : 0; }
-  // Body and new nuclei in the policy year.
+  // Body and new nuclei in the policy year: the urban growth boundary of that year.
   const S = sprawlStages(r), nuc = new Uint8Array(N), seed = new Uint8Array(N);
   if (S) for (let j=0;j<S.M;j++) { const s = stageAt(S,j,p);if (s === 3 || s === 4) nuc[S.pix[j]] = 1; }
   for (let i=0;i<N;i++) { const c = grid[i];if (c >= 1 && c <= p && (r.firstSub[i] <= p || nuc[i])) seed[i] = 1; }
@@ -4445,23 +4465,42 @@ function planCompute(r) {
   const out = new Uint8Array(N);for (let i=0;i<N;i++) out[i] = ugbYear[i] ? 0 : 1;
   const dOut = chamfer(out,W,H,dx,dy), interior = new Uint8Array(N);
   for (let i=0;i<N;i++) if (ugbYear[i] && dOut[i] > 100) interior[i] = 1;
+  // Local built-up share in a 500 m square in the policy year, to rank land.
+  const II = new Float64Array((W+1)*(H+1)), hx = Math.max(1,Math.round(250/dx)), hy = Math.max(1,Math.round(250/dy));
+  for (let y=0;y<H;y++) { let row = 0;for (let x=0;x<W;x++) { const i = y*W+x;row += builtBy(i,p) ? 1 : 0;II[(y+1)*(W+1)+x+1] = II[y*(W+1)+x+1]+row; } }
+  const share = i => { const x = i%W, y = (i-x)/W, x0 = Math.max(0,x-hx), x1 = Math.min(W,x+hx+1), y0 = Math.max(0,y-hy), y1 = Math.min(H,y+hy+1);return (II[y1*(W+1)+x1]-II[y0*(W+1)+x1]-II[y1*(W+1)+x0]+II[y0*(W+1)+x0])/((x1-x0)*(y1-y0)); };
+  const bx = Math.max(1,Math.round(PLAN_BLOCK_M/dx)), by = Math.max(1,Math.round(PLAN_BLOCK_M/dy)), nbx = Math.ceil(W/bx), minPix = Math.max(2,Math.round(bx*by*.1));
+  const blockOf = i => { const x = i%W, y = (i-x)/W;return Math.floor(y/by)*nbx+Math.floor(x/bx); };
+  // Land cover of the policy year. Forest and water are kept (M7, SDG 15.1, 6.6). Grassland and shrubland blocks
+  // are reserved as community green (M8) until open green space reaches PLAN_GREEN_TARGET of the boundary (SDG 11.7),
+  // starting where the city is densest, i.e. where most people would use it.
+  const prot = new Uint8Array(N), comm = new Uint8Array(N);
+  let ugbHaP = 0, greenHaP = 0, commHa = 0;
+  for (let i=0;i<N;i++) {
+    if (LC) { const c = LC.cls[i];prot[i] = c === LC.forest ? 1 : c === LC.water ? 2 : 0; }
+    if (ugbYear[i]) { const h = haOf(i);ugbHaP += h;if (prot[i] && !builtBy(i,p)) greenHaP += h; }
+  }
+  if (LC) {
+    const m = new Map();
+    for (let i=0;i<N;i++) if (ugbYear[i] && LC.cls[i] === LC.range && !builtBy(i,p)) { const id = blockOf(i);let g = m.get(id);if (!g) m.set(id,g = {pix:[],s:0});g.pix.push(i);g.s += share(i); }
+    const blocks = [...m.values()].filter(g => g.pix.length >= minPix).sort((u,v) => v.s/v.pix.length-u.s/u.pix.length);
+    for (const g of blocks) {
+      if (greenHaP+commHa >= PLAN_GREEN_TARGET*ugbHaP) break;
+      for (const i of g.pix) { comm[i] = 1;commHa += haOf(i); }
+    }
+  }
   // Building land = open land that survives a morphological opening of PLAN_OPEN_M: the thin gaps between built
-  // pixels (streets, which WSF does not map as built) and slivers along forest or water are left out.
-  const hard = new Uint8Array(N);for (let i=0;i<N;i++) hard[i] = builtBy(i,p) || prot[i] ? 1 : 0;
+  // pixels (streets, which WSF does not map as built) and slivers along kept land are left out.
+  const hard = new Uint8Array(N);for (let i=0;i<N;i++) hard[i] = builtBy(i,p) || prot[i] || comm[i] ? 1 : 0;
   const dHard = chamfer(hard,W,H,dx,dy), core = new Uint8Array(N);
   for (let i=0;i<N;i++) core[i] = dHard[i] > PLAN_OPEN_M ? 1 : 0;
   const dCore = chamfer(core,W,H,dx,dy), land = new Uint8Array(N);
   for (let i=0;i<N;i++) land[i] = !hard[i] && dCore[i] <= PLAN_OPEN_M+.01 ? 1 : 0;
-  // Local built-up share in a 500 m square in the policy year, to rank free land.
-  const II = new Float64Array((W+1)*(H+1)), hx = Math.max(1,Math.round(250/dx)), hy = Math.max(1,Math.round(250/dy));
-  for (let y=0;y<H;y++) { let row = 0;for (let x=0;x<W;x++) { const i = y*W+x;row += builtBy(i,p) ? 1 : 0;II[(y+1)*(W+1)+x+1] = II[y*(W+1)+x+1]+row; } }
-  const share = i => { const x = i%W, y = (i-x)/W, x0 = Math.max(0,x-hx), x1 = Math.min(W,x+hx+1), y0 = Math.max(0,y-hy), y1 = Math.min(H,y+hy+1);return (II[y1*(W+1)+x1]-II[y0*(W+1)+x1]-II[y1*(W+1)+x0]+II[y0*(W+1)+x0])/((x1-x0)*(y1-y0)); };
-  const cropPen = i => LC && (LC.first[i] === LC.crop || LC.last[i] === LC.crop) ? .4 : 0;   // farm land last (M6)
+  const cropPen = i => LC && LC.cls[i] === LC.crop ? .4 : 0;   // farm land last (M6, SDG 2.4)
   // Plan zones: candidates grouped into PLAN_BLOCK_M blocks, ranked by their mean score and allocated whole.
-  const bx = Math.max(1,Math.round(PLAN_BLOCK_M/dx)), by = Math.max(1,Math.round(PLAN_BLOCK_M/dy)), nbx = Math.ceil(W/bx), minPix = Math.max(2,Math.round(bx*by*.1));
   const makeBlocks = (list,score) => {
     const m = new Map();
-    for (const i of list) { const x = i%W, y = (i-x)/W, id = Math.floor(y/by)*nbx+Math.floor(x/bx);let g = m.get(id);if (!g) m.set(id,g = {pix:[],s:0,core:0});g.pix.push(i);g.s += score(i);if (dHard[i] > g.core) g.core = dHard[i]; }
+    for (const i of list) { const id = blockOf(i);let g = m.get(id);if (!g) m.set(id,g = {pix:[],s:0,core:0});g.pix.push(i);g.s += score(i);if (dHard[i] > g.core) g.core = dHard[i]; }
     return [...m.values()].filter(g => g.pix.length >= minPix && g.core > PLAN_CORE_M).map(g => ({pix:g.pix,s:g.s/g.pix.length})).sort((u,v) => v.s-u.s);
   };
   const cand = new Uint8Array(N), cands = [];
@@ -4480,7 +4519,7 @@ function planCompute(r) {
     if (t <= last) for (let i=0;i<N;i++) {
       if (grid[i] !== t || !dom[i]) continue;
       const h = haOf(i);
-      if (prot[i]) { lost += h;moved += h;need += h; }
+      if (prot[i] || comm[i]) { if (prot[i]) lost += h;moved += h;need += h; }
       else if (!ugbYear[i]) { moved += h;need += h; } else { kept += h;if (alloc[i]) { conflict += h;need += h; } }
     } else need = projDemand;
     if (t <= last && t >= from) { recentOut += moved;recentAll += moved+kept; }
@@ -4493,11 +4532,10 @@ function planCompute(r) {
         const dIn = chamfer(inside,W,H,dx,dy), ring = [];
         let added = 0;
         for (let i=0;i<N;i++) if (!ugbYear[i] && dom[i] && dIn[i] <= 100) { ugbYear[i] = t;added++;if (land[i] && !builtBy(i,Math.min(t,last))) ring.push(i); }
-        if (!added) break;
+        if (!added || expand.length > 40) break;
         expand.push(t);
         queue = makeBlocks(ring,i => 1+share(i)-cropPen(i));qi = 0;
         for (const g of queue) for (const i of g.pix) cand[i] = 2;
-        if (!queue.length) { if (expand.length > 40) break;continue; }
         continue;
       }
       const g = queue[qi++];
@@ -4507,37 +4545,47 @@ function planCompute(r) {
     let left = 0;for (let q=qi;q<queue.length;q++) for (const i of queue[q].pix) if (!alloc[i] && !builtBy(i,Math.min(t,last))) left += haOf(i);
     years.push({t,moved,kept,conflict,placed,need,left,lost,proj:t > last});
   }
-  return r.plan = {key,a,p,last,lastYear,K,ugbYear,interior,nuc,alloc,cand,prot,dSeed,LC,years,expand,capM1,capM2,projDemand,recentShare:recentAll ? recentOut/recentAll : 0,ms:performance.now()-t0};
+  return r.plan = {key,a,p,last,lastYear,K,ugbYear,interior,nuc,alloc,cand,prot,comm,dSeed,LC,lcYear:yL,pYear,ugbHaP,greenHaP,commHa,years,expand,capM1,capM2,projDemand,recentShare:recentAll ? recentOut/recentAll : 0,ms:performance.now()-t0};
 }
 // Class of every pixel for the year on display (code b, or a projected year).
 function planPixels(r,b) {
   const P = planCompute(r);
   if (!P) return null;
   const {grid,domain:dom,w} = r, W = w.W, N = grid.length, Y = state.planExtra ? P.last+state.planExtra : b, shownUpTo = Math.min(b,P.last);
+  const ugbP = i => P.ugbYear[i] === P.p;
   const ugbAt = i => P.ugbYear[i] && P.ugbYear[i] <= Math.max(Y,P.p);
   const zoneAt = i => P.alloc[i] && P.alloc[i] <= Y && b > P.p;
+  // A line two pixels wide along the inside of a region (the window border does not count).
+  const edgeOf = (f,i,wide) => {
+    if (!f(i)) return false;
+    const x = i%W;
+    for (let o=1;o<=wide;o++) {
+      if (x-o >= 0 && !f(i-o)) return true;
+      if (x+o < W && !f(i+o)) return true;
+      if (i-o*W >= 0 && !f(i-o*W)) return true;
+      if (i+o*W < N && !f(i+o*W)) return true;
+    }
+    return false;
+  };
   if (!r.planPix || r.planPix.length !== N) r.planPix = new Uint8Array(N);
   const px = r.planPix;px.fill(0);
   for (let i=0;i<N;i++) {
     if (!dom[i]) continue;
+    // The growth boundary of the policy year is drawn on top of everything; its later widening dashed.
+    if (edgeOf(ugbP,i,2)) { px[i] = 8;continue; }
+    if (P.ugbYear[i] > P.p && edgeOf(ugbAt,i,2)) { px[i] = 14;continue; }
     const c = grid[i];
     if (c >= 1 && c <= shownUpTo) {
       if (P.nuc[i] && c <= P.p) px[i] = 5;
       else if (c <= P.a) px[i] = 0;
       else if (c <= P.p) px[i] = 1;
-      else px[i] = P.prot[i] ? 11 : ugbAt(i) ? 2 : 3;
+      else px[i] = P.prot[i] ? 11 : P.comm[i] ? 15 : ugbAt(i) ? 2 : 3;
       continue;
     }
-    if (zoneAt(i)) {
-      const x = i%W, edge = (x > 0 && !zoneAt(i-1)) || (x < W-1 && !zoneAt(i+1)) || (i >= W && !zoneAt(i-W)) || (i < N-W && !zoneAt(i+W));
-      px[i] = edge ? 12 : 4;continue;
-    }
+    if (zoneAt(i)) { px[i] = edgeOf(zoneAt,i,1) ? 12 : 4;continue; }
     if (P.prot[i] && P.dSeed[i] <= 400) { px[i] = P.prot[i] === 1 ? 9 : 10;continue; }
-    if (ugbAt(i)) {
-      const x = i%W, edge = (x > 0 && !ugbAt(i-1)) || (x < W-1 && !ugbAt(i+1)) || (i >= W && !ugbAt(i-W)) || (i < N-W && !ugbAt(i+W));
-      if (edge) px[i] = 8;
-      else if (P.cand[i]) px[i] = P.cand[i] === 1 ? 6 : 7;
-    }
+    if (P.comm[i]) { px[i] = 13;continue; }
+    if (ugbAt(i) && P.cand[i]) px[i] = P.cand[i] === 1 ? 6 : 7;
   }
   return P;
 }
@@ -4558,7 +4606,7 @@ function planStats() {
     const c = r.grid[i];
     if (!r.domain[i]) continue;
     let k = null;
-    if (c > P.p && c <= Math.min(b,P.last)) k = P.ugbYear[i] && P.ugbYear[i] <= Y ? 'kept' : 'moved';
+    if (c > P.p && c <= Math.min(b,P.last)) k = P.ugbYear[i] && P.ugbYear[i] <= Y && !P.prot[i] && !P.comm[i] ? 'kept' : 'moved';
     else if (P.alloc[i] && P.alloc[i] <= Y && b > P.p) k = 'plan';
     if (!k) continue;
     const x = i%W, y = (i-x)/W, ang = (Math.atan2((x+.5-cx)*r.w.dx,-(y+.5-cy)*r.w.dy)+Math.PI*2.25)%(Math.PI*2);
@@ -4567,17 +4615,28 @@ function planStats() {
   let nucHa = 0, ugbHa = 0;
   for (let i=0;i<r.grid.length;i++) { if (!r.domain[i]) continue;if (P.nuc[i] && r.grid[i] <= P.p) nucHa += r.rowHa[(i-i%W)/W];if (P.ugbYear[i] && P.ugbYear[i] <= Math.max(Y,P.p)) ugbHa += r.rowHa[(i-i%W)/W]; }
   r.planAllShare = moved+kept ? moved/(moved+kept) : .2;
-  // On what land: actual construction after the measures and the plan zones, by the first land-cover map.
-  const real = new Float64Array(8), scen = new Float64Array(8), LC = P.LC;
-  let protHa = [0,0,0];
+  r.planDirCache = dir;
+  // On what land (map of the policy year): actual construction after the measures and the plan zones; and the open
+  // green space (forest, water, grass and shrubland) left inside the boundary of the policy year.
+  const real = new Float64Array(8), scen = new Float64Array(8), LC = P.LC, protHa = [0,0,0];
+  let gP = 0, gReal = 0, gScen = 0, commHa = 0;
   if (LC) for (let i=0;i<r.grid.length;i++) {
     if (!r.domain[i]) continue;
-    const c = r.grid[i], k = LC.first[i] === 255 ? 7 : LC.first[i], h = r.rowHa[(i-i%W)/W];
-    if (c > P.p && c <= Math.min(b,P.last)) real[k] += h;
-    else if (P.alloc[i] && P.alloc[i] <= Y && b > P.p) scen[k] += h;
-    if (P.prot[i] && !(c >= 1 && c <= Math.min(b,P.last)) && P.dSeed[i] <= 400) protHa[P.prot[i]] += h;
+    const c = r.grid[i], cl = LC.cls[i], k = cl === 255 ? 7 : cl, h = r.rowHa[(i-i%W)/W], realNew = c > P.p && c <= Math.min(b,P.last);
+    const zone = P.alloc[i] && P.alloc[i] <= Y && b > P.p;
+    if (realNew) real[k] += h;
+    else if (zone) scen[k] += h;
+    const builtNow = c >= 1 && c <= Math.min(b,P.last);
+    if (P.prot[i] && !builtNow && P.dSeed[i] <= 400) protHa[P.prot[i]] += h;
+    if (P.comm[i] && !builtNow) commHa += h;
+    if (P.ugbYear[i] === P.p && (cl === LC.forest || cl === LC.water || cl === LC.range) && !(c >= 1 && c <= P.p)) {
+      gP += h;
+      if (realNew) gReal += h;
+      if (zone || (realNew && !P.prot[i] && !P.comm[i])) gScen += h;
+    }
   }
-  return {P,b,Y,moved,kept,placed,proj,dir,nucHa,ugbHa,real,scen,protHa,lost:upto.reduce((s,y) => s+y.lost,0),left:upto.length ? upto[upto.length-1].left : P.capM1+P.capM2,expand:P.expand.filter(t => t <= Y)};
+  const greenReal = P.ugbHaP ? (gP-gReal)/P.ugbHaP : 0, greenScen = P.ugbHaP ? (gP-gScen)/P.ugbHaP : 0;
+  return {P,b,Y,moved,kept,placed,proj,dir,nucHa,ugbHa,real,scen,protHa,commHa,greenReal,greenScen,lost:upto.reduce((s,y) => s+y.lost,0),left:upto.length ? upto[upto.length-1].left : P.capM1+P.capM2,expand:P.expand.filter(t => t <= Y)};
 }
 function planYearName(t) { const P = sprawlRes?.plan, steps = period().steps;if (P && t > P.last) return String(P.lastYear+(t-P.last));return steps[t-baseOff()-1]?.short || ''; }
 function planDirMeasure(d) {
@@ -4608,23 +4667,45 @@ function planDocHtml() {
     ['M4',5,L('Fuqizo qendrat e reja','Strengthen the new centres'),L('Bërthamat C dhe D: shërbime, transport publik','Nuclei C and D: services, public transport'),`${fmtHa(z.nucHa)} ha`,L('Mesatar','Medium')],
     ['M5',3,L('Ndal / sano shpërndarjen','Stop / repair dispersal'),L('Ndërtimi jashtë kufirit pas masave','Construction outside the boundary after the measures'),before ? '—' : `${fmtHa(z.moved)} ha`,L('I lartë','High')],
     ['M6',null,L('Ruaj tokën rurale e bujqësore','Protect rural and farm land'),topDirs.length ? L(`Sidomos në drejtim të ${topDirs.join(' dhe ')}`,`Above all towards the ${topDirs.join(' and ')}`) : L('Jashtë kufirit','Outside the boundary'),before ? '—' : `${fmtHa(z.moved)} ha`,L('I lartë','High')],
-    ...(P.LC ? [['M7',9,L('Ruaj pyjet dhe ujërat si hapësira rekreative','Keep forests and water as recreational space'),L('Pyjet, lumenjtë e liqenet brenda dhe pranë kufirit (400 m): parqe, shëtitore, breg i hapur','Forests, rivers and lakes inside and near the boundary (400 m): parks, promenades, open shores'),`${fmtHa(z.protHa[1]+z.protHa[2])} ha`,L('I lartë','High')]] : []),
+    ...(P.LC ? [['M7',9,L('Ruaj pyjet dhe ujërat si hapësira rekreative','Keep forests and water as recreational space'),L('Pyjet, lumenjtë e liqenet brenda dhe pranë kufirit (400 m): parqe, shëtitore, breg i hapur','Forests, rivers and lakes inside and near the boundary (400 m): parks, promenades, open shores'),`${fmtHa(z.protHa[1]+z.protHa[2])} ha`,L('I lartë','High')],['M8',13,L('Gjelbërim komunitar','Community green'),L(`Kullota e shkurre brenda kufirit, të rezervuara deri sa hapësira e gjelbër të arrijë ${PLAN_GREEN_TARGET*100}% të kufirit: kopshte komunitare, lojëra, sport, pyllëzim`,`Grass and shrubland inside the boundary, reserved until green space reaches ${PLAN_GREEN_TARGET*100}% of the boundary: community gardens, play, sport, planting`),`${fmtHa(z.commHa)} ha`,L('Mesatar','Medium')]] : []),
   ];
   // What was lost: the land under actual construction against the land the plan uses.
-  const lcRows = P.LC && !before ? (() => {
+  let sn = 0;const S = () => ++sn;
+  const lcSec = () => !(P.LC && !before) ? '' : (() => {
     const cl = landcover.classes, rows = [[P.LC.forest,L('Pyll','Forest')],[P.LC.water,L('Ujë, ligatina','Water, wetland')],[P.LC.range,L('Kullotë, shkurre','Grassland, shrubland')],[P.LC.crop,L('Tokë bujqësore','Farm land')]];
     const other = (arr) => arr.reduce((s,v,k) => s+(rows.some(r => r[0] === k) ? 0 : v),0);
     const sR = z.real.reduce((s,v) => s+v,0), sS = z.scen.reduce((s,v) => s+v,0);
     const tr = (c,t,vR,vS,bold) => `<tr${bold ? ' class="pd-loss"' : ''}><td>${c != null ? `<i class="pd-chip" style="background:${cl[c].color}"></i>` : ''}${esc(t)}</td><td class="num">${fmtHa(vR)}</td><td class="num">${fmtHa(vS)}</td></tr>`;
     const green = z.real[P.LC.forest]+z.real[P.LC.water], Rn = esc(yName(Math.min(z.b,P.last))), gr = z.real[P.LC.range];
-    return `<section><h4><span>§ 4</span>${L('Çfarë humbëm','What was lost')}</h4>
+    return `<section><h4><span>§ ${S()}</span>${L('Çfarë humbëm','What was lost')}</h4>
       <p>${green >= 1 ? L(`Nga ${esc(yName(P.p))} deri në ${Rn} u ndërtuan <b>${fmtHa(z.real[P.LC.forest])} ha pyll</b>, <b>${fmtHa(z.real[P.LC.water])} ha ujë e ligatina</b> dhe ${fmtHa(gr)} ha kullota e shkurre. Aty ku sot ka një zonë ndërtimi, do të mund të kishim një hapësirë të gjelbër urbane: park, pyll urban ose breg lumi të hapur. Skenari i ruan këto toka (M7) dhe ndërton në vend të tyre në blloqet e lira brenda kufirit.`,`From ${esc(yName(P.p))} to ${Rn}, <b>${fmtHa(z.real[P.LC.forest])} ha of forest</b> and <b>${fmtHa(z.real[P.LC.water])} ha of water and wetland</b> were built on, with ${fmtHa(gr)} ha of grassland and shrubland. Where there is a building zone today, there could have been urban green space: a park, an urban forest or an open riverbank. The scenario keeps this land (M7) and builds on the free blocks inside the boundary instead.`)
         : L(`Nga ${esc(yName(P.p))} deri në ${Rn} pothuajse nuk u ndërtua mbi pyje ose ujëra (${fmtHa(green)} ha). Humbja kryesore është toka bujqësore (${fmtHa(z.real[P.LC.crop])} ha) dhe kullotat e shkurret (${fmtHa(gr)} ha): një pjesë e tyre brenda qytetit do të mund të ishte hapësirë e gjelbër urbane. Skenari ndërton në blloqet e lira brenda kufirit dhe tokën bujqësore e përdor të fundit.`,`From ${esc(yName(P.p))} to ${Rn} almost nothing was built on forest or water (${fmtHa(green)} ha). The main loss is farm land (${fmtHa(z.real[P.LC.crop])} ha) and grassland and shrubland (${fmtHa(gr)} ha): some of it, inside the city, could have been urban green space. The scenario builds on the free blocks inside the boundary and uses farm land last.`)}</p>
       <table class="pd-table"><thead><tr><th>${L('Mbulesa e tokës para ndërtimit','Land cover before construction')}</th><th>${L(`Realiteti deri ${Rn}, ha`,`Reality to ${Rn}, ha`)}</th><th>${L(`Skenari deri ${esc(Yn)}, ha`,`Scenario to ${esc(Yn)}, ha`)}</th></tr></thead><tbody>
       ${rows.map(([c,t],n) => tr(c,t,z.real[c],z.scen[c],n < 2)).join('')}${tr(null,L('Tjetër (brenda vendbanimit, tokë e zhveshur)','Other (inside settlement, bare land)'),other(z.real),other(z.scen))}
       <tr class="pd-sum"><td>${L('Gjithsej','Total')}</td><td class="num">${fmtHa(sR)}</td><td class="num">${fmtHa(sS)}</td></tr></tbody></table>
-      <p class="note">${L(`Mbulesa sipas hartës Esri 10 m të ${P.LC.y0}; për ndërtimet para ${P.LC.y0} harta e tregon tokën si të ndërtuar, prandaj humbja e viteve të hershme nënvlerësohet.`,`Land cover from the Esri 10 m map of ${P.LC.y0}; for construction before ${P.LC.y0} the map already shows the land as built, so the loss of early years is underestimated.`)}</p></section>`;
-  })() : '';
+      <p class="note">${L(`Mbulesa e tokës sipas hartës Esri të ${P.lcYear}${P.lcYear > P.pYear ? `, harta më e hershme që ekziston (masat nisin në ${P.pYear}): toka e ndërtuar para ${P.lcYear} del si e ndërtuar, prandaj humbja nënvlerësohet` : `, viti i hyrjes së masave në fuqi`}. Me ndryshimin e vitit të masave ndryshojnë edhe kufiri dhe tokat e ruajtura.`,`Land cover from the Esri map of ${P.lcYear}${P.lcYear > P.pYear ? `, the earliest map available (the measures start in ${P.pYear}): land built before ${P.lcYear} shows as built, so the loss is underestimated` : `, the year the measures take effect`}. Changing the policy year also changes the boundary and the land kept.`)}</p></section>`;
+  })();
+  // SDG balance: reality against the scenario for the targets the measures serve.
+  const sdgSec = () => {
+    if (before) return '';
+    const Rn = esc(yName(Math.min(z.b,P.last))), pc = v => fmt1(v*100)+'%';
+    const rows = [['11.3.1',L('Ndërtim jashtë kufirit të rritjes','Construction outside the growth boundary'),`${fmtHa(z.moved)} ha`,'0 ha',z.moved > .05 ? 1 : 0]];
+    if (P.LC) {
+      const cropS = z.scen[P.LC.crop], cropR = z.real[P.LC.crop];
+      rows.push(['11.7.1',L(`Hapësirë e gjelbër e hapur brenda kufirit (synimi ≥ ${PLAN_GREEN_TARGET*100}%)`,`Open green space inside the boundary (target ≥ ${PLAN_GREEN_TARGET*100}%)`),pc(z.greenReal),pc(z.greenScen),z.greenScen >= PLAN_GREEN_TARGET-.001 ? (z.greenScen > z.greenReal+.0005 ? 1 : 0) : z.greenScen > z.greenReal+.0005 ? 2 : 3]);
+      rows.push(['15.1.1',L('Pyll i humbur nën ndërtim','Forest lost to construction'),`${fmtHa(z.real[P.LC.forest])} ha`,'0 ha',z.real[P.LC.forest] > .05 ? 1 : 0]);
+      rows.push(['6.6.1',L('Ujë e ligatina të humbura','Water and wetland lost'),`${fmtHa(z.real[P.LC.water])} ha`,'0 ha',z.real[P.LC.water] > .05 ? 1 : 0]);
+      rows.push(['2.4.1 · 15.3.1',L('Tokë bujqësore e zënë','Farm land taken'),`${fmtHa(cropR)} ha`,`${fmtHa(cropS)} ha`,cropS < cropR-.05 ? 1 : cropS > cropR+.05 ? 2 : 0]);
+    }
+    rows.push(['11.3',L('Zgjerim i kufirit (kosto e kompaktësisë)','Boundary widening (cost to compactness)'),'—',z.expand.length ? `${z.expand.length} × 100 m` : L('pa zgjerim','none'),z.expand.length ? 2 : 0]);
+    const st = [['=',L('njësoj','equal')],['✓',L('më mirë','better')],['!',L('kompromis','trade-off')],['✕',L('nën synim','below target')]];
+    const good = rows.filter(r => r[4] === 1).map(r => r[0]), trade = rows.filter(r => r[4] >= 2).map(r => r[0]);
+    return `<section><h4><span>§ ${S()}</span>${L('Bilanci i SDG-ve','SDG balance')}</h4>
+      <p>${L(`Skenari kërkon ekuilibrin mes synimeve: ndërton brenda kufirit (11.3), ruan pyjet dhe ujërat (15.1, 6.6), rezervon gjelbërim komunitar deri në ${PLAN_GREEN_TARGET*100}% të kufirit (11.7) dhe tokën bujqësore e përdor të fundit (2.4). Kufiri zgjerohet vetëm kur toka e lirë nuk mjafton.`,`The scenario balances the targets: it builds inside the boundary (11.3), keeps forests and water (15.1, 6.6), reserves community green up to ${PLAN_GREEN_TARGET*100}% of the boundary (11.7) and uses farm land last (2.4). The boundary widens only when free land runs short.`)}
+      ${good.length ? L(` Më mirë se realiteti: <b>SDG ${good.join(', ')}</b>.`,` Better than reality: <b>SDG ${good.join(', ')}</b>.`) : ''}${trade.length ? L(` Kompromis: <b>SDG ${trade.join(', ')}</b>.`,` Trade-off: <b>SDG ${trade.join(', ')}</b>.`) : ''}${P.LC && z.greenScen < PLAN_GREEN_TARGET-.001 ? L(` Hapësira e gjelbër mbetet nën ${PLAN_GREEN_TARGET*100}%: brenda kufirit nuk ka më pyje, ujëra ose kullota të lira për ta plotësuar. Pjesa që mungon (${fmtHa(Math.max(0,(PLAN_GREEN_TARGET-z.greenScen)*P.ugbHaP))} ha) duhet krijuar si parqe të reja mbi tokë tjetër, si pjesë e rigjenerimit urban.`,` Green space stays below ${PLAN_GREEN_TARGET*100}%: there is no more free forest, water or grassland inside the boundary to make it up. The missing part (${fmtHa(Math.max(0,(PLAN_GREEN_TARGET-z.greenScen)*P.ugbHaP))} ha) must be created as new parks on other land, as part of urban regeneration.`) : ''}</p>
+      <table class="pd-table pd-sdg"><thead><tr><th>SDG</th><th>${L('Treguesi','Indicator')}</th><th>${L(`Realiteti ${Rn}`,`Reality ${Rn}`)}</th><th>${L(`Skenari ${esc(Yn)}`,`Scenario ${esc(Yn)}`)}</th><th></th></tr></thead><tbody>
+      ${rows.map(([c,t,vR,vS,s]) => `<tr><td class="pd-code">${c}</td><td>${esc(t)}</td><td class="num">${vR}</td><td class="num">${vS}</td><td class="pd-st pd-st${s}" title="${esc(st[s][1])}">${st[s][0]}</td></tr>`).join('')}</tbody></table></section>`;
+  };
   const yrs = P.years.filter(y => y.t <= z.Y);
   // Chart: for every year after the measures, actual construction inside the boundary, relocated, and avoided.
   const chart = planChartSvg(z);
@@ -4638,41 +4719,77 @@ function planDocHtml() {
       <h3>${L('Plan i zhvillimit kompakt','Compact development plan')} — ${esc(zone)}</h3>
       <table class="pd-meta"><tr><th>${L('Zona','Area')}</th><td>${esc(zone)}</td></tr><tr><th>${L('Periudha','Period')}</th><td>${esc(steps[0].label)} – ${esc(steps[n-1].label)}${P.K ? ` · ${L('projeksion','projection')} ${PLAN_HORIZON}` : ''}</td></tr>
       <tr><th>${L('Masat në fuqi nga','Measures in force from')}</th><td><select id="planYear">${opts}</select></td></tr><tr><th>${L('Gjendja e paraqitur','State shown')}</th><td>${esc(Yn)}${state.planExtra ? ' · '+L('projeksion','projection') : ''}</td></tr>
-      <tr><th>${L('Skenari','Scenario')}</th><td>${P.LC ? L('Kompakt: M1–M7','Compact: M1–M7') : L('Kompakt: M1–M6','Compact: M1–M6')}</td></tr></table></div>
-    <section><h4><span>§ 1</span>${L('Qëllimi','Purpose')}</h4><p>${L('Rritja e zonës së ndërtuar të drejtohet brenda qytetit dhe qendrave ekzistuese, që toka rurale e bujqësore të ruhet dhe të arrihen synimet SDG 11.3, 15.3 dhe 2.4. Skenari mban të njëjtën sasi ndërtimi si realiteti dhe ndryshon vetëm vendin e tij.','Growth of the built-up area is directed inside the city and existing centres, so that rural and farm land is kept and SDG targets 11.3, 15.3 and 2.4 are met. The scenario keeps the same amount of construction as reality and changes only where it goes.')}</p></section>
-    <section><h4><span>§ 2</span>${L('Përfundimi','Finding')}</h4><p class="pd-finding">${finding}</p>${bau ? `<p>${bau}</p>` : ''}${proj}</section>
-    <section><h4><span>§ 3</span>${L('Masat','Measures')}</h4><table class="pd-table"><thead><tr><th></th><th>${L('Masa','Measure')}</th><th>${L('Ku','Where')}</th><th>ha</th><th>${L('Prioriteti','Priority')}</th></tr></thead><tbody>
-      ${measures.map(([c,k,t,where,ha,pr]) => `<tr><td class="pd-code">${k ? chip(k) : '<i class="pd-chip pd-hatch"></i>'}${c}</td><td><b>${esc(t)}</b></td><td>${esc(where)}</td><td class="num">${ha}</td><td>${esc(pr)}</td></tr>`).join('')}</tbody></table></section>
+      <tr><th>${L('Skenari','Scenario')}</th><td>${P.LC ? L('Kompakt, i balancuar me SDG: M1–M8','Compact, balanced with the SDGs: M1–M8') : L('Kompakt: M1–M6','Compact: M1–M6')}</td></tr></table></div>
+    <section><h4><span>§ ${S()}</span>${L('Qëllimi','Purpose')}</h4><p>${L('Rritja e zonës së ndërtuar të drejtohet brenda qytetit dhe qendrave ekzistuese, që toka rurale e bujqësore, pyjet dhe ujërat të ruhen, qyteti të ketë hapësirë të gjelbër të mjaftueshme dhe të arrihen synimet SDG 11.3, 11.7, 15.1, 15.3, 6.6 dhe 2.4. Skenari mban të njëjtën sasi ndërtimi si realiteti dhe ndryshon vetëm vendin e tij.','Growth of the built-up area is directed inside the city and existing centres, so that rural and farm land, forests and water are kept, the city has enough green space, and SDG targets 11.3, 11.7, 15.1, 15.3, 6.6 and 2.4 are met. The scenario keeps the same amount of construction as reality and changes only where it goes.')}</p></section>
+    <section><h4><span>§ ${S()}</span>${L('Përfundimi','Finding')}</h4><p class="pd-finding">${finding}</p>${bau ? `<p>${bau}</p>` : ''}${proj}</section>
+    <section><h4><span>§ ${S()}</span>${L('Masat','Measures')}</h4><table class="pd-table"><thead><tr><th></th><th>${L('Masa','Measure')}</th><th>${L('Ku','Where')}</th><th>ha</th><th>SDG</th></tr></thead><tbody>
+      ${measures.map(([c,k,t,where,ha,pr]) => `<tr><td class="pd-code">${k ? chip(k) : '<i class="pd-chip pd-hatch"></i>'}${c}</td><td><b>${esc(t)}</b></td><td>${esc(where)}</td><td class="num">${ha}</td><td class="pd-code pd-sdgc">${PLAN_SDG[c]}</td></tr>`).join('')}</tbody></table></section>
       <p class="note pd-regen">${L('<b>Shënim.</b> Densifikimi mund të ndodhë edhe në hapësira të tjera, jo vetëm në tokën e lirë: parcela të ndërtuara me dendësi të ulët, objekte të braktisura, zona industriale e depo (brownfield), si pjesë e masave të rigjenerimit urban. Modeli përdor vetëm tokën e lirë, prandaj kapaciteti real brenda kufirit është më i madh.','<b>Note.</b> Densification can also happen on other spaces, not only on free land: low-density built plots, abandoned buildings, industrial sites and depots (brownfield), as part of urban regeneration measures. The model uses free land only, so the real capacity inside the boundary is larger.')}</p>
-    ${lcRows}
-    <section><h4><span>§ ${lcRows ? 5 : 4}</span>${L('Skenari kundrejt realitetit, vit pas viti','Scenario against reality, year by year')}</h4>
+    ${sdgSec()}
+    ${lcSec()}
+    <section><h4><span>§ ${S()}</span>${L('Skenari kundrejt realitetit, vit pas viti','Scenario against reality, year by year')}</h4>
       <div class="sdg-legend"><span><i style="background:rgb(${PLANC[2].c.join(',')})"></i>${L('brenda kufirit','inside the boundary')}</span><span><i style="background:rgb(${PLANC[4].c.join(',')})"></i>${L('zhvendosur nga plani','relocated by the plan')}</span><span><i style="background:rgb(${PLANC[3].c.join(',')})"></i>${L('jashtë kufirit në realitet','outside the boundary in reality')}</span></div>
       <p class="note">${L('Shtylla majtas: skenari. Shtylla djathtas: realiteti.','Left bar: scenario. Right bar: reality.')}</p>${chart}</section>
-    <section><h4><span>§ ${lcRows ? 6 : 5}</span>${L('Masat sipas drejtimit','Measures by direction')}</h4><table class="pd-table"><thead><tr><th>${L('Drejtimi','Direction')}</th><th>${L('Jashtë kufirit, ha','Outside, ha')}</th><th>${L('Brenda, ha','Inside, ha')}</th><th>${L('Masa kryesore','Main measure')}</th></tr></thead><tbody>
+    <section><h4><span>§ ${S()}</span>${L('Masat sipas drejtimit','Measures by direction')}</h4><table class="pd-table"><thead><tr><th>${L('Drejtimi','Direction')}</th><th>${L('Jashtë kufirit, ha','Outside, ha')}</th><th>${L('Brenda, ha','Inside, ha')}</th><th>${L('Masa kryesore','Main measure')}</th></tr></thead><tbody>
       ${z.dir.map((d,k) => `<tr><td><b>${esc(DIRS[k])}</b></td><td class="num">${fmtHa(d.moved)}</td><td class="num">${fmtHa(d.kept)}</td><td>${esc(planDirMeasure(d))}</td></tr>`).join('')}</tbody></table></section>
-    <section><h4><span>§ ${lcRows ? 7 : 6}</span>${L('Shënime dhe kufizime','Notes and limitations')}</h4><p class="note">${L(`Ky është skenar analitik, jo plan ligjor (PZHK ose HZK). Modeli e vendos ndërtimin në blloqe ${PLAN_BLOCK_M} m × ${PLAN_BLOCK_M} m te toka e lirë me dendësinë më të lartë përreth, mbushjen para skajit dhe tokën bujqësore në fund. Hapësirat e lira të ngushta e të gjata mes ndërtimeve (nën rreth ${2*PLAN_CORE_M} m gjerësi; rrugët, që WSF nuk i shënon si të ndërtuara) nuk llogariten tokë ndërtimi${P.LC ? ', ndërsa pyjet dhe ujërat ruhen' : ''}. Modeli nuk njeh pronësinë, pjerrësinë, përmbytjet ose çmimet. Kufiri zgjerohet me 100 m vetëm kur toka brenda tij mbaron. ${P.K ? `Projeksioni deri në ${PLAN_HORIZON} përdor mesataren e pesë viteve të fundit dhe është më i pasigurt sa më larg në kohë.` : ''} Llogaritja: ${number(Math.round(P.ms))} ms.`,`This is an analytical scenario, not a statutory plan. The model places construction in ${PLAN_BLOCK_M} m × ${PLAN_BLOCK_M} m blocks on the free land with the highest surrounding density, infill before edge and farm land last. Long narrow open gaps between buildings (under about ${2*PLAN_CORE_M} m wide; streets, which WSF does not map as built) are not counted as building land${P.LC ? ', and forests and water are kept' : ''}. It knows nothing of ownership, slope, floods or prices. The boundary grows by 100 m only when the land inside it runs out. ${P.K ? `The projection to ${PLAN_HORIZON} uses the mean of the last five years and is less certain the further it goes.` : ''} Computed in ${number(Math.round(P.ms))} ms.`)}</p></section>
+    <section><h4><span>§ ${S()}</span>${L('Shënime dhe kufizime','Notes and limitations')}</h4><p class="note">${L(`Ky është skenar analitik, jo plan ligjor (PZHK ose HZK). Modeli e vendos ndërtimin në blloqe ${PLAN_BLOCK_M} m × ${PLAN_BLOCK_M} m te toka e lirë me dendësinë më të lartë përreth, mbushjen para skajit dhe tokën bujqësore në fund. Hapësirat e lira të ngushta e të gjata mes ndërtimeve (nën rreth ${2*PLAN_CORE_M} m gjerësi; rrugët, që WSF nuk i shënon si të ndërtuara) nuk llogariten tokë ndërtimi${P.LC ? `, ndërsa pyjet dhe ujërat ruhen; kullotat e shkurret ruhen aq sa hapësira e gjelbër të arrijë ${PLAN_GREEN_TARGET*100}% të kufirit (UN-Habitat rekomandon rreth 15% hapësirë publike të hapur)` : ''}. Modeli nuk njeh pronësinë, pjerrësinë, përmbytjet ose çmimet. Kufiri zgjerohet me 100 m vetëm kur toka brenda tij mbaron. ${P.K ? `Projeksioni deri në ${PLAN_HORIZON} përdor mesataren e pesë viteve të fundit dhe është më i pasigurt sa më larg në kohë.` : ''} Llogaritja: ${number(Math.round(P.ms))} ms.`,`This is an analytical scenario, not a statutory plan. The model places construction in ${PLAN_BLOCK_M} m × ${PLAN_BLOCK_M} m blocks on the free land with the highest surrounding density, infill before edge and farm land last. Long narrow open gaps between buildings (under about ${2*PLAN_CORE_M} m wide; streets, which WSF does not map as built) are not counted as building land${P.LC ? `, and forests and water are kept; grass and shrubland are kept until green space reaches ${PLAN_GREEN_TARGET*100}% of the boundary (UN-Habitat recommends about 15% open public space)` : ''}. It knows nothing of ownership, slope, floods or prices. The boundary grows by 100 m only when the land inside it runs out. ${P.K ? `The projection to ${PLAN_HORIZON} uses the mean of the last five years and is less certain the further it goes.` : ''} Computed in ${number(Math.round(P.ms))} ms.`)}</p></section>
     <div class="pd-sign">${L('Përgatiti: Atlasi urban i Kosovës · Rizah Murseli','Prepared by: Urban Atlas of Kosovo · Rizah Murseli')} · ${(d => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`)(new Date())}</div>
   </article>`;
 }
 let planTimer = 0;
+function planSetExtra(v) {
+  state.planExtra = v;
+  if (v && state.index !== count()-1) state.index = count()-1;
+  if (sprawlRes) { sprawlRes.viewKey = null;sprawlRes.radialKey = null; }
+  sprawlView();renderSprawlPanel();paint(true);
+}
+// The main Play button runs on into the projection years in the Plan view.
+function planStep() {
+  const P = sprawlRes?.plan;
+  if (state.mapView !== 'plan' || !P?.K || state.index < count()-1 || (state.planExtra || 0) >= P.K) return false;
+  planSetExtra((state.planExtra || 0)+1);
+  return true;
+}
+// Projection years (to PLAN_HORIZON) as extra steps of the timeline, in the Plan view.
+function planTimeline() {
+  const lg = $('legend');if (!lg) return;
+  const P = state.mapView === 'plan' && sprawlCurrent() ? sprawlRes?.plan : null, K = P?.K || 0;
+  const have = lg.querySelectorAll('[data-proj]');
+  if (have.length === K && (!K || have[0].dataset.y === String(P.lastYear+1))) return;
+  have.forEach(e => e.remove());
+  for (let k=1;k<=K;k++) {
+    const btn = document.createElement('button');
+    btn.dataset.proj = k;btn.dataset.y = P.lastYear+k;btn.className = 'proj';btn.textContent = String(P.lastYear+k);
+    btn.title = L(`Projeksion ${P.lastYear+k} (skenar)`,`Projection ${P.lastYear+k} (scenario)`);
+    btn.onclick = () => { stop();planSetExtra(k); };
+    lg.append(btn);
+  }
+  paint(true);
+}
 function planWire() {
   const sel = $('planYear');
   if (sel) sel.onchange = () => { state.planYear = Number(sel.value);state.planExtra = 0;if (sprawlRes) { sprawlRes.viewKey = null;sprawlRes.radialKey = null; }sprawlView();renderSprawlPanel();paint(true);if (sample) updateHash(); };
   const ex = $('planExtra');
-  const setExtra = v => { state.planExtra = v;if (sprawlRes) { sprawlRes.viewKey = null;sprawlRes.radialKey = null; }sprawlView();renderSprawlPanel();paint(true); };
-  if (ex) ex.oninput = () => setExtra(Number(ex.value));
+  if (ex) ex.oninput = () => planSetExtra(Number(ex.value));
   const pl = $('planPlay');
   if (pl) pl.onclick = () => {
     clearInterval(planTimer);
     const P = sprawlRes?.plan;if (!P) return;
-    let v = 0;setExtra(0);
-    planTimer = setInterval(() => { v++;if (v > P.K) { clearInterval(planTimer);return; }setExtra(v); },900);
+    let v = 0;planSetExtra(0);
+    planTimer = setInterval(() => { v++;if (v > P.K) { clearInterval(planTimer);return; }planSetExtra(v); },900);
   };
+}
+// SDG targets served in one direction, from its main measures.
+function planDirSdg(d) {
+  const z = sprawlRes?.planDirCache;
+  const dd = z?.[d];if (!dd) return '';
+  const codes = [...new Set((planDirMeasure(dd).match(/M\d/g) || []).flatMap(m => PLAN_SDG[m].split(' · ')))];
+  return codes.length ? 'SDG '+[...new Set(codes)].join(' · ') : '';
 }
 
 function planChartSvg(z,opts={}) {
   const P = z.P, yName = planYearName;
-    const W2 = opts.w || 300, H2 = opts.h || 120, m = {l:30,r:6,t:8,b:20}, pw = W2-m.l-m.r, ph = H2-m.t-m.b, list = P.years, nn = list.length, slot = pw/Math.max(1,nn), bw = Math.max(1.5,slot*.72);
+    const W2 = opts.w || 300, H2 = opts.h || 120, m = {l:30,r:6,t:opts.h ? 14 : 18,b:20}, pw = W2-m.l-m.r, ph = H2-m.t-m.b, list = P.years, nn = list.length, slot = pw/Math.max(1,nn), bw = Math.max(1.5,slot*.72);
     const max = niceMax(Math.max(...list.map(y => Math.max(y.kept+y.placed,y.kept+y.moved)),1e-6)*1.1);
     let svg = `<svg viewBox="0 0 ${W2} ${H2}" class="sprawl-chart" role="img">`;
     for (const t of [0,max/2,max]) { const yy = m.t+ph-t/max*ph;svg += `<line x1="${m.l}" x2="${W2-m.r}" y1="${yy}" y2="${yy}" stroke="#1e2a3a"/><text x="${m.l-4}" y="${yy+3}" text-anchor="end" font-size="8" fill="#7f93ab">${fmtHa(t)}</text>`; }
@@ -4684,6 +4801,11 @@ function planChartSvg(z,opts={}) {
       svg += `<rect x="${x.toFixed(1)}" y="${(m.t+ph-hK-hP).toFixed(1)}" width="${(bw/2).toFixed(1)}" height="${Math.max(0,hP-.5).toFixed(1)}" fill="rgb(${PLANC[4].c.join(',')})"/>`;
       svg += `<rect x="${(x+bw/2).toFixed(1)}" y="${(m.t+ph-hK).toFixed(1)}" width="${(bw/2).toFixed(1)}" height="${Math.max(0,hK-.5).toFixed(1)}" fill="rgb(${PLANC[2].c.join(',')})" opacity=".55"/>`;
       svg += `<rect x="${(x+bw/2).toFixed(1)}" y="${(m.t+ph-hK-hM).toFixed(1)}" width="${(bw/2).toFixed(1)}" height="${Math.max(0,hM-.5).toFixed(1)}" fill="rgb(${PLANC[3].c.join(',')})"/></g>`;
+      // On top of each year: the SDG targets the plan serves that year.
+      const codes = [];
+      if (y.moved > 0 || y.proj) codes.push('11.3');
+      if (y.lost > 0) codes.push('15.1');
+      if (codes.length && y.t <= z.Y) { const top = m.t+ph-Math.max(hK+hP,hK+hM)-3;codes.forEach((c,q) => { svg += `<text x="${(x+bw/2).toFixed(1)}" y="${(top-q*7).toFixed(1)}" text-anchor="middle" font-size="${opts.h ? 5.6 : 6.4}" fill="#9fd7ff">${c}</text>`; }); }
     });
     const ticks = list.map((_,j) => j).filter(j => nn <= 12 || Number(yName(list[j].t).replace(/\D/g,'').slice(-4))%5 === 0 || j === nn-1);
     for (const j of ticks) svg += `<text x="${(m.l+j*slot+slot/2).toFixed(1)}" y="${H2-6}" text-anchor="middle" font-size="8" fill="#7f93ab">${esc(yName(list[j].t))}</text>`;

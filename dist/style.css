@@ -440,3 +440,9 @@ body.view-plan label[for=sprawlShow],body.view-plan label[for=sprawlMode]{displa
 .pd-table tr.pd-loss td{color:#ffd9a8}
 .pd-table tr.pd-sum td{border-top:1px solid #2b3d57;font-weight:700;color:#e8eef6}
 .plan-doc .pd-regen{border-left:2px solid #40b878;padding:4px 0 4px 8px;margin-top:8px}
+#legend button.proj{border-top:6px dashed #40b878;color:#8fd6ae}
+#legend button.proj.active{color:#e8eef6;border-top-style:solid}
+.pd-table .pd-sdgc{font-size:9.5px;color:#9fd7ff;white-space:nowrap}
+.pd-table.pd-sdg td.pd-code{color:#9fd7ff}
+.pd-st{text-align:center;font-weight:700}
+.pd-st0{color:#8fa3bc}.pd-st1{color:#40b878}.pd-st2{color:#ffb000}.pd-st3{color:#ff4d6d}
