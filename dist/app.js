@@ -1811,13 +1811,13 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     const showNow = state.sprawlMode === 'steps' && (state.sprawlShow === 'now' || state.sprawlShow === 'stage'), showYear = state.sprawlMode === 'steps' && state.sprawlShow === 'year';
     text(state.mapView === 'plan' ? L(`Skenari kompakt: masat nga ${planYearName(sprawlRes.plan?.p ?? 0)}`,`Compact scenario: measures from ${planYearName(sprawlRes.plan?.p ?? 0)}`) : state.mapView === 'sdg' ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short} dhe SDG`,`New construction ${steps[0].short}–${steps[i].short} and the SDGs`) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: shkalla në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: stage in ${steps[i].short}`) : showNow ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: klasa në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: class in ${steps[i].short}`)
       : showYear ? L(`Shtesat e ${steps[i].short} sipas klasës`,`Additions of ${steps[i].short} by class`) : L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short} sipas klasës`,`New construction ${steps[0].short}–${steps[i].short} by class`),11,'',700,26);
-    const T = state.sprawlNucleus, legItems = state.mapView === 'plan' ? [8,6,7,5,2,4,3,1].map(k => [PLANC[k].c.slice(0,3),PLANC[k].t.replace(/ \((M\d)\)/,' $1')]).concat(sprawlRes?.plan?.LC ? [[PLANC[9].c.slice(0,3),L('Pyll i ruajtur M7','Forest kept M7')],[PLANC[10].c.slice(0,3),L('Ujë i ruajtur M7','Water kept M7')],[PLANC[13].c.slice(0,3),L('Gjelbërim komunitar M8','Community green M8')],[PLANC[11].c.slice(0,3),L('Humbur nën ndërtim','Lost to construction')]] : []) : state.mapView === 'sdg' ? [1,2,3].map(k => [SDGF[k].c,SDGF[k].s+' '+SDGF[k].k]) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? (stageNames(),[0,1,2,3,4,5].filter(k => k !== 3 || T).map(k => [STAGES[k].c,STAGES[k].t.replace(/ \(.*\)$/,'')])) : [[SPRAWL_CLASSES[0].c,SPRAWL_CLASSES[0].t],[SPRAWL_CLASSES[1].c,SPRAWL_CLASSES[1].t],[SPRAWL_SIZE[1].c,L('Kërcim < 1 ha','Leapfrog < 1 ha')],[SPRAWL_SIZE[2].c,T ? L(`Kërcim 1–${T} ha`,`Leapfrog 1–${T} ha`) : L('Kërcim ≥ 1 ha','Leapfrog ≥ 1 ha')],...(T ? [[SPRAWL_SIZE[3].c,L(`Bërthamë e re ≥ ${T} ha`,`New nucleus ≥ ${T} ha`)]] : [])];
-    const one = state.mapView === 'plan';
+    const T = state.sprawlNucleus, legItems = state.mapView === 'plan' ? [8,6,7,5,2,4,...(state.planReal ? [3] : []),1].map(k => [PLANC[k].c.slice(0,3),PLANC[k].t.replace(/ \((M\d)\)/,' $1')]).concat(sprawlRes?.plan?.LC ? [[PLANC[9].c.slice(0,3),L('Pyll i ruajtur M7','Forest kept M7')],[PLANC[13].c.slice(0,3),L('Shkurre e ruajtur M7','Shrub kept M7')]] : []) : state.mapView === 'sdg' ? [1,2,3].map(k => [SDGF[k].c,SDGF[k].s+' '+SDGF[k].k]) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? (stageNames(),[0,1,2,3,4,5].filter(k => k !== 3 || T).map(k => [STAGES[k].c,STAGES[k].t.replace(/ \(.*\)$/,'')])) : [[SPRAWL_CLASSES[0].c,SPRAWL_CLASSES[0].t],[SPRAWL_CLASSES[1].c,SPRAWL_CLASSES[1].t],[SPRAWL_SIZE[1].c,L('Kërcim < 1 ha','Leapfrog < 1 ha')],[SPRAWL_SIZE[2].c,T ? L(`Kërcim 1–${T} ha`,`Leapfrog 1–${T} ha`) : L('Kërcim ≥ 1 ha','Leapfrog ≥ 1 ha')],...(T ? [[SPRAWL_SIZE[3].c,L(`Bërthamë e re ≥ ${T} ha`,`New nucleus ≥ ${T} ha`)]] : [])];
+    const one = state.mapView === 'plan', lcN = one && sprawlRes?.plan?.LC ? 2 : 0, legRows = legItems.length-lcN+Math.ceil(lcN/2), legStep = legRows > 8 ? 12.5 : 14;
     legItems.forEach(([c,t],k) => {
-      const rowP = k < 8 ? k : k < 10 ? 8 : 9, lx = one ? ax+(k === 9 || k === 11 ? 150 : 0) : ax+(k%2)*150, ly = one ? y+16+rowP*(legItems.length > 8 ? 12.5 : 14) : y+16+Math.floor(k/2)*16;
+      const M = legItems.length-lcN, rowP = k < M ? k : M+Math.floor((k-M)/2), lx = one ? ax+(k >= M && (k-M)%2 ? 150 : 0) : ax+(k%2)*150, ly = one ? y+16+rowP*legStep : y+16+Math.floor(k/2)*16;
       out += `<rect x="${lx}" y="${ly-9}" width="11" height="10" fill="rgb(${c.join(',')})"/><text x="${lx+17}" y="${ly}" font-size="9.5">${xml(t)}</text>`;
     });
-    y += one ? (legItems.length > 8 ? 12.5*10+2 : 14*legItems.length+2) : 16*Math.ceil(legItems.length/2);
+    y += one ? legStep*legRows+2 : 16*Math.ceil(legItems.length/2);
     const bases = [[1,L('urban','urban')],[2,L('suburban','suburban')],[3,L('rural','rural')]];
     y += 17;
     out += `<text x="${ax}" y="${y}" font-size="8.5" class="muted">${xml(L(`ndërtuar në ${steps[0].short}:`,`built in ${steps[0].short}:`))}</text>`;
@@ -1957,7 +1957,7 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     for (const line of wrap(fin,cpl)) { out += `<text x="${bx}" y="${ty}" font-size="8.3">${xml(line)}</text>`;ty += 10.5; }
     ty += 6;
     out += `<text x="${bx}" y="${ty}" font-size="9" font-weight="700">${xml(L('Masat','Measures'))}</text>`;ty += 12;
-    const ms = [['M1',6,L('Densifiko / mbush','Densify / infill'),P.capM1],['M2',7,L('Konsolido skajin','Consolidate the edge'),P.capM2],['M3',8,L('Kufi i rritjes urbane','Urban growth boundary'),plz.ugbHa],['M4',5,L('Fuqizo qendrat e reja','Strengthen the new centres'),plz.nucHa],['M5',3,L('Ndal / sano shpërndarjen','Stop / repair dispersal'),plz.moved],['M6',null,L('Ruaj tokën rurale e bujqësore','Protect rural and farm land'),plz.moved],...(P.LC ? [['M7',9,L('Ruaj pyjet e ujërat','Keep forests and water'),plz.protHa[1]+plz.protHa[2]],['M8',13,L('Gjelbërim komunitar','Community green'),plz.commHa]] : [])];
+    const ms = [['M1',6,L('Densifiko / mbush','Densify / infill'),P.capM1],['M2',7,L('Konsolido skajin','Consolidate the edge'),P.capM2],['M3',8,L('Kufi i rritjes urbane','Urban growth boundary'),plz.ugbHa],['M4',5,L('Fuqizo qendrat e reja','Strengthen the new centres'),plz.nucHa],['M5',3,L('Ndal / sano shpërndarjen','Stop / repair dispersal'),plz.moved],['M6',null,L('Ruaj tokën rurale e bujqësore','Protect rural and farm land'),plz.moved],...(P.LC ? [['M7',9,L('Ruaj pyjet e shkurret: rekreacion','Keep forest and shrub: recreation'),plz.protHa[1]+plz.protHa[2]]] : [])];
     for (const [c,k,t,h] of ms) { if (k) out += `<rect x="${bx}" y="${ty-8}" width="9" height="9" fill="rgb(${PLANC[k].c.slice(0,3).join(',')})"/>`;out += `<text x="${bx+14}" y="${ty}" font-size="8.3" font-weight="700" class="mono">${c}</text><text x="${bx+38}" y="${ty}" font-size="8.3">${xml(t)}</text><text x="${bRight-62}" y="${ty}" font-size="7.4" text-anchor="end" style="fill:#9fd7ff">${xml('SDG '+PLAN_SDG[c])}</text><text x="${bRight}" y="${ty}" font-size="8.3" text-anchor="end" class="mono">${xml(fmtHa(h))} ha</text>`;ty += ms.length > 7 ? 9.4 : ms.length > 6 ? 10.5 : 12; }
     // Measures by direction, in one line: the main measure codes and the construction outside the boundary.
     const dirLine = plz.dir.map((d,k) => `${DIRS[k][0]} ${(planDirMeasure(d).match(/M\d/g) || ['—']).join('·')} ${fmtHa(d.moved)}`).join(' · ');
@@ -2547,7 +2547,7 @@ function sprawlNow(r,i,t) {
 state.sprawlShow = 'stage';
 state.stageCuts = [1,10,50];   // ha, configurable on the map: A < 1 · B 1–10 · C 10–50 · D ≥ 50
 state.sprawlNucleus = 10;   // = stageCuts[1]: a detached structure of at least this size counts as a new nucleus, not as sprawl
-const sprawlViewKey = () => `${baseOff()+1}|${baseOff()+state.index+1}|${state.sprawlShow}|${state.stageCuts.join(',')}|${state.mapView}|${state.planYear}|${state.planExtra}`;
+const sprawlViewKey = () => `${baseOff()+1}|${baseOff()+state.index+1}|${state.sprawlShow}|${state.stageCuts.join(',')}|${state.mapView}|${state.planYear}|${state.planExtra}|${state.planReal}`;
 function formsLike() { return state.mapView === 'forms' || state.mapView === 'sdg' || state.mapView === 'plan'; }   // 'now' class at the year on display · 'class' class when built · 'year' this year's additions only
 let sprawlRes = null, sprawlPending = null, sprawlTimer = 0, sprawlJob = 0, sprawlWorker = null, workerGridKey = null, sprawlWaiters = [];
 const sprawlLocal = sprawlEngine();
@@ -2942,7 +2942,7 @@ function setMapView(v,repaint=true) {
   if (state.sprawl && state.mode !== 'cumulative') setMode('cumulative',false);
   const hint = $('timelineHint');
   if (hint) { if (hint.dataset.time == null) hint.dataset.time = hint.textContent;
-    hint.textContent = v === 'plan' ? L('Skenar planifikimi: zgjidhni vitin kur hyjnë masat në fuqi dhe luajeni. Gri-blu = ndërtimi real brenda kufirit, jeshile = ndërtimi i zhvendosur nga plani, e kuqe = ndërtimi real jashtë kufirit që plani e shmang.','Planning scenario: choose the year the measures take effect and play it. Grey-blue = actual construction inside the boundary, green = construction relocated by the plan, red = actual construction outside the boundary that the plan avoids.') : v === 'sdg' ? L('Ngjyrat në hartë tregojnë si ndikon ndërtimi i ri në SDG: në përputhje, konsum toke ose cenim. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show how new construction bears on the SDGs: in line, land take or breach. Shortcuts: ← → for the year, space to play.') : v === 'forms' ? L('Ngjyrat në hartë tregojnë formën e zgjerimit, jo vitin. Fillo nga viti bazë për të parë gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show the form of expansion, not the year. Start at the base year to see the initial state. Shortcuts: ← → for the year, space to play.') : hint.dataset.time; }
+    hint.textContent = v === 'plan' ? L('Skenar planifikimi: zgjidhni vitin kur hyjnë masat në fuqi dhe luajeni deri në 2030. Nga ai vit rritja është sa në realitet, por e vendosur sipas planit: gri-blu = rritje brenda kufirit, jeshile = zona të planit. «Krahaso» shfaq edhe vendin real të ndërtimit të shmangur.','Planning scenario: choose the year the measures take effect and play it to 2030. From that year growth is as large as in reality but placed by the plan: grey-blue = growth inside the boundary, green = plan zones. Compare also shows where the avoided construction really went.') : v === 'sdg' ? L('Ngjyrat në hartë tregojnë si ndikon ndërtimi i ri në SDG: në përputhje, konsum toke ose cenim. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show how new construction bears on the SDGs: in line, land take or breach. Shortcuts: ← → for the year, space to play.') : v === 'forms' ? L('Ngjyrat në hartë tregojnë formën e zgjerimit, jo vitin. Fillo nga viti bazë për të parë gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show the form of expansion, not the year. Start at the base year to see the initial state. Shortcuts: ← → for the year, space to play.') : hint.dataset.time; }
   document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-selected',String(b.dataset.view === v)));
   renderSprawlPanel();
   if (state.sprawl) scheduleSprawl(true);
@@ -2976,7 +2976,10 @@ function sprawlLegendHtml() {
   if (state.mapView === 'plan') {
     if (focused) return;
     const P = sprawlRes?.plan, sw3 = k => { const rgb = `rgb(${PLANC[k].c.slice(0,3).join(',')})`;return `<span><i style="background:${k === 9 || k === 10 || k === 13 ? `repeating-linear-gradient(45deg,${rgb} 0 2px,transparent 2px 5px)` : rgb}${PLANC[k].c[3] && k < 9 ? ';opacity:.55' : ''}"></i>${esc(PLANC[k].t)}</span>`; };
-    $('sprawlLegend').innerHTML = `<b>${L(`Skenari kompakt${P ? `, masat nga ${esc(planYearName(P.p))}` : ''}:`,`Compact scenario${P ? `, measures from ${esc(planYearName(P.p))}` : ''}:`)}</b>`+[8,...(P?.expand?.length ? [14] : []),6,7,4,5,2,3,1,...(P?.LC ? [9,10,13,11,15] : [])].map(sw3).join('');
+    $('sprawlLegend').innerHTML = `<b>${L(`Skenari kompakt${P ? `, masat nga ${esc(planYearName(P.p))}` : ''}:`,`Compact scenario${P ? `, measures from ${esc(planYearName(P.p))}` : ''}:`)}</b>`+[8,...(P?.expand?.length ? [14] : []),6,7,4,5,2,1,...(P?.LC ? [9,13] : []),...(state.planReal ? [3,...(P?.LC ? [11] : [])] : [])].map(sw3).join('')
+      +`<label class="plan-real"><input type="checkbox" id="planRealChk"${state.planReal ? ' checked' : ''}> ${L('Krahaso me vendin real të ndërtimit','Compare with where it was really built')}</label>`;
+    const chk = $('planRealChk');
+    if (chk) chk.onchange = () => { state.planReal = chk.checked;if (sprawlRes) { sprawlRes.viewKey = null;sprawlRes.radialKey = null; }sprawlView();renderSprawlPanel();paint(true); };
     return;
   }
   if (state.mapView === 'sdg') {
@@ -3016,14 +3019,27 @@ function sprawlRadial() {
   const layer = {10:0,11:1,12:2,13:2,0:3,131:4,14:5};
   const cx = ((view.west+view.east)/2-w.west)/w.dlon, cy = (w.north-(view.north+view.south)/2)/w.dlat;
   const {grid,out,domain} = r;
+  if (planMode) {
+    // Scenario growth placed by the plan, in the year the plan places it.
+    const P = r.plan;
+    for (let i=0;i<grid.length;i++) {
+      const t = P.alloc[i];
+      if (!t || t > P.last || !domain[i]) continue;
+      const k = t-off-2;if (k < 0 || k >= m) continue;
+      const x = i%w.W, y = (i-x)/w.W, ddx = (x+.5-cx)*w.dx, ddy = (y+.5-cy)*w.dy, angle = (Math.atan2(ddx,-ddy)+Math.PI*2.25)%(Math.PI*2);
+      rad[Math.min(3,Math.floor(angle/(Math.PI/2)))][t <= b ? 2 : 4][k] += r.rowHa[y]/100;
+    }
+  }
   for (let i=0;i<grid.length;i++) {
     const code = grid[i], k = code-off-2;
     if (k < 0 || k >= m || !domain[i]) continue;
     let c;
     if (planMode) {
-      const P = r.plan, kk = r.planPix[i];
+      const P = r.plan;
       let g = 4;
-      if (code <= b) g = kk === 1 || kk === 5 ? 0 : kk === 2 ? 1 : kk === 3 ? 3 : 4;
+      if (code <= P.p) g = code <= b ? 0 : 4;
+      else if (P.ugbYear[i] && !P.prot[i]) g = code <= b ? 1 : 4;
+      else { if (!state.planReal) continue;g = code <= b ? 3 : 4; }
       const x = i%w.W, y = (i-x)/w.W, ddx = (x+.5-cx)*w.dx, ddy = (y+.5-cy)*w.dy, angle = (Math.atan2(ddx,-ddy)+Math.PI*2.25)%(Math.PI*2), dd = Math.min(3,Math.floor(angle/(Math.PI/2)));
       rad[dd][g][k] += r.rowHa[y]/100;
       continue;
@@ -3676,22 +3692,23 @@ function sdgInfoHtml() {
 // outside it is moved to the best free land inside (infill first, then by local built-up share), and when that land
 // runs out the boundary grows by 100 m. Beyond the last WSF year (Tracker) the demand is the mean of the last five years.
 state.planYear = null;   // period index when the measures start
+state.planReal = false;  // also show where the avoided construction really went (comparison)
 state.planExtra = 0;     // projected years shown beyond the last WSF year
 const PLAN_HORIZON = 2030;
 const PLANC = {
   1:{c:[120,130,150],t:L('Ndërtim para masave','Built before the measures')},
-  2:{c:[96,132,196],t:L('Ndërtim real brenda kufirit','Actual construction inside the boundary')},
-  3:{c:[255,77,109],t:L('Ndërtim real jashtë kufirit: shmanget (M5)','Actual construction outside the boundary: avoided (M5)')},
+  2:{c:[96,132,196],t:L('Rritje brenda kufirit, në vendin real','Growth inside the boundary, where it really happened')},
+  3:{c:[255,77,109],t:L('Krahasim: ndërtim real jashtë kufirit, i shmangur (M5)','Comparison: actual construction outside the boundary, avoided (M5)')},
   4:{c:[64,184,120],t:L('Zonë ndërtimi e planit (blloqe 100 m)','Plan building zone (100 m blocks)')},
   5:{c:[184,132,255],t:L('Qendër e re për t\'u fuqizuar (M4)','New centre to strengthen (M4)')},
   6:{c:[64,184,120,70],t:L('Tokë për densifikim (M1)','Land to densify (M1)')},
   7:{c:[255,176,0,60],t:L('Skaj për konsolidim (M2)','Edge to consolidate (M2)')},
   8:{c:[102,224,209],t:L('Kufiri i rritjes urbane i vitit të masave (M3)','Urban growth boundary of the policy year (M3)')},
-  9:{c:[120,200,80,230],t:L('Pyll i ruajtur → park, rekreacion (M7)','Forest kept → park, recreation (M7)')},
+  9:{c:[120,200,80,230],t:L('Pyll i ruajtur → park, pyll urban (M7)','Forest kept → park, urban forest (M7)')},
   10:{c:[70,160,255,230],t:L('Ujë i ruajtur → breg rekreativ (M7)','Water kept → recreational shore (M7)')},
-  11:{c:[255,150,20],t:L('Humbur: pyll ose ujë nën ndërtim real','Lost: forest or water under actual construction')},
+  11:{c:[255,150,20],t:L('Krahasim: pyll ose shkurre e humbur nën ndërtim real','Comparison: forest or shrubland lost to actual construction')},
   12:{c:[16,96,56],t:L('Skaji i zonës së planit','Edge of the plan zone')},
-  13:{c:[214,206,90,220],t:L('Kullotë/shkurre e ruajtur → gjelbërim komunitar (M8)','Grass/shrubland kept → community green (M8)')},
+  13:{c:[214,206,90,220],t:L('Shkurre/kullotë e ruajtur → hapësirë rekreative (M7)','Shrub/grassland kept → recreational space (M7)')},
   14:{c:[255,190,70],t:L('Zgjerim i kufirit kur toka mbaron','Boundary widened when land runs out')},
   15:{c:[255,150,20],t:L('Humbur: gjelbërim komunitar nën ndërtim real','Lost: community green under actual construction')},
 };
@@ -3741,7 +3758,7 @@ async function planLandcover(r,year) {
 // The land-cover map for the policy year: the latest map not after it, else the first one.
 function planLcYear(pYear) { const ys = landcover?.tiles?.years || [];if (!ys.length) return null;const before = ys.filter(y => y <= pYear);return before.length ? before[before.length-1] : ys[0]; }
 const PLAN_GREEN_TARGET = .15;   // SDG 11.7: open green space as a share of the urban area (UN-Habitat: about 15 %)
-const PLAN_SDG = {M1:'11.3',M2:'11.3',M3:'11.3 · 15.3',M4:'11.2 · 11.3',M5:'11.3 · 15.3',M6:'2.4 · 15.3',M7:'15.1 · 6.6 · 11.7',M8:'11.7 · 11.3'};
+const PLAN_SDG = {M1:'11.3',M2:'11.3',M3:'11.3 · 15.3',M4:'11.2 · 11.3',M5:'11.3 · 15.3',M6:'2.4 · 15.3',M7:'15.1 · 11.7'};
 function planCompute(r) {
   if (!r || r.mode !== 'steps' || !r.firstSub) return null;
   if (state.planYear == null || state.planYear < 1 || state.planYear > count()-2) state.planYear = planDefaultYear();
@@ -3772,23 +3789,13 @@ function planCompute(r) {
   const share = i => { const x = i%W, y = (i-x)/W, x0 = Math.max(0,x-hx), x1 = Math.min(W,x+hx+1), y0 = Math.max(0,y-hy), y1 = Math.min(H,y+hy+1);return (II[y1*(W+1)+x1]-II[y0*(W+1)+x1]-II[y1*(W+1)+x0]+II[y0*(W+1)+x0])/((x1-x0)*(y1-y0)); };
   const bx = Math.max(1,Math.round(PLAN_BLOCK_M/dx)), by = Math.max(1,Math.round(PLAN_BLOCK_M/dy)), nbx = Math.ceil(W/bx), minPix = Math.max(2,Math.round(bx*by*.1));
   const blockOf = i => { const x = i%W, y = (i-x)/W;return Math.floor(y/by)*nbx+Math.floor(x/bx); };
-  // Land cover of the policy year. Forest and water are kept (M7, SDG 15.1, 6.6). Grassland and shrubland blocks
-  // are reserved as community green (M8) until open green space reaches PLAN_GREEN_TARGET of the boundary (SDG 11.7),
-  // starting where the city is densest, i.e. where most people would use it.
+  // Land cover of the policy year, forest and shrub/grassland only: both are kept as recreational green space for the
+  // city (M7, SDG 15.1, 11.7), so they are never building land.
   const prot = new Uint8Array(N), comm = new Uint8Array(N);
-  let ugbHaP = 0, greenHaP = 0, commHa = 0;
+  let ugbHaP = 0, greenHaP = 0;const commHa = 0;
   for (let i=0;i<N;i++) {
-    if (LC) { const c = LC.cls[i];prot[i] = c === LC.forest ? 1 : c === LC.water ? 2 : 0; }
+    if (LC) { const c = LC.cls[i];prot[i] = c === LC.forest ? 1 : c === LC.range ? 2 : 0; }
     if (ugbYear[i]) { const h = haOf(i);ugbHaP += h;if (prot[i] && !builtBy(i,p)) greenHaP += h; }
-  }
-  if (LC) {
-    const m = new Map();
-    for (let i=0;i<N;i++) if (ugbYear[i] && LC.cls[i] === LC.range && !builtBy(i,p)) { const id = blockOf(i);let g = m.get(id);if (!g) m.set(id,g = {pix:[],s:0});g.pix.push(i);g.s += share(i); }
-    const blocks = [...m.values()].filter(g => g.pix.length >= minPix).sort((u,v) => v.s/v.pix.length-u.s/u.pix.length);
-    for (const g of blocks) {
-      if (greenHaP+commHa >= PLAN_GREEN_TARGET*ugbHaP) break;
-      for (const i of g.pix) { comm[i] = 1;commHa += haOf(i); }
-    }
   }
   // Building land = open land that survives a morphological opening of PLAN_OPEN_M: the thin gaps between built
   // pixels (streets, which WSF does not map as built) and slivers along kept land are left out.
@@ -3797,7 +3804,7 @@ function planCompute(r) {
   for (let i=0;i<N;i++) core[i] = dHard[i] > PLAN_OPEN_M ? 1 : 0;
   const dCore = chamfer(core,W,H,dx,dy), land = new Uint8Array(N);
   for (let i=0;i<N;i++) land[i] = !hard[i] && dCore[i] <= PLAN_OPEN_M+.01 ? 1 : 0;
-  const cropPen = i => LC && LC.cls[i] === LC.crop ? .4 : 0;   // farm land last (M6, SDG 2.4)
+  const cropPen = () => 0;
   // Plan zones: candidates grouped into PLAN_BLOCK_M blocks, ranked by their mean score and allocated whole.
   const makeBlocks = (list,score) => {
     const m = new Map();
@@ -3880,12 +3887,11 @@ function planPixels(r,b) {
       if (P.nuc[i] && c <= P.p) px[i] = 5;
       else if (c <= P.a) px[i] = 0;
       else if (c <= P.p) px[i] = 1;
-      else px[i] = P.prot[i] ? 11 : P.comm[i] ? 15 : ugbAt(i) ? 2 : 3;
+      else px[i] = ugbAt(i) && !P.prot[i] ? 2 : !state.planReal ? 0 : P.prot[i] ? 11 : 3;
       continue;
     }
     if (zoneAt(i)) { px[i] = edgeOf(zoneAt,i,1) ? 12 : 4;continue; }
-    if (P.prot[i] && P.dSeed[i] <= 400) { px[i] = P.prot[i] === 1 ? 9 : 10;continue; }
-    if (P.comm[i]) { px[i] = 13;continue; }
+    if (P.prot[i] && P.dSeed[i] <= 400) { px[i] = P.prot[i] === 1 ? 9 : 13;continue; }
     if (ugbAt(i) && P.cand[i]) px[i] = P.cand[i] === 1 ? 6 : 7;
   }
   return P;
@@ -3930,7 +3936,7 @@ function planStats() {
     const builtNow = c >= 1 && c <= Math.min(b,P.last);
     if (P.prot[i] && !builtNow && P.dSeed[i] <= 400) protHa[P.prot[i]] += h;
     if (P.comm[i] && !builtNow) commHa += h;
-    if (P.ugbYear[i] === P.p && (cl === LC.forest || cl === LC.water || cl === LC.range) && !(c >= 1 && c <= P.p)) {
+    if (P.ugbYear[i] === P.p && (cl === LC.forest || cl === LC.range) && !(c >= 1 && c <= P.p)) {
       gP += h;
       if (realNew) gReal += h;
       if (zone || (realNew && !P.prot[i] && !P.comm[i])) gScen += h;
@@ -3968,21 +3974,21 @@ function planDocHtml() {
     ['M4',5,L('Fuqizo qendrat e reja','Strengthen the new centres'),L('Bërthamat C dhe D: shërbime, transport publik','Nuclei C and D: services, public transport'),`${fmtHa(z.nucHa)} ha`,L('Mesatar','Medium')],
     ['M5',3,L('Ndal / sano shpërndarjen','Stop / repair dispersal'),L('Ndërtimi jashtë kufirit pas masave','Construction outside the boundary after the measures'),before ? '—' : `${fmtHa(z.moved)} ha`,L('I lartë','High')],
     ['M6',null,L('Ruaj tokën rurale e bujqësore','Protect rural and farm land'),topDirs.length ? L(`Sidomos në drejtim të ${topDirs.join(' dhe ')}`,`Above all towards the ${topDirs.join(' and ')}`) : L('Jashtë kufirit','Outside the boundary'),before ? '—' : `${fmtHa(z.moved)} ha`,L('I lartë','High')],
-    ...(P.LC ? [['M7',9,L('Ruaj pyjet dhe ujërat si hapësira rekreative','Keep forests and water as recreational space'),L('Pyjet, lumenjtë e liqenet brenda dhe pranë kufirit (400 m): parqe, shëtitore, breg i hapur','Forests, rivers and lakes inside and near the boundary (400 m): parks, promenades, open shores'),`${fmtHa(z.protHa[1]+z.protHa[2])} ha`,L('I lartë','High')],['M8',13,L('Gjelbërim komunitar','Community green'),L(`Kullota e shkurre brenda kufirit, të rezervuara deri sa hapësira e gjelbër të arrijë ${PLAN_GREEN_TARGET*100}% të kufirit: kopshte komunitare, lojëra, sport, pyllëzim`,`Grass and shrubland inside the boundary, reserved until green space reaches ${PLAN_GREEN_TARGET*100}% of the boundary: community gardens, play, sport, planting`),`${fmtHa(z.commHa)} ha`,L('Mesatar','Medium')]] : []),
+    ...(P.LC ? [['M7',9,L('Ruaj pyjet dhe shkurret si hapësira rekreative','Keep forests and shrubland as recreational space'),L('Pyjet, shkurret e kullotat brenda dhe pranë kufirit (400 m): parqe, pyll urban, shëtitore, lojëra e sport për komunitetin','Forests, shrub and grassland inside and near the boundary (400 m): parks, urban forest, promenades, play and sport for the community'),`${fmtHa(z.protHa[1]+z.protHa[2])} ha`,L('I lartë','High')]] : []),
   ];
   // What was lost: the land under actual construction against the land the plan uses.
   let sn = 0;const S = () => ++sn;
   const lcSec = () => !(P.LC && !before) ? '' : (() => {
-    const cl = landcover.classes, rows = [[P.LC.forest,L('Pyll','Forest')],[P.LC.water,L('Ujë, ligatina','Water, wetland')],[P.LC.range,L('Kullotë, shkurre','Grassland, shrubland')],[P.LC.crop,L('Tokë bujqësore','Farm land')]];
+    const cl = landcover.classes, rows = [[P.LC.forest,L('Pyll','Forest')],[P.LC.range,L('Shkurre, kullotë','Shrub, grassland')]];
     const other = (arr) => arr.reduce((s,v,k) => s+(rows.some(r => r[0] === k) ? 0 : v),0);
     const sR = z.real.reduce((s,v) => s+v,0), sS = z.scen.reduce((s,v) => s+v,0);
     const tr = (c,t,vR,vS,bold) => `<tr${bold ? ' class="pd-loss"' : ''}><td>${c != null ? `<i class="pd-chip" style="background:${cl[c].color}"></i>` : ''}${esc(t)}</td><td class="num">${fmtHa(vR)}</td><td class="num">${fmtHa(vS)}</td></tr>`;
-    const green = z.real[P.LC.forest]+z.real[P.LC.water], Rn = esc(yName(Math.min(z.b,P.last))), gr = z.real[P.LC.range];
+    const green = z.real[P.LC.forest]+z.real[P.LC.range], Rn = esc(yName(Math.min(z.b,P.last))), gr = z.real[P.LC.range];
     return `<section><h4><span>§ ${S()}</span>${L('Çfarë humbëm','What was lost')}</h4>
-      <p>${green >= 1 ? L(`Nga ${esc(yName(P.p))} deri në ${Rn} u ndërtuan <b>${fmtHa(z.real[P.LC.forest])} ha pyll</b>, <b>${fmtHa(z.real[P.LC.water])} ha ujë e ligatina</b> dhe ${fmtHa(gr)} ha kullota e shkurre. Aty ku sot ka një zonë ndërtimi, do të mund të kishim një hapësirë të gjelbër urbane: park, pyll urban ose breg lumi të hapur. Skenari i ruan këto toka (M7) dhe ndërton në vend të tyre në blloqet e lira brenda kufirit.`,`From ${esc(yName(P.p))} to ${Rn}, <b>${fmtHa(z.real[P.LC.forest])} ha of forest</b> and <b>${fmtHa(z.real[P.LC.water])} ha of water and wetland</b> were built on, with ${fmtHa(gr)} ha of grassland and shrubland. Where there is a building zone today, there could have been urban green space: a park, an urban forest or an open riverbank. The scenario keeps this land (M7) and builds on the free blocks inside the boundary instead.`)
-        : L(`Nga ${esc(yName(P.p))} deri në ${Rn} pothuajse nuk u ndërtua mbi pyje ose ujëra (${fmtHa(green)} ha). Humbja kryesore është toka bujqësore (${fmtHa(z.real[P.LC.crop])} ha) dhe kullotat e shkurret (${fmtHa(gr)} ha): një pjesë e tyre brenda qytetit do të mund të ishte hapësirë e gjelbër urbane. Skenari ndërton në blloqet e lira brenda kufirit dhe tokën bujqësore e përdor të fundit.`,`From ${esc(yName(P.p))} to ${Rn} almost nothing was built on forest or water (${fmtHa(green)} ha). The main loss is farm land (${fmtHa(z.real[P.LC.crop])} ha) and grassland and shrubland (${fmtHa(gr)} ha): some of it, inside the city, could have been urban green space. The scenario builds on the free blocks inside the boundary and uses farm land last.`)}</p>
+      <p>${green >= 1 ? L(`Nga ${esc(yName(P.p))} deri në ${Rn} u ndërtuan <b>${fmtHa(z.real[P.LC.forest])} ha pyll</b> dhe <b>${fmtHa(gr)} ha shkurre e kullota</b>. Aty ku sot ka një zonë ndërtimi, do të mund të kishim një hapësirë rekreative për qytetin: park, pyll urban, kënd lojërash ose fushë sporti. Skenari i ruan këto toka (M7) dhe të njëjtën rritje e vendos në blloqet e lira brenda kufirit.`,`From ${esc(yName(P.p))} to ${Rn}, <b>${fmtHa(z.real[P.LC.forest])} ha of forest</b> and <b>${fmtHa(gr)} ha of shrub and grassland</b> were built on. Where there is a building zone today, the city could have had recreational space: a park, an urban forest, a playground or a sports field. The scenario keeps this land (M7) and places the same growth on the free blocks inside the boundary.`)
+        : L(`Nga ${esc(yName(P.p))} deri në ${Rn} pothuajse nuk u ndërtua mbi pyje ose shkurre (${fmtHa(green)} ha).`,`From ${esc(yName(P.p))} to ${Rn} almost nothing was built on forest or shrubland (${fmtHa(green)} ha).`)}</p>
       <table class="pd-table"><thead><tr><th>${L('Mbulesa e tokës para ndërtimit','Land cover before construction')}</th><th>${L(`Realiteti deri ${Rn}, ha`,`Reality to ${Rn}, ha`)}</th><th>${L(`Skenari deri ${esc(Yn)}, ha`,`Scenario to ${esc(Yn)}, ha`)}</th></tr></thead><tbody>
-      ${rows.map(([c,t],n) => tr(c,t,z.real[c],z.scen[c],n < 2)).join('')}${tr(null,L('Tjetër (brenda vendbanimit, tokë e zhveshur)','Other (inside settlement, bare land)'),other(z.real),other(z.scen))}
+      ${rows.map(([c,t]) => tr(c,t,z.real[c],z.scen[c],true)).join('')}${tr(null,L('Tokë tjetër (bujqësore, brenda vendbanimit, e zhveshur)','Other land (farm, inside settlement, bare)'),other(z.real),other(z.scen))}
       <tr class="pd-sum"><td>${L('Gjithsej','Total')}</td><td class="num">${fmtHa(sR)}</td><td class="num">${fmtHa(sS)}</td></tr></tbody></table>
       <p class="note">${L(`Mbulesa e tokës sipas hartës Esri të ${P.lcYear}${P.lcYear > P.pYear ? `, harta më e hershme që ekziston (masat nisin në ${P.pYear}): toka e ndërtuar para ${P.lcYear} del si e ndërtuar, prandaj humbja nënvlerësohet` : `, viti i hyrjes së masave në fuqi`}. Me ndryshimin e vitit të masave ndryshojnë edhe kufiri dhe tokat e ruajtura.`,`Land cover from the Esri map of ${P.lcYear}${P.lcYear > P.pYear ? `, the earliest map available (the measures start in ${P.pYear}): land built before ${P.lcYear} shows as built, so the loss is underestimated` : `, the year the measures take effect`}. Changing the policy year also changes the boundary and the land kept.`)}</p></section>`;
   })();
@@ -3990,20 +3996,18 @@ function planDocHtml() {
   const sdgSec = () => {
     if (before) return '';
     const Rn = esc(yName(Math.min(z.b,P.last))), pc = v => fmt1(v*100)+'%';
-    const rows = [['11.3.1',L('Ndërtim jashtë kufirit të rritjes','Construction outside the growth boundary'),`${fmtHa(z.moved)} ha`,'0 ha',z.moved > .05 ? 1 : 0]];
+    const rows = [['11.3.1',L('Ndërtim jashtë kufirit të rritjes','Construction outside the growth boundary'),`${fmtHa(z.moved)} ha`,'0 ha',z.moved > .05 ? 1 : 0],['15.3.1 · 2.4',L('Tokë rurale e shpëtuar','Rural land saved'),'0 ha',`${fmtHa(z.moved)} ha`,z.moved > .05 ? 1 : 0]];
     if (P.LC) {
-      const cropS = z.scen[P.LC.crop], cropR = z.real[P.LC.crop];
-      rows.push(['11.7.1',L(`Hapësirë e gjelbër e hapur brenda kufirit (synimi ≥ ${PLAN_GREEN_TARGET*100}%)`,`Open green space inside the boundary (target ≥ ${PLAN_GREEN_TARGET*100}%)`),pc(z.greenReal),pc(z.greenScen),z.greenScen >= PLAN_GREEN_TARGET-.001 ? (z.greenScen > z.greenReal+.0005 ? 1 : 0) : z.greenScen > z.greenReal+.0005 ? 2 : 3]);
+      rows.push(['11.7.1',L(`Hapësirë e gjelbër rekreative brenda kufirit (pyll, shkurre; synimi ≥ ${PLAN_GREEN_TARGET*100}%)`,`Recreational green space inside the boundary (forest, shrub; target ≥ ${PLAN_GREEN_TARGET*100}%)`),pc(z.greenReal),pc(z.greenScen),z.greenScen >= PLAN_GREEN_TARGET-.001 ? (z.greenScen > z.greenReal+.0005 ? 1 : 0) : z.greenScen > z.greenReal+.0005 ? 2 : 3]);
       rows.push(['15.1.1',L('Pyll i humbur nën ndërtim','Forest lost to construction'),`${fmtHa(z.real[P.LC.forest])} ha`,'0 ha',z.real[P.LC.forest] > .05 ? 1 : 0]);
-      rows.push(['6.6.1',L('Ujë e ligatina të humbura','Water and wetland lost'),`${fmtHa(z.real[P.LC.water])} ha`,'0 ha',z.real[P.LC.water] > .05 ? 1 : 0]);
-      rows.push(['2.4.1 · 15.3.1',L('Tokë bujqësore e zënë','Farm land taken'),`${fmtHa(cropR)} ha`,`${fmtHa(cropS)} ha`,cropS < cropR-.05 ? 1 : cropS > cropR+.05 ? 2 : 0]);
+      rows.push(['15.1 · 11.7',L('Shkurre e kullota të humbura nën ndërtim','Shrub and grassland lost to construction'),`${fmtHa(z.real[P.LC.range])} ha`,'0 ha',z.real[P.LC.range] > .05 ? 1 : 0]);
     }
     rows.push(['11.3',L('Zgjerim i kufirit (kosto e kompaktësisë)','Boundary widening (cost to compactness)'),'—',z.expand.length ? `${z.expand.length} × 100 m` : L('pa zgjerim','none'),z.expand.length ? 2 : 0]);
     const st = [['=',L('njësoj','equal')],['✓',L('më mirë','better')],['!',L('kompromis','trade-off')],['✕',L('nën synim','below target')]];
     const good = rows.filter(r => r[4] === 1).map(r => r[0]), trade = rows.filter(r => r[4] >= 2).map(r => r[0]);
     return `<section><h4><span>§ ${S()}</span>${L('Bilanci i SDG-ve','SDG balance')}</h4>
-      <p>${L(`Skenari kërkon ekuilibrin mes synimeve: ndërton brenda kufirit (11.3), ruan pyjet dhe ujërat (15.1, 6.6), rezervon gjelbërim komunitar deri në ${PLAN_GREEN_TARGET*100}% të kufirit (11.7) dhe tokën bujqësore e përdor të fundit (2.4). Kufiri zgjerohet vetëm kur toka e lirë nuk mjafton.`,`The scenario balances the targets: it builds inside the boundary (11.3), keeps forests and water (15.1, 6.6), reserves community green up to ${PLAN_GREEN_TARGET*100}% of the boundary (11.7) and uses farm land last (2.4). The boundary widens only when free land runs short.`)}
-      ${good.length ? L(` Më mirë se realiteti: <b>SDG ${good.join(', ')}</b>.`,` Better than reality: <b>SDG ${good.join(', ')}</b>.`) : ''}${trade.length ? L(` Kompromis: <b>SDG ${trade.join(', ')}</b>.`,` Trade-off: <b>SDG ${trade.join(', ')}</b>.`) : ''}${P.LC && z.greenScen < PLAN_GREEN_TARGET-.001 ? L(` Hapësira e gjelbër mbetet nën ${PLAN_GREEN_TARGET*100}%: brenda kufirit nuk ka më pyje, ujëra ose kullota të lira për ta plotësuar. Pjesa që mungon (${fmtHa(Math.max(0,(PLAN_GREEN_TARGET-z.greenScen)*P.ugbHaP))} ha) duhet krijuar si parqe të reja mbi tokë tjetër, si pjesë e rigjenerimit urban.`,` Green space stays below ${PLAN_GREEN_TARGET*100}%: there is no more free forest, water or grassland inside the boundary to make it up. The missing part (${fmtHa(Math.max(0,(PLAN_GREEN_TARGET-z.greenScen)*P.ugbHaP))} ha) must be created as new parks on other land, as part of urban regeneration.`) : ''}</p>
+      <p>${L(`Nga viti i masave, skenari ka të njëjtën rritje vjetore si realiteti, por e vendos sipas synimeve SDG: brenda kufirit të rritjes (11.3), jashtë pyjeve dhe shkurreve, që mbeten hapësira rekreative për qytetin (15.1, 11.7), dhe pa zënë tokë rurale (15.3, 2.4). Kufiri zgjerohet vetëm kur toka e lirë nuk mjafton.`,`From the policy year, the scenario has the same yearly growth as reality but places it by the SDG targets: inside the growth boundary (11.3), off forests and shrubland, which stay recreational space for the city (15.1, 11.7), and without taking rural land (15.3, 2.4). The boundary widens only when free land runs short.`)}
+      ${good.length ? L(` Më mirë se realiteti: <b>SDG ${good.join(', ')}</b>.`,` Better than reality: <b>SDG ${good.join(', ')}</b>.`) : ''}${trade.length ? L(` Kompromis: <b>SDG ${trade.join(', ')}</b>.`,` Trade-off: <b>SDG ${trade.join(', ')}</b>.`) : ''}${P.LC && z.greenScen < PLAN_GREEN_TARGET-.001 ? L(` Hapësira e gjelbër mbetet nën ${PLAN_GREEN_TARGET*100}%: brenda kufirit nuk ka më pyje ose shkurre të lira për ta plotësuar. Pjesa që mungon (${fmtHa(Math.max(0,(PLAN_GREEN_TARGET-z.greenScen)*P.ugbHaP))} ha) duhet krijuar si parqe të reja mbi tokë tjetër, si pjesë e rigjenerimit urban.`,` Green space stays below ${PLAN_GREEN_TARGET*100}%: there is no more free forest or shrubland inside the boundary to make it up. The missing part (${fmtHa(Math.max(0,(PLAN_GREEN_TARGET-z.greenScen)*P.ugbHaP))} ha) must be created as new parks on other land, as part of urban regeneration.`) : ''}</p>
       <table class="pd-table pd-sdg"><thead><tr><th>SDG</th><th>${L('Treguesi','Indicator')}</th><th>${L(`Realiteti ${Rn}`,`Reality ${Rn}`)}</th><th>${L(`Skenari ${esc(Yn)}`,`Scenario ${esc(Yn)}`)}</th><th></th></tr></thead><tbody>
       ${rows.map(([c,t,vR,vS,s]) => `<tr><td class="pd-code">${c}</td><td>${esc(t)}</td><td class="num">${vR}</td><td class="num">${vS}</td><td class="pd-st pd-st${s}" title="${esc(st[s][1])}">${st[s][0]}</td></tr>`).join('')}</tbody></table></section>`;
   };
@@ -4020,8 +4024,8 @@ function planDocHtml() {
       <h3>${L('Plan i zhvillimit kompakt','Compact development plan')} — ${esc(zone)}</h3>
       <table class="pd-meta"><tr><th>${L('Zona','Area')}</th><td>${esc(zone)}</td></tr><tr><th>${L('Periudha','Period')}</th><td>${esc(steps[0].label)} – ${esc(steps[n-1].label)}${P.K ? ` · ${L('projeksion','projection')} ${PLAN_HORIZON}` : ''}</td></tr>
       <tr><th>${L('Masat në fuqi nga','Measures in force from')}</th><td><select id="planYear">${opts}</select></td></tr><tr><th>${L('Gjendja e paraqitur','State shown')}</th><td>${esc(Yn)}${state.planExtra ? ' · '+L('projeksion','projection') : ''}</td></tr>
-      <tr><th>${L('Skenari','Scenario')}</th><td>${P.LC ? L('Kompakt, i balancuar me SDG: M1–M8','Compact, balanced with the SDGs: M1–M8') : L('Kompakt: M1–M6','Compact: M1–M6')}</td></tr></table></div>
-    <section><h4><span>§ ${S()}</span>${L('Qëllimi','Purpose')}</h4><p>${L('Rritja e zonës së ndërtuar të drejtohet brenda qytetit dhe qendrave ekzistuese, që toka rurale e bujqësore, pyjet dhe ujërat të ruhen, qyteti të ketë hapësirë të gjelbër të mjaftueshme dhe të arrihen synimet SDG 11.3, 11.7, 15.1, 15.3, 6.6 dhe 2.4. Skenari mban të njëjtën sasi ndërtimi si realiteti dhe ndryshon vetëm vendin e tij.','Growth of the built-up area is directed inside the city and existing centres, so that rural and farm land, forests and water are kept, the city has enough green space, and SDG targets 11.3, 11.7, 15.1, 15.3, 6.6 and 2.4 are met. The scenario keeps the same amount of construction as reality and changes only where it goes.')}</p></section>
+      <tr><th>${L('Skenari','Scenario')}</th><td>${P.LC ? L('Kompakt, sipas SDG: M1–M7','Compact, by the SDGs: M1–M7') : L('Kompakt: M1–M6','Compact: M1–M6')}</td></tr></table></div>
+    <section><h4><span>§ ${S()}</span>${L('Qëllimi','Purpose')}</h4><p>${L('Rritja e zonës së ndërtuar të drejtohet brenda qytetit dhe qendrave ekzistuese, që toka rurale të ruhet, pyjet e shkurret të mbeten hapësira rekreative për qytetin dhe të arrihen synimet SDG 11.3, 11.7, 15.1, 15.3 dhe 2.4. Nga viti kur masat hyjnë në fuqi, skenari rritet çdo vit sa realiteti, por jo në të njëjtin vend: rritja vendoset aty ku e kërkojnë SDG-të. Harta tregon vetëm skenarin; vendi real i ndërtimit të shmangur shfaqet vetëm me «Krahaso».','Growth of the built-up area is directed inside the city and existing centres, so that rural land is kept, forests and shrubland stay recreational space for the city, and SDG targets 11.3, 11.7, 15.1, 15.3 and 2.4 are met. From the year the measures take effect, the scenario grows each year as much as reality, but not in the same place: growth goes where the SDGs ask. The map shows the scenario only; where the avoided construction really went appears only with Compare.')}</p></section>
     <section><h4><span>§ ${S()}</span>${L('Përfundimi','Finding')}</h4><p class="pd-finding">${finding}</p>${bau ? `<p>${bau}</p>` : ''}${proj}</section>
     <section><h4><span>§ ${S()}</span>${L('Masat','Measures')}</h4><table class="pd-table"><thead><tr><th></th><th>${L('Masa','Measure')}</th><th>${L('Ku','Where')}</th><th>ha</th><th>SDG</th></tr></thead><tbody>
       ${measures.map(([c,k,t,where,ha,pr]) => `<tr><td class="pd-code">${k ? chip(k) : '<i class="pd-chip pd-hatch"></i>'}${c}</td><td><b>${esc(t)}</b></td><td>${esc(where)}</td><td class="num">${ha}</td><td class="pd-code pd-sdgc">${PLAN_SDG[c]}</td></tr>`).join('')}</tbody></table></section>
@@ -4033,7 +4037,7 @@ function planDocHtml() {
       <p class="note">${L('Shtylla majtas: skenari. Shtylla djathtas: realiteti.','Left bar: scenario. Right bar: reality.')}</p>${chart}</section>
     <section><h4><span>§ ${S()}</span>${L('Masat sipas drejtimit','Measures by direction')}</h4><table class="pd-table"><thead><tr><th>${L('Drejtimi','Direction')}</th><th>${L('Jashtë kufirit, ha','Outside, ha')}</th><th>${L('Brenda, ha','Inside, ha')}</th><th>${L('Masa kryesore','Main measure')}</th></tr></thead><tbody>
       ${z.dir.map((d,k) => `<tr><td><b>${esc(DIRS[k])}</b></td><td class="num">${fmtHa(d.moved)}</td><td class="num">${fmtHa(d.kept)}</td><td>${esc(planDirMeasure(d))}</td></tr>`).join('')}</tbody></table></section>
-    <section><h4><span>§ ${S()}</span>${L('Shënime dhe kufizime','Notes and limitations')}</h4><p class="note">${L(`Ky është skenar analitik, jo plan ligjor (PZHK ose HZK). Modeli e vendos ndërtimin në blloqe ${PLAN_BLOCK_M} m × ${PLAN_BLOCK_M} m te toka e lirë me dendësinë më të lartë përreth, mbushjen para skajit dhe tokën bujqësore në fund. Hapësirat e lira të ngushta e të gjata mes ndërtimeve (nën rreth ${2*PLAN_CORE_M} m gjerësi; rrugët, që WSF nuk i shënon si të ndërtuara) nuk llogariten tokë ndërtimi${P.LC ? `, ndërsa pyjet dhe ujërat ruhen; kullotat e shkurret ruhen aq sa hapësira e gjelbër të arrijë ${PLAN_GREEN_TARGET*100}% të kufirit (UN-Habitat rekomandon rreth 15% hapësirë publike të hapur)` : ''}. Modeli nuk njeh pronësinë, pjerrësinë, përmbytjet ose çmimet. Kufiri zgjerohet me 100 m vetëm kur toka brenda tij mbaron. ${P.K ? `Projeksioni deri në ${PLAN_HORIZON} përdor mesataren e pesë viteve të fundit dhe është më i pasigurt sa më larg në kohë.` : ''} Llogaritja: ${number(Math.round(P.ms))} ms.`,`This is an analytical scenario, not a statutory plan. The model places construction in ${PLAN_BLOCK_M} m × ${PLAN_BLOCK_M} m blocks on the free land with the highest surrounding density, infill before edge and farm land last. Long narrow open gaps between buildings (under about ${2*PLAN_CORE_M} m wide; streets, which WSF does not map as built) are not counted as building land${P.LC ? `, and forests and water are kept; grass and shrubland are kept until green space reaches ${PLAN_GREEN_TARGET*100}% of the boundary (UN-Habitat recommends about 15% open public space)` : ''}. It knows nothing of ownership, slope, floods or prices. The boundary grows by 100 m only when the land inside it runs out. ${P.K ? `The projection to ${PLAN_HORIZON} uses the mean of the last five years and is less certain the further it goes.` : ''} Computed in ${number(Math.round(P.ms))} ms.`)}</p></section>
+    <section><h4><span>§ ${S()}</span>${L('Shënime dhe kufizime','Notes and limitations')}</h4><p class="note">${L(`Ky është skenar analitik, jo plan ligjor (PZHK ose HZK). Modeli e vendos ndërtimin në blloqe ${PLAN_BLOCK_M} m × ${PLAN_BLOCK_M} m te toka e lirë me dendësinë më të lartë përreth, mbushjen para skajit dhe tokën bujqësore në fund. Hapësirat e lira të ngushta e të gjata mes ndërtimeve (nën rreth ${2*PLAN_CORE_M} m gjerësi; rrugët, që WSF nuk i shënon si të ndërtuara) nuk llogariten tokë ndërtimi${P.LC ? `, ndërsa pyjet, shkurret e kullotat (harta Esri e ${P.lcYear}) ruhen si hapësira rekreative; nga mbulesa e tokës përdoren vetëm këto dy klasa. Synimi i gjelbërimit ${PLAN_GREEN_TARGET*100}% ndjek rekomandimin e UN-Habitat për hapësirë publike të hapur` : ''}. Modeli nuk njeh pronësinë, pjerrësinë, përmbytjet ose çmimet. Kufiri zgjerohet me 100 m vetëm kur toka brenda tij mbaron. ${P.K ? `Projeksioni deri në ${PLAN_HORIZON} përdor mesataren e pesë viteve të fundit dhe është më i pasigurt sa më larg në kohë.` : ''} Llogaritja: ${number(Math.round(P.ms))} ms.`,`This is an analytical scenario, not a statutory plan. The model places construction in ${PLAN_BLOCK_M} m × ${PLAN_BLOCK_M} m blocks on the free land with the highest surrounding density, infill before edge and farm land last. Long narrow open gaps between buildings (under about ${2*PLAN_CORE_M} m wide; streets, which WSF does not map as built) are not counted as building land${P.LC ? `, and forests, shrub and grassland (Esri map of ${P.lcYear}) are kept as recreational space; only these two land-cover classes are used. The ${PLAN_GREEN_TARGET*100}% green target follows UN-Habitat's recommendation for open public space` : ''}. It knows nothing of ownership, slope, floods or prices. The boundary grows by 100 m only when the land inside it runs out. ${P.K ? `The projection to ${PLAN_HORIZON} uses the mean of the last five years and is less certain the further it goes.` : ''} Computed in ${number(Math.round(P.ms))} ms.`)}</p></section>
     <div class="pd-sign">${L('Përgatiti: Atlasi urban i Kosovës · Rizah Murseli','Prepared by: Urban Atlas of Kosovo · Rizah Murseli')} · ${(d => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`)(new Date())}</div>
   </article>`;
 }
