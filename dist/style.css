@@ -397,3 +397,5 @@ body.view-forms #unitFormsZone{display:block}
 #unitFormsZone > h3{margin:14px 0 6px}
 #unitFormsZoneBody{border-bottom:1px solid #1e2a3a;padding-bottom:10px;margin-bottom:6px}
 #unitFormsZoneBody .sprawl-chart{max-width:480px}
+body.view-sdg label[for=sprawlShow],body.view-sdg label[for=sprawlMode]{display:none}
+.sprawl-legend .sdg-sym{font-family:'Space Mono',monospace}

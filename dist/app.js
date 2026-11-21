@@ -324,7 +324,7 @@ function paint(mapOnly=false) {
   const palette = colors();
   const color = palette[state.index];
   $('year').textContent = stepYear(state.index);
-  $('year').style.color = state.mapView === 'forms' ? '#e8eef6' : 'rgb('+color.join(',')+')';
+  $('year').style.color = formsLike() ? '#e8eef6' : 'rgb('+color.join(',')+')';
   $('epoch').textContent = period().steps[state.index].epoch;
   $('time').value = state.index;
   [...$('legend').children].forEach((element,i) => {
@@ -340,7 +340,7 @@ function paint(mapOnly=false) {
   // Over a dark base map the land tint is strong; over RGB or panchromatic imagery it stays light so the image shows.
   const tint = !state.basemap ? 255 : state.basemapMode === 'dark' ? 150 : 45, seaTint = !state.basemap ? 255 : state.basemapMode === 'dark' ? 215 : 120;
   const land = [13,23,39,tint], sea = [7,12,20,seaTint], dim = [52,64,84,255];
-  const sprawlOn = state.mapView === 'forms' && sprawlCurrent(), formsWait = state.mapView === 'forms' && !sprawlOn;
+  const sprawlOn = formsLike() && sprawlCurrent(), formsWait = formsLike() && !sprawlOn;
   for (let i=0;i<sample.length;i++) {
     const code = sample[i];
     const index = mode === 'compare' && i%size < split ? state.compareIndex : state.index;
@@ -672,7 +672,7 @@ async function start() {
     if (hash.has('bt') && Number(hash.get('bt')) >= 0 && Number(hash.get('bt')) <= 95) state.basemapTransp = Number(hash.get('bt'));
     if (hash.get('r') === '0') state.radial = false;
     if (hash.get('sp') === '1' || hash.get('sp') === '2') { state.mapView = 'forms';state.sprawlMode = hash.get('sp') === '2' ? 'two' : 'steps'; }
-    if (hash.get('mv') === 'forms') state.mapView = 'forms';
+    if (['forms','sdg'].includes(hash.get('mv'))) state.mapView = hash.get('mv');
     if (['year','class','now','stage'].includes(hash.get('ss'))) state.sprawlShow = hash.get('ss');
     if (hash.get('sc')) { const v = hash.get('sc').split(',').map(Number);if (v.length === 3 && v[0] > 0 && v[1] > v[0] && v[2] > v[1]) { state.stageCuts = v;state.sprawlNucleus = v[1]; } }
     else if (['5','25','50'].includes(hash.get('sn'))) { state.sprawlNucleus = Number(hash.get('sn'));state.stageCuts = [1,state.sprawlNucleus,Math.max(50,state.sprawlNucleus*2)]; }
@@ -1106,7 +1106,8 @@ function renderRadial() {
   const fr = typeof sprawlRadial === 'function' ? sprawlRadial() : null;
   if (fr) {
     const show = sprawlRes.mode === 'steps' ? state.sprawlShow : 'class';
-    $('radialKeyText').innerHTML += ' '+(state.index === 0 ? L('Shtyllat e zbehura tregojnë ndërtimin e viteve në vijim, me klasën kur u ndërtua; ngjyrat si në hartë.','Faded bars show the construction of the coming years, in its class when built; colours as on the map.') : show === 'now' ? L(`Ngjyrat: klasa e ndërtimit në ${esc(period().steps[state.index].short)}, si në hartë.`,`Colours: the class of construction in ${esc(period().steps[state.index].short)}, as on the map.`)
+    if (sprawlRes.radSdg) $('radialKeyText').innerHTML += ' '+L('Ngjyrat: ✓ në përputhje, ! konsum toke, ✕ cenim i SDG. Te çdo drejtim: pjesa e cenimit deri në vitin e zgjedhur.','Colours: ✓ in line, ! land take, ✕ SDG breach. At each direction: the breach share up to the chosen year.');
+    else $('radialKeyText').innerHTML += ' '+(state.index === 0 ? L('Shtyllat e zbehura tregojnë ndërtimin e viteve në vijim, me klasën kur u ndërtua; ngjyrat si në hartë.','Faded bars show the construction of the coming years, in its class when built; colours as on the map.') : show === 'now' ? L(`Ngjyrat: klasa e ndërtimit në ${esc(period().steps[state.index].short)}, si në hartë.`,`Colours: the class of construction in ${esc(period().steps[state.index].short)}, as on the map.`)
       : show === 'year' ? L('Ngjyrat: klasa e shtesave të këtij viti, si në hartë.','Colours: the class of this year\'s additions, as on the map.') : L('Ngjyrat: klasa kur u ndërtua, si në hartë.','Colours: the class when built, as on the map.'));
   }
   const swEl = $('radialSwatches');
@@ -1137,7 +1138,7 @@ function renderRadial() {
           const v = dir[b][k];
           if (v <= 0) continue;
           const ra = r0+base/max*h, rb = r0+(base+v)/max*h;
-          out += `<path d="${sector(a-width/2,a+width/2,ra,Math.max(rb,ra+.6))}" fill="${fr ? 'rgb('+sprawlRadialColor(b).join(',')+')' : state.mapView === 'forms' ? shade([118,130,150],b) : shade(color,b)}" opacity="${opacity}"/>`;
+          out += `<path d="${sector(a-width/2,a+width/2,ra,Math.max(rb,ra+.6))}" fill="${fr ? 'rgb('+sprawlRadialColor(b).join(',')+')' : formsLike() ? shade([118,130,150],b) : shade(color,b)}" opacity="${opacity}"/>`;
           base += v;
         }
       }
@@ -1153,7 +1154,7 @@ function renderRadial() {
       const total = dir.reduce((sum,band) => sum+band.reduce((a,b) => a+b,0),0);
       const flip = d === 2, R = RADIAL.outer*S+(flip ? 16 : 7);
       const [la,lb] = flip ? [ang(d,m-1)+4,ang(d,0)-4] : [ang(d,0)-4,ang(d,m-1)+4];
-      out += `<path id="radialArc${d}" d="M${f(pt(la,R))}A${R} ${R} 0 0 ${flip ? 0 : 1} ${f(pt(lb,R))}" fill="none"/><text class="radial-label"><textPath href="#radialArc${d}" startOffset="50%" text-anchor="middle">${DIRS[d]} · +${ha(total)}</textPath></text>`;
+      out += `<path id="radialArc${d}" d="M${f(pt(la,R))}A${R} ${R} 0 0 ${flip ? 0 : 1} ${f(pt(lb,R))}" fill="none"/><text class="radial-label"><textPath href="#radialArc${d}" startOffset="50%" text-anchor="middle">${DIRS[d]} · ${fr && sprawlRes.radSdg ? (() => { let ok = 0, br = 0;for (let k=0;k<=Math.min(m-1,state.index-1);k++) { ok += dir[0][k]+dir[1][k]+dir[2][k];br += dir[2][k]; }return ok ? '✕ '+fmt1(br/ok*100)+'%' : '—'; })() : '+'+ha(total)}</textPath></text>`;
       const Ro = RADIAL.outer*S+4, a0 = ang(d,0)-2, a1 = ang(d,m-1)+2;
       out += `<path class="radial-hit" data-d="${d}" d="M${f(pt(a0,r0-4))}L${f(pt(a0,Ro))}A${Ro} ${Ro} 0 0 1 ${f(pt(a1,Ro))}L${f(pt(a1,r0-4))}A${r0-4} ${r0-4} 0 0 0 ${f(pt(a0,r0-4))}Z"/>`;
     });
@@ -1423,7 +1424,7 @@ function renderChoropleth() {
       tip.hidden = false;
       tip.style.left = Math.max(80,Math.min(r.width-80,event.clientX-r.left))+'px';
       tip.style.top = (event.clientY-r.top-10)+'px';
-      if (state.mapView === 'forms' && typeof unitFormsTip === 'function') { tip.innerHTML = unitFormsTip(u);return; }
+      if (formsLike() && typeof unitFormsTip === 'function') { tip.innerHTML = unitFormsTip(u);return; }
       tip.innerHTML = L(`<b>${esc(unitLabel(u))}</b><br>${METRICS[state.unitMetric].label}: <b>${METRICS[state.unitMetric].fmt(metricOf(u))}</b><br><small>${yearLabel(state.index)} · territori ${areaFmt(u.areaKm2)}</small>`,`<b>${esc(unitLabel(u))}</b><br>${METRICS[state.unitMetric].label}: <b>${METRICS[state.unitMetric].fmt(metricOf(u))}</b><br><small>${yearLabel(state.index)} · territory ${areaFmt(u.areaKm2)}</small>`);
     };
     host.querySelector('svg').onpointerleave = () => { tip.hidden = true; };
@@ -1555,7 +1556,7 @@ function renderUnits() {
   $('unitChartTitle').innerHTML = L(`${metric.label} <small>${chosen.length > 8 ? 'përzgjedhja si një e tërë' : 'çdo vijë një njësi'}${series.some(s => s.ref) ? ` · vijat e ndërprera: ${picked.length && MUN.size === 1 ? 'komuna dhe ' : ''}Kosova` : ''}</small>`,`${metric.label} <small>${chosen.length > 8 ? 'the selection as a whole' : 'one line per unit'}${series.some(s => s.ref) ? ` · dashed lines: ${picked.length && MUN.size === 1 ? C.unit1.one+' and ' : ''}${C.name}` : ''}</small>`);
   multiLine($('chartUnits'),series,{years,labels,active:i,label:metric.label,fmt:metric.fmt,tick:v => state.unitMetric === 'built' || state.unitMetric === 'added' ? number(Math.round(v*100)/100) : number(Math.round(v*10)/10)});
   renderUnitTable();
-  if (state.mapView === 'forms') renderUnitForms();
+  if (formsLike()) renderUnitForms();
 }
 function setUnitLevel(level) {
   state.unitLevel = level;
@@ -1789,15 +1790,15 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   text(period().source,9.5,'muted mono',400,17);
   const yearColor = 'rgb('+palette[i].join(',')+')';
   y += 50;
-  out += `<text x="${ax}" y="${y}" font-size="46" class="mono" style="fill:${state.mapView === 'forms' ? '#e8eef6' : yearColor}">${xml(yearOnly(steps[i].label))}</text>`;
+  out += `<text x="${ax}" y="${y}" font-size="46" class="mono" style="fill:${formsLike() ? '#e8eef6' : yearColor}">${xml(yearOnly(steps[i].label))}</text>`;
   if (steps[i].epoch) text(steps[i].epoch,8.5,'muted',400,15);
   const spr = state.sprawl && i > 0 ? sprawlSummary() : null;
   if (spr) {
     // With the sprawl layer the map shows classes, so the legend shows them too.
     const showNow = state.sprawlMode === 'steps' && (state.sprawlShow === 'now' || state.sprawlShow === 'stage'), showYear = state.sprawlMode === 'steps' && state.sprawlShow === 'year';
-    text(state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: shkalla në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: stage in ${steps[i].short}`) : showNow ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: klasa në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: class in ${steps[i].short}`)
+    text(state.mapView === 'sdg' ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short} dhe SDG`,`New construction ${steps[0].short}–${steps[i].short} and the SDGs`) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: shkalla në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: stage in ${steps[i].short}`) : showNow ? L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short}: klasa në ${steps[i].short}`,`New construction ${steps[0].short}–${steps[i].short}: class in ${steps[i].short}`)
       : showYear ? L(`Shtesat e ${steps[i].short} sipas klasës`,`Additions of ${steps[i].short} by class`) : L(`Ndërtimi i ri ${steps[0].short}–${steps[i].short} sipas klasës`,`New construction ${steps[0].short}–${steps[i].short} by class`),11,'',700,26);
-    const T = state.sprawlNucleus, legItems = state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? (stageNames(),[0,1,2,3,4,5].filter(k => k !== 3 || T).map(k => [STAGES[k].c,STAGES[k].t.replace(/ \(.*\)$/,'')])) : [[SPRAWL_CLASSES[0].c,SPRAWL_CLASSES[0].t],[SPRAWL_CLASSES[1].c,SPRAWL_CLASSES[1].t],[SPRAWL_SIZE[1].c,L('Kërcim < 1 ha','Leapfrog < 1 ha')],[SPRAWL_SIZE[2].c,T ? L(`Kërcim 1–${T} ha`,`Leapfrog 1–${T} ha`) : L('Kërcim ≥ 1 ha','Leapfrog ≥ 1 ha')],...(T ? [[SPRAWL_SIZE[3].c,L(`Bërthamë e re ≥ ${T} ha`,`New nucleus ≥ ${T} ha`)]] : [])];
+    const T = state.sprawlNucleus, legItems = state.mapView === 'sdg' ? [1,2,3].map(k => [SDGF[k].c,SDGF[k].s+' '+SDGF[k].k]) : state.sprawlMode === 'steps' && state.sprawlShow === 'stage' ? (stageNames(),[0,1,2,3,4,5].filter(k => k !== 3 || T).map(k => [STAGES[k].c,STAGES[k].t.replace(/ \(.*\)$/,'')])) : [[SPRAWL_CLASSES[0].c,SPRAWL_CLASSES[0].t],[SPRAWL_CLASSES[1].c,SPRAWL_CLASSES[1].t],[SPRAWL_SIZE[1].c,L('Kërcim < 1 ha','Leapfrog < 1 ha')],[SPRAWL_SIZE[2].c,T ? L(`Kërcim 1–${T} ha`,`Leapfrog 1–${T} ha`) : L('Kërcim ≥ 1 ha','Leapfrog ≥ 1 ha')],...(T ? [[SPRAWL_SIZE[3].c,L(`Bërthamë e re ≥ ${T} ha`,`New nucleus ≥ ${T} ha`)]] : [])];
     legItems.forEach(([c,t],k) => {
       const lx = ax+(k%2)*150, ly = y+16+Math.floor(k/2)*16;
       out += `<rect x="${lx}" y="${ly-9}" width="11" height="10" fill="rgb(${c.join(',')})"/><text x="${lx+17}" y="${ly}" font-size="9.5">${xml(t)}</text>`;
@@ -1922,8 +1923,23 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   const vlabel = (cx,ty,t,size,extra='') => `<text x="${cx}" y="${ty}" font-size="${size}" class="mono" text-anchor="start" dominant-baseline="middle" transform="rotate(-90 ${cx} ${ty})"${extra}>${xml(t)}</text>`;
   const labelSize = Math.min(8,Math.max(5.5,barW*.8)).toFixed(1);
   const sprSeries = spr && state.sprawlMode === 'steps' && sprawlRes?.series && sprawlRes.series.length === i ? sprawlRes : null;
-  const stz = spr && state.sprawlMode === 'steps' && state.sprawlShow === 'stage' && i > 0 && typeof stageSummary === 'function' ? stageSummary() : null;
-  if (stz && stz.flows.slice(1,5).some(f => f.some(v => v > 0))) {
+  const sdz = spr && state.mapView === 'sdg' && i > 0 && typeof sdgViewStats === 'function' ? sdgViewStats() : null;
+  const sdzT = sdz ? sdz.tot[1]+sdz.tot[2]+sdz.tot[3] : 0;
+  const stz = !sdzT && spr && state.sprawlMode === 'steps' && state.sprawlShow === 'stage' && i > 0 && typeof stageSummary === 'function' ? stageSummary() : null;
+  if (sdzT) {
+    // SDG view: the reading in one line, the breach by direction and by year of building.
+    const pc = k => fmt1(sdz.tot[k]/sdzT*100);
+    const dirs = sdz.dir.map((v,d) => ({d,s:(v[1]+v[2]+v[3]) ? v[3]/(v[1]+v[2]+v[3]) : null})).filter(x => x.s != null).sort((p,q) => q.s-p.s);
+    out += `<text x="${gx}" y="${gTop+2}" font-size="10" font-weight="700" style="fill:#66e0d1">${xml(L(`SDG: ✓ ${pc(1)}% në përputhje · ! ${pc(2)}% konsum toke · ✕ ${pc(3)}% cenim`,`SDGs: ✓ ${pc(1)}% in line · ! ${pc(2)}% land take · ✕ ${pc(3)}% breach`))}</text>`;
+    if (dirs.length) out += `<text x="${gx}" y="${gTop+16}" font-size="8.5" class="muted">${xml(L(`Cenimi më i lartë në drejtim të ${DIR_GEN[dirs[0].d]} (${fmt1(dirs[0].s*100)}%), më i ulët në drejtim të ${DIR_GEN[dirs[dirs.length-1].d]} (${fmt1(dirs[dirs.length-1].s*100)}%).`,`The breach is highest towards the ${DIR_GEN[dirs[0].d]} (${fmt1(dirs[0].s*100)}%) and lowest towards the ${DIR_GEN[dirs[dirs.length-1].d]} (${fmt1(dirs[dirs.length-1].s*100)}%).`))}</text>`;
+    const top = gTop+30, hh = gBottom-top, wL = Math.round((gRight-gx)*.42), wR = gRight-gx-wL-28;
+    out += `<text x="${gx}" y="${top+8}" font-size="9" font-weight="700">${xml(L('Sipas drejtimit nga qendra','By direction from the centre'))}</text>`;
+    out += sdgDirSvg(sdz,{w:wL}).replace('<svg ',`<svg x="${gx}" y="${top+16}" width="${wL}" height="${Math.round(wL*94/wL)}" `);
+    const rx0 = gx+wL+28;
+    out += `<text x="${rx0}" y="${top+8}" font-size="9" font-weight="700">${xml(L(`Sipas vitit të ndërtimit: si qëndron në ${steps[i].short}`,`By year of building: status in ${steps[i].short}`))}</text>`;
+    out += sdgYearSvg(sdz,{w:wR,h:Math.min(hh-20,160)}).replace('<svg ',`<svg x="${rx0}" y="${top+16}" width="${wR}" height="${Math.min(hh-20,160)}" `);
+    [1,2,3].forEach((k,n) => { const ly = top+16+110+n*14;out += `<rect x="${gx}" y="${ly-8}" width="10" height="9" fill="rgb(${SDGF[k].c.join(',')})"/><text x="${gx+14}" y="${ly}" font-size="8.5">${xml(SDGF[k].s+' '+SDGF[k].t)}</text>`; });
+  } else   if (stz && stz.flows.slice(1,5).some(f => f.some(v => v > 0))) {
     // Stage view: where detached construction went (Sankey) and the stages over time, with the reading in one line.
     const all = stz.now.reduce((p,q) => p+q,0), det = all-stz.now[0], sh = v => det ? fmt1(v/det*100) : '—';
     const head = (stageStory(stz).match(/<p><b>(.*?)<\/b>/) || [,''])[1];
@@ -2457,6 +2473,12 @@ const STAGES = {
   4:{k:'D',c:[184,132,255],t:L('D · qytezë e re','D · new town')},
   5:{k:'E',c:[69,208,192],t:L('E · u bashkua me qytetin','E · joined the city')},
 };
+// SDG reading of each piece of new construction (status colours, always with a symbol and a label).
+const SDGF = {
+  1:{c:[64,184,120],s:'✓',t:L('Në përputhje: mbushje brenda qytetit (SDG 11.3)','In line: infill inside the city (SDG 11.3)'),k:L('në përputhje','in line')},
+  2:{c:[255,176,0],s:'!',t:L('Konsum toke: skaj ose bërthamë e re (SDG 11.3.1)','Land take: edge or new nucleus (SDG 11.3.1)'),k:L('konsum toke','land take')},
+  3:{c:[255,77,109],s:'✕',t:L('Cenim: ndërtim i shpërndarë (SDG 11.3, 15.3, 2.4, 11.2)','Breach: scattered building (SDG 11.3, 15.3, 2.4, 11.2)'),k:L('cenim','breach')},
+};
 const SPRAWL_BASE = {1:[214,220,230],2:[140,150,168],3:[84,94,112]};   // urban, suburban, rural: one neutral ramp, light = dense
 const SPRAWL_DENS_NAMES = {1:L('urbane (≥ 50%)','urban (≥ 50%)'),2:L('suburbane (10–50%)','suburban (10–50%)'),3:L('rurale (< 10%)','rural (< 10%)')};
 // Density class of a built-up pixel at step k (1 urban, 2 suburban, 3 rural), from the first step it reached each class.
@@ -2473,7 +2495,8 @@ function sprawlNow(r,i,t) {
 state.sprawlShow = 'stage';
 state.stageCuts = [1,10,50];   // ha, configurable on the map: A < 1 · B 1–10 · C 10–50 · D ≥ 50
 state.sprawlNucleus = 10;   // = stageCuts[1]: a detached structure of at least this size counts as a new nucleus, not as sprawl
-const sprawlViewKey = () => `${baseOff()+1}|${baseOff()+state.index+1}|${state.sprawlShow}|${state.stageCuts.join(',')}`;   // 'now' class at the year on display · 'class' class when built · 'year' this year's additions only
+const sprawlViewKey = () => `${baseOff()+1}|${baseOff()+state.index+1}|${state.sprawlShow}|${state.stageCuts.join(',')}|${state.mapView}`;
+function formsLike() { return state.mapView === 'forms' || state.mapView === 'sdg'; }   // 'now' class at the year on display · 'class' class when built · 'year' this year's additions only
 let sprawlRes = null, sprawlPending = null, sprawlTimer = 0, sprawlJob = 0, sprawlWorker = null, workerGridKey = null, sprawlWaiters = [];
 const sprawlLocal = sprawlEngine();
 function sprawlRun(job,onProgress=sprawlProgress) {
@@ -2646,12 +2669,25 @@ function sprawlView() {
     r.matrix = matrix;r.byBuild = byBuild;r.now = now;
   } else { r.shown = r.patches;r.series = null; }
   sprawlSizes(r,a,b);
-  if (r.mode === 'steps' && state.sprawlShow === 'stage') {
+  if (r.mode === 'steps' && (state.sprawlShow === 'stage' || state.mapView === 'sdg')) {
     const S = sprawlStages(r);
     if (!r.stageAtPix || r.stageAtPix.length !== r.grid.length) r.stageAtPix = new Uint8Array(r.grid.length);
     r.stageAtPix.fill(255);
     if (S) for (let j=0;j<S.M;j++) { const s2 = stageAt(S,j,b);if (s2 >= 0) r.stageAtPix[S.pix[j]] = s2; }
     for (let i=0;i<r.grid.length;i++) if (r.grid[i] > a && r.grid[i] <= b && r.stageAtPix[i] === 255) r.stageAtPix[i] = 0;   // new construction inside the base body
+  }
+  if (state.mapView === 'sdg') {
+    if (!r.sdgPix || r.sdgPix.length !== r.grid.length) r.sdgPix = new Uint8Array(r.grid.length);
+    r.sdgPix.fill(0);
+    for (let i=0;i<r.grid.length;i++) {
+      const c = r.grid[i];
+      if (c <= a || c > b) continue;
+      const st = r.mode === 'steps' && r.stageAtPix ? r.stageAtPix[i] : 255;
+      if (st === 1 || st === 2) { r.sdgPix[i] = 3;continue; }
+      if (st === 3 || st === 4) { r.sdgPix[i] = 2;continue; }
+      const k = r.mode === 'steps' ? sprawlNow(r,i,b) : r.out[i];
+      r.sdgPix[i] = k === 10 ? 1 : k === 11 ? 2 : 3;
+    }
   }
   r.overlay = sprawlOverlay(r.w,r,a,b);
   r.viewKey = viewKey;
@@ -2675,12 +2711,14 @@ function sprawlOverlay(w,r,a,b) {
     const code = grid[i];
     if (!code || code > b || !dom[i]) continue;   // outside the filter the map keeps only the base-year grey, as in the growth view
     let c;
-    if (r.mode === 'steps' && code <= a) c = SPRAWL_BASE[sprawlDens(r,i,show === 'now' || show === 'stage' ? b : a)];
+    if (state.mapView === 'sdg' && code > a) { const g = r.sdgPix ? r.sdgPix[i] : 0;if (!g) continue;c = SDGF[g].c; }
+    else if (r.mode === 'steps' && code <= a) c = SPRAWL_BASE[sprawlDens(r,i,show === 'now' || show === 'stage' ? b : a)];
     else if (show === 'stage') { const st = r.stageAtPix ? r.stageAtPix[i] : 255;if (st === 255) continue;c = STAGES[st].c; }
     else if (show === 'now') c = colors[sprawlNow(r,i,b)];
     else if (show === 'year' && code !== b) c = [70,82,102];
     else c = colors[out[i]];
-    if (r.szc && r.szc[i] === 3 && code > a && !(show === 'year' && code !== b)) c = SPRAWL_SIZE[3].c;
+    if (state.mapView === 'sdg') {}
+    else if (r.szc && r.szc[i] === 3 && code > a && !(show === 'year' && code !== b)) c = SPRAWL_SIZE[3].c;
     else if (c === colors[13] && r.szc && r.szc[i]) c = SPRAWL_SIZE[r.szc[i]].c;
     if (!c) continue;
     px[i*4] = c[0];px[i*4+1] = c[1];px[i*4+2] = c[2];px[i*4+3] = 255;
@@ -2710,7 +2748,7 @@ function sprawlStack(rows,keys,colorOf,labelOf,unit,opts={}) {
 // Drawn over the map in paint(): the classes replace the year colours of the new built-up area.
 function drawSprawl() {
   const r = sprawlRes;
-  if (state.mapView === 'forms') sprawlLegendHtml();
+  if (formsLike()) sprawlLegendHtml();
   if (!state.sprawl || !sprawlCurrent() || !r.overlay) return;
   sprawlView();
   const w = r.w, kx = view.size/(view.east-view.west), ky = view.size/(view.north-view.south);
@@ -2730,7 +2768,8 @@ function sprawlSummary() {
   return {total,spr,share:total ? spr/total*100 : null,patches,rows:SPRAWL_CLASSES.map(c => ({...c,ha:ha[c.k],pct:total ? ha[c.k]/total*100 : 0,n:r.stats.patches[c.k],mean:r.stats.patches[c.k] ? ha[c.k]/r.stats.patches[c.k] : 0})),base:r.stats.base,res:Math.round((r.w.dx+r.w.dy)/2)};
 }
 function renderSprawlPanel(busy=false) {
-  if (state.tab === 'units' && state.mapView === 'forms') setTimeout(renderUnitForms,0);
+  { const h3 = $('sprawlBox').querySelector('h3');if (h3) { if (h3.dataset.forms == null) h3.dataset.forms = h3.firstChild.textContent;h3.firstChild.textContent = state.mapView === 'sdg' ? L('SDG dhe ndërtimi i ri ','SDGs and new construction ') : h3.dataset.forms; } }
+  if (state.tab === 'units' && formsLike()) setTimeout(renderUnitForms,0);
   $('sprawlBox').hidden = !state.sprawl;
   sprawlLegendHtml();
   if (!state.sprawl) return;
@@ -2746,6 +2785,7 @@ function renderSprawlPanel(busy=false) {
     if (!sprawlPending) scheduleSprawl(true); $('sprawlBody').innerHTML = `<p class="note sprawl-busy">${L('Duke klasifikuar copat në rezolucionin burimor…','Classifying the patches at the source resolution…')}</p>`;return; }
   if (r?.tooBig && r.key === sprawlCalcKey()) { $('sprawlBody').innerHTML = `<p class="note">${L(`Zona është shumë e madhe për klasifikim në rezolucionin burimor (${number(Math.round(r.w.W*r.w.H/1e6))} milionë piksela; kufiri ${SPRAWL_MAX_PX/1e6}). Zvogëloni mbulimin e hartës ose zgjidhni një zonë më të vogël.`,`The area is too large for classification at the source resolution (${number(Math.round(r.w.W*r.w.H/1e6))} million pixels; limit ${SPRAWL_MAX_PX/1e6}). Reduce the map extent or choose a smaller zone.`)}</p>`;return; }
   if (r?.error && r.key === sprawlCalcKey()) { $('sprawlBody').innerHTML = `<p class="note">${L('Klasifikimi dështoi: ','The classification failed: ')}${esc(r.error)}</p>`;return; }
+  if (state.mapView === 'sdg') { $('sprawlBody').innerHTML = i === 0 ? `<p class="note">${L('Zgjidhni një vit pas vitit bazë: ndërtimi i ri ndërmjet tyre lexohet sipas SDG.','Choose a year after the base year: the new construction between them is read against the SDGs.')}</p>`+sprawlDensHtml(true) : sdgViewHtml();return; }
   if (i === 0) { $('sprawlBody').innerHTML = sprawlDensHtml(true);return; }
   const s = sprawlSummary();
   if (!s) return;
@@ -2823,15 +2863,16 @@ function exportSprawlCsv() {
 state.mapView = 'time';
 function setMapView(v,repaint=true) {
   state.mapView = v;
-  state.sprawl = v === 'forms';
-  document.body.classList.toggle('view-forms',v === 'forms');
-  if (v === 'forms' && state.mode !== 'cumulative') setMode('cumulative',false);
+  state.sprawl = v === 'forms' || v === 'sdg';
+  document.body.classList.toggle('view-forms',state.sprawl);
+  document.body.classList.toggle('view-sdg',v === 'sdg');
+  if (state.sprawl && state.mode !== 'cumulative') setMode('cumulative',false);
   const hint = $('timelineHint');
   if (hint) { if (hint.dataset.time == null) hint.dataset.time = hint.textContent;
-    hint.textContent = v === 'forms' ? L('Ngjyrat në hartë tregojnë formën e zgjerimit, jo vitin. Fillo nga viti bazë për të parë gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show the form of expansion, not the year. Start at the base year to see the initial state. Shortcuts: ← → for the year, space to play.') : hint.dataset.time; }
+    hint.textContent = v === 'sdg' ? L('Ngjyrat në hartë tregojnë si ndikon ndërtimi i ri në SDG: në përputhje, konsum toke ose cenim. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show how new construction bears on the SDGs: in line, land take or breach. Shortcuts: ← → for the year, space to play.') : v === 'forms' ? L('Ngjyrat në hartë tregojnë formën e zgjerimit, jo vitin. Fillo nga viti bazë për të parë gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show the form of expansion, not the year. Start at the base year to see the initial state. Shortcuts: ← → for the year, space to play.') : hint.dataset.time; }
   document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-selected',String(b.dataset.view === v)));
   renderSprawlPanel();
-  if (v === 'forms') scheduleSprawl(true);
+  if (state.sprawl) scheduleSprawl(true);
   if (state.tab === 'units' && typeof renderUnits === 'function') renderUnits();
   if (repaint && view) { paint(true);if (sample) updateHash(); }
 }
@@ -2856,9 +2897,15 @@ function sprawlLegendHtml() {
   const focused = $('sprawlLegend').contains(document.activeElement);
   const sw = (c,t,cls='') => `<span class="${cls}"><i style="background:rgb(${c.join(',')})"></i>${esc(t)}</span>`;
   $('sprawlLegend').hidden = state.mapView === 'time';
-  if (state.mapView === 'forms' && manifest && !sprawlCurrent() && !(state.sprawlMode === 'two' && state.index === 0)) {
+  if (formsLike() && manifest && !sprawlCurrent() && !(state.sprawlMode === 'two' && state.index === 0)) {
     $('sprawlLegend').innerHTML = `<b>${L('Duke klasifikuar format për këtë pamje…','Classifying the forms for this view…')}</b>`+sw([118,130,150],L('ndërtim ende pa klasë','built-up not yet classified'),'base');return; }
   const show = state.sprawlMode === 'steps' ? state.sprawlShow : 'class';
+  if (state.mapView === 'sdg') {
+    if (focused) return;
+    const sw2 = k => `<span><i style="background:rgb(${SDGF[k].c.join(',')})"></i><b class="sdg-sym">${SDGF[k].s}</b> ${esc(SDGF[k].t)}</span>`;
+    $('sprawlLegend').innerHTML = `<b>${L('Ndërtimi i ri dhe SDG:','New construction and the SDGs:')}</b>`+[1,2,3].map(sw2).join('')+(manifest ? `<b class="leg-base">${L(`Ndërtimi i ${esc(period().steps[0].short)}:`,`Built by ${esc(period().steps[0].short)}:`)}</b>`+[1,2,3].map(k => sw(SPRAWL_BASE[k],SPRAWL_DENS_NAMES[k],'base')).join('') : '');
+    return;
+  }
   if (show === 'stage') {
     stageNames();
     const items = `<b>${L('Shkalla e strukturës:','Stage of the structure:')}</b>`+[0,1,2,3,4,5].map(k => sw(STAGES[k].c,STAGES[k].t)).join('');
@@ -2879,14 +2926,14 @@ sprawlLegendHtml();
 const SPRAWL_RADIAL_LAYERS = [10,11,13,0,131,14];   // 131: leapfrog in structures under 1 ha · 14: new nucleus
 function sprawlRadial() {
   const r = sprawlRes;
-  if (state.mapView !== 'forms' || !sprawlCurrent() || !view) return null;
+  if (!formsLike() || !sprawlCurrent() || !view) return null;
   sprawlView();
   const key = `${r.viewKey}|${view.west},${view.north},${state.span}`;
   if (r.radialKey === key) return r.radial;
   const w = r.w, m = count()-1, off = baseOff(), b = off+state.index+1, show = r.mode === 'steps' ? state.sprawlShow : 'class';
-  const stageMode = show === 'stage' && r.stageAtPix;
-  r.radStage = !!stageMode;
-  const rad = Array.from({length:4},() => (stageMode ? [0,1,2,3,4,5,6] : SPRAWL_RADIAL_LAYERS).map(() => new Float64Array(m)));
+  const sdgMode = state.mapView === 'sdg' && r.sdgPix, stageMode = !sdgMode && show === 'stage' && r.stageAtPix;
+  r.radStage = !!stageMode;r.radSdg = !!sdgMode;
+  const rad = Array.from({length:4},() => (sdgMode ? [1,2,3,0] : stageMode ? [0,1,2,3,4,5,6] : SPRAWL_RADIAL_LAYERS).map(() => new Float64Array(m)));
   const layer = {10:0,11:1,12:2,13:2,0:3,131:4,14:5};
   const cx = ((view.west+view.east)/2-w.west)/w.dlon, cy = (w.north-(view.north+view.south)/2)/w.dlat;
   const {grid,out,domain} = r;
@@ -2894,6 +2941,12 @@ function sprawlRadial() {
     const code = grid[i], k = code-off-2;
     if (k < 0 || k >= m || !domain[i]) continue;
     let c;
+    if (sdgMode) {
+      const g = code > b ? 3 : r.sdgPix[i] ? r.sdgPix[i]-1 : 3;
+      const x = i%w.W, y = (i-x)/w.W, ddx = (x+.5-cx)*w.dx, ddy = (y+.5-cy)*w.dy, angle = (Math.atan2(ddx,-ddy)+Math.PI*2.25)%(Math.PI*2);
+      rad[Math.min(3,Math.floor(angle/(Math.PI/2)))][g][k] += r.rowHa[y]/100;
+      continue;
+    }
     if (stageMode) {
       const st = code > b ? 6 : r.stageAtPix[i] === 255 ? 6 : r.stageAtPix[i];
       const x = i%w.W, y = (i-x)/w.W, ddx = (x+.5-cx)*w.dx, ddy = (y+.5-cy)*w.dy, angle = (Math.atan2(ddx,-ddy)+Math.PI*2.25)%(Math.PI*2);
@@ -2914,8 +2967,8 @@ function sprawlRadial() {
   r.radial = rad;r.radialKey = key;
   return rad;
 }
-function sprawlRadialColor(l) { if (sprawlRes?.radStage) return l === 6 ? [70,82,102] : STAGES[l].c;return l === 3 ? [70,82,102] : l === 4 ? SPRAWL_SIZE[1].c : l === 5 ? SPRAWL_SIZE[3].c : SPRAWL_CLASSES.find(c => c.k === SPRAWL_RADIAL_LAYERS[l]).c; }
-function sprawlRadialName(l) { if (sprawlRes?.radStage) return l === 6 ? L('vitet në vijim','coming years') : STAGES[l].t;return l === 3 ? L('vitet e tjera','other years') : l === 4 || l === 5 ? SPRAWL_SIZE[l === 4 ? 1 : 3].t : l === 2 ? SPRAWL_SIZE[2].t : SPRAWL_CLASSES.find(c => c.k === SPRAWL_RADIAL_LAYERS[l]).t; }
+function sprawlRadialColor(l) { if (sprawlRes?.radSdg) return l === 3 ? [70,82,102] : SDGF[l+1].c;if (sprawlRes?.radStage) return l === 6 ? [70,82,102] : STAGES[l].c;return l === 3 ? [70,82,102] : l === 4 ? SPRAWL_SIZE[1].c : l === 5 ? SPRAWL_SIZE[3].c : SPRAWL_CLASSES.find(c => c.k === SPRAWL_RADIAL_LAYERS[l]).c; }
+function sprawlRadialName(l) { if (sprawlRes?.radSdg) return l === 3 ? L('vitet në vijim','coming years') : SDGF[l+1].s+' '+SDGF[l+1].t;if (sprawlRes?.radStage) return l === 6 ? L('vitet në vijim','coming years') : STAGES[l].t;return l === 3 ? L('vitet e tjera','other years') : l === 4 || l === 5 ? SPRAWL_SIZE[l === 4 ? 1 : 3].t : l === 2 ? SPRAWL_SIZE[2].t : SPRAWL_CLASSES.find(c => c.k === SPRAWL_RADIAL_LAYERS[l]).t; }
 // ---------- SDG reading of the forms of expansion ----------
 // Infill uses land inside the existing footprint (SDG 11.3: compact, efficient urbanisation; it lowers 11.3.1).
 // Edge extension adds new land, but next to the city. Leapfrog takes and fragments rural land (11.3, 15.3, 2.4)
@@ -3388,7 +3441,7 @@ function unitFormsTip(u) {
 }
 function renderUnitForms() {
   const host = $('unitForms');
-  if (!host || state.mapView !== 'forms' || state.tab !== 'units') return;
+  if (!host || !formsLike() || state.tab !== 'units') return;
   const r = sprawlRes, steps = period().steps, i = state.index;
   if (i === 0) { host.innerHTML = `<p class="note">${L('Zgjidhni një vit pas vitit bazë për të krahasuar format e zgjerimit sipas njësive.','Choose a year after the base year to compare the forms of expansion by unit.')}</p>`;return; }
   const st = unitFormsStats();
@@ -3434,6 +3487,76 @@ function renderUnitForms() {
   };
   new MutationObserver(sync).observe(src,{childList:true,subtree:true,characterData:true});
 })();
+
+// ---------- SDG view: where (direction from the centre) and when (year of building) new construction breaches the SDGs ----------
+const DIR_GEN = L(['veriut','lindjes','jugut','perëndimit'],['north','east','south','west']);
+function sdgViewStats() {
+  const r = sprawlRes;
+  if (!sprawlCurrent() || !r.sdgPix || state.index === 0) return null;
+  const w = r.w, W = w.W, a = baseOff()+1, b = baseOff()+state.index+1, n = b-a;
+  const cx = ((view.west+view.east)/2-w.west)/w.dlon, cy = (w.north-(view.north+view.south)/2)/w.dlat;
+  const dir = Array.from({length:4},() => [0,0,0,0]), year = Array.from({length:n},() => [0,0,0,0]), tot = [0,0,0,0];
+  for (let i=0;i<r.grid.length;i++) {
+    const c = r.grid[i], g = r.sdgPix[i];
+    if (!g || !r.domain[i] || c <= a || c > b) continue;
+    const x = i%W, y = (i-x)/W, h = r.rowHa[y], ang = (Math.atan2((x+.5-cx)*w.dx,-(y+.5-cy)*w.dy)+Math.PI*2.25)%(Math.PI*2);
+    dir[Math.min(3,Math.floor(ang/(Math.PI/2)))][g] += h;year[c-a-1][g] += h;tot[g] += h;
+  }
+  return {dir,year,tot};
+}
+function sdgYearSvg(z,opts={}) {
+  const steps = period().steps, n = z.year.length, W = opts.w || 300, H = opts.h || 120, m = {l:28,r:6,t:8,b:20}, pw = W-m.l-m.r, ph = H-m.t-m.b, slot = pw/Math.max(1,n), bw = Math.max(1.5,slot*.72);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="sprawl-chart" role="img">`;
+  for (const t of [0,50,100]) { const y = m.t+ph-t/100*ph;svg += `<line x1="${m.l}" x2="${W-m.r}" y1="${y}" y2="${y}" stroke="#1e2a3a"/><text x="${m.l-4}" y="${y+3}" text-anchor="end" font-size="8" fill="#7f93ab">${t}%</text>`; }
+  z.year.forEach((v,j) => {
+    const t = v[1]+v[2]+v[3], x = m.l+j*slot+(slot-bw)/2;
+    if (!t) return;
+    let y = m.t+ph;
+    svg += `<g><title>${esc(steps[j+1]?.label || '')}: ${[1,2,3].map(k => `${SDGF[k].s} ${fmt1(v[k]/t*100)}%`).join(' · ')} (${fmtHa(t)} ha)</title>`;
+    for (const k of [1,2,3]) { const h = v[k]/t*ph;if (h <= 0) continue;y -= h;svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(.5,h-.6).toFixed(1)}" fill="rgb(${SDGF[k].c.join(',')})"/>`; }
+    svg += '</g>';
+  });
+  const ticks = z.year.map((_,j) => j).filter(j => n <= 12 || Number(String(steps[j+1]?.short).replace(/\D/g,'').slice(-4))%5 === 0 || j === n-1);
+  for (const j of ticks) svg += `<text x="${(m.l+j*slot+slot/2).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="8" fill="#7f93ab">${esc(steps[j+1]?.short || '')}</text>`;
+  return svg+'</svg>';
+}
+function sdgDirSvg(z,opts={}) {
+  const W = opts.w || 300, rowH = 22, H = 4*rowH+6, lx = 64, bw = W-lx-58;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="sprawl-chart" role="img">`;
+  z.dir.forEach((v,d) => {
+    const t = v[1]+v[2]+v[3], y = 4+d*rowH;
+    svg += `<text x="${lx-6}" y="${y+12}" text-anchor="end" font-size="9" fill="#e8eef6" font-weight="700">${esc(DIRS[d])}</text>`;
+    let x = lx;
+    for (const k of [1,2,3]) { const w2 = t ? v[k]/t*bw : 0;if (w2 > 0) svg += `<rect x="${x.toFixed(1)}" y="${y+2}" width="${Math.max(.5,w2-1).toFixed(1)}" height="14" fill="rgb(${SDGF[k].c.join(',')})"><title>${esc(DIRS[d])} · ${SDGF[k].s} ${esc(SDGF[k].k)}: ${fmtHa(v[k])} ha (${fmt1(v[k]/t*100)}%)</title></rect>`;x += w2; }
+    svg += `<text x="${W-4}" y="${y+12}" text-anchor="end" font-size="9" fill="${t && v[3]/t > .25 ? '#ff8da1' : '#c8d3e0'}">✕ ${t ? fmt1(v[3]/t*100) : '—'}%</text>`;
+  });
+  return svg+'</svg>';
+}
+function sdgViewHtml() {
+  const z = sdgViewStats();
+  if (!z) return '';
+  const steps = period().steps, i = state.index, t = z.tot[1]+z.tot[2]+z.tot[3];
+  if (!t) return `<p class="note">${L('Nuk ka ndërtim të ri në këtë zonë për këtë periudhë.','There is no new construction in this area for this period.')}</p>`;
+  const pc = k => fmt1(z.tot[k]/t*100), sh = v => { const s = v[1]+v[2]+v[3];return s ? v[3]/s : null; };
+  const dirs = z.dir.map((v,d) => ({d,s:sh(v),ha:v[3]})).filter(x => x.s != null).sort((p,q) => q.s-p.s);
+  const yrs = z.year.map((v,j) => ({j,s:sh(v),ha:v[3],t:v[1]+v[2]+v[3]})).filter(x => x.s != null && x.t > 0);
+  const worstY = [...yrs].sort((p,q) => q.ha-p.ha).slice(0,3).sort((p,q) => p.j-q.j);
+  const half = Math.floor(yrs.length/2), avg = l => { const a = l.reduce((s,x) => s+x.ha,0), b2 = l.reduce((s,x) => s+x.t,0);return b2 ? a/b2 : null; };
+  const early = half ? avg(yrs.slice(0,half)) : null, late = half ? avg(yrs.slice(half)) : null;
+  const trend = early != null && late != null ? (late > early*1.15 ? L(`Cenimi po <b>rritet</b>: nga ${fmt1(early*100)}% e ndërtimit të ri në gjysmën e parë të periudhës në ${fmt1(late*100)}% në gjysmën e dytë.`,`The breach is <b>growing</b>: from ${fmt1(early*100)}% of new construction in the first half of the period to ${fmt1(late*100)}% in the second.`)
+    : late < early*.85 ? L(`Cenimi po <b>bie</b>: nga ${fmt1(early*100)}% në gjysmën e parë në ${fmt1(late*100)}% në gjysmën e dytë të periudhës.`,`The breach is <b>falling</b>: from ${fmt1(early*100)}% in the first half to ${fmt1(late*100)}% in the second half of the period.`)
+    : L(`Cenimi mbetet afërsisht i njëjtë gjatë periudhës (${fmt1(early*100)}% dhe ${fmt1(late*100)}%).`,`The breach stays about the same over the period (${fmt1(early*100)}% and ${fmt1(late*100)}%).`)) : '';
+  const yname = j => steps[j+1]?.short || '';
+  const story = `<div class="stage-story"><p>${L(`Nga <b>${fmtHa(t)} ha</b> ndërtim i ri ${steps[0].short}–${steps[i].short}: <b>${pc(1)}%</b> në përputhje me SDG (mbushje), <b>${pc(2)}%</b> konsum toke (skaj ose bërthama të reja) dhe <b>${pc(3)}%</b> cenim (ndërtim i shpërndarë që mbetet i tillë në ${steps[i].short}).`,`Of <b>${fmtHa(t)} ha</b> of new construction ${steps[0].short}–${steps[i].short}: <b>${pc(1)}%</b> in line with the SDGs (infill), <b>${pc(2)}%</b> land take (edge or new nuclei) and <b>${pc(3)}%</b> breach (scattered building that is still scattered in ${steps[i].short}).`)}</p>
+    ${dirs.length ? `<p>${L(`<b>Ku:</b> cenimi është më i lartë në drejtim të <b>${esc(DIR_GEN[dirs[0].d])}</b> (${fmt1(dirs[0].s*100)}% e ndërtimit të ri aty, ${fmtHa(dirs[0].ha)} ha) dhe më i ulët në drejtim të <b>${esc(DIR_GEN[dirs[dirs.length-1].d])}</b> (${fmt1(dirs[dirs.length-1].s*100)}%).`,`<b>Where:</b> the breach is highest towards the <b>${esc(DIR_GEN[dirs[0].d])}</b> (${fmt1(dirs[0].s*100)}% of new construction there, ${fmtHa(dirs[0].ha)} ha) and lowest towards the <b>${esc(DIR_GEN[dirs[dirs.length-1].d])}</b> (${fmt1(dirs[dirs.length-1].s*100)}%).`)}</p>` : ''}
+    ${worstY.length ? `<p>${L(`<b>Kur:</b> më shumë ndërtim i shpërndarë u shtua në ${worstY.map(x => `<b>${esc(yname(x.j))}</b> (${fmtHa(x.ha)} ha)`).join(', ')}. ${trend}`,`<b>When:</b> most scattered building was added in ${worstY.map(x => `<b>${esc(yname(x.j))}</b> (${fmtHa(x.ha)} ha)`).join(', ')}. ${trend}`)}</p>` : ''}</div>`;
+  const leg = `<div class="sdg-legend">${[1,2,3].map(k => `<span><i style="background:rgb(${SDGF[k].c.join(',')})"></i>${SDGF[k].s} ${esc(SDGF[k].k)}</span>`).join('')}</div>`;
+  return `<h4 class="sprawl-sub">${L('Ku dhe kur cenohen SDG','Where and when the SDGs are breached')}</h4>${story}
+    <div class="sprawl-chart-title">${L('Sipas drejtimit nga qendra e pamjes','By direction from the centre of the view')}</div>${sdgDirSvg(z)}${leg}
+    <div class="sprawl-chart-title">${L(`Sipas vitit të ndërtimit: si qëndron në ${steps[i].short}`,`By year of building: status in ${steps[i].short}`)}</div>${sdgYearSvg(z)}
+    ${sprawlSdgHtml()}
+    <p class="note">${L(`Leximi: ✓ mbushja brenda gjurmës ekzistuese dendëson qytetin dhe ul tokën e ndërtuar për banor (SDG 11.3, 11.3.1). ! Zgjerimi në skaj dhe bërthamat e reja ≥ ${state.stageCuts[1]} ha konsumojnë tokë të re, por pranë infrastrukturës ose në një qendër të re. ✕ Ndërtimi i shpërndarë që nuk u bashkua me qytetin dhe nuk formoi bërthamë (shkallët A dhe B) fragmenton tokën rurale e bujqësore (15.3, 2.4) dhe rrit varësinë nga automjeti (11.2). Ndërtimi që u bashkua me qytetin lexohet sipas klasës së tij aktuale. Ky është lexim hapësinor i objektivave, jo tregues zyrtar SDG.`,`Reading: ✓ infill inside the existing footprint densifies the city and lowers built-up land per inhabitant (SDG 11.3, 11.3.1). ! Edge extension and new nuclei ≥ ${state.stageCuts[1]} ha take new land, but next to infrastructure or in a new centre. ✕ Scattered building that neither joined the city nor formed a nucleus (stages A and B) fragments rural and farm land (15.3, 2.4) and increases car dependence (11.2). Construction that joined the city is read by its current class. This is a spatial reading of the goals, not an official SDG indicator.`)}</p>`;
+}
 
 window.atlasExport = exportSvg;   // for testing from the console
 // Static page text, translated on load when the page is in English.
