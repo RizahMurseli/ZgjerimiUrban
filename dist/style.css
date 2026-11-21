@@ -495,3 +495,10 @@ details.tab-info ul{margin:6px 0 2px;padding-left:18px}
 details.tab-info li{margin:3px 0}
 details.tab-info li b{color:#e8eef6}
 .view-info details.tab-info{margin:6px 0 8px}
+/* Tabs never wrap, in either language */
+.tabs button{white-space:nowrap;padding:9px 4px;min-width:0}
+.map-views button{white-space:nowrap}
+/* In the forms, SDG and plan views the class legend sits at the bottom: the radial key moves to the top left */
+body.view-forms #radialKey{bottom:auto;top:178px;max-height:calc(100% - 330px);overflow:auto}
+body.view-forms #radialKey #radialSwatches{display:none}
+body.view-plan #sprawlBox > h3 small,body.view-plan #sprawlBox > .sprawl-mode{display:none}

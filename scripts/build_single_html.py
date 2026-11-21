@@ -1,3 +1,4 @@
+import re
 """Bundle the app into self-contained HTML files, one per country pack.
 
 Run from the repository root:
@@ -52,8 +53,8 @@ js = (DIST/'app.js').read_text(encoding='utf8').replace('</script', '<\\/script'
 for iso in wanted:
     files = bundle(iso)
     loader = LOADER.replace('__FILES__', json.dumps(files, separators=(',', ':')))
-    html = html0.replace('<link rel="stylesheet" href="style.css">', '<style>\n'+css+'\n</style>')
-    html = html.replace('<script type="module" src="app.js"></script>', loader+'\n<script type="module">\n'+js+'\n</script>')
+    html = re.sub(r'<link rel="stylesheet" href="style\.css(\?v=[^"]*)?">', lambda m: '<style>\n'+css+'\n</style>', html0)
+    html = re.sub(r'<script type="module" src="app\.js(\?v=[^"]*)?"></script>', lambda m: loader+'\n<script type="module">\n'+js+'\n</script>', html)
     assert '<style>' in html and '__EMBED__' in html
     out = DIST/out_name(iso)
     out.write_text(html, encoding='utf8')
