@@ -2504,7 +2504,16 @@ function sprawlWindow() {
   const tracker = state.period === 'tracker', native = tracker ? manifest.trackerSize : manifest.evolutionSize;
   const t0 = manifest.tiles[0].bbox, dlon = (t0[2]-t0[0])/native, dlat = (t0[3]-t0[1])/native;
   const lon0 = Math.min(...manifest.tiles.map(t => t.bbox[0])), lat0 = Math.max(...manifest.tiles.map(t => t.bbox[3]));
-  const area = state.aoi ? state.aoi.bbox : [view.west,view.south,view.east,view.north];
+  // The analysis window follows the filter, like the growth view: the zone of interest, the chosen units (within the
+  // view), or the view.
+  const fm = viewStats?.filter;
+  let area = state.aoi ? state.aoi.bbox : [view.west,view.south,view.east,view.north];
+  if (!state.aoi && fm?.kind === 'units' && fm.list?.length) {
+    const bb = [Infinity,Infinity,-Infinity,-Infinity];
+    for (const u of fm.list) for (const poly of u.polys) for (const ring of poly) for (let k=0;k<ring.length;k+=2) { const x = ring[k], y = ring[k+1];if (x < bb[0]) bb[0] = x;if (y < bb[1]) bb[1] = y;if (x > bb[2]) bb[2] = x;if (y > bb[3]) bb[3] = y; }
+    area = [Math.max(bb[0],view.west),Math.max(bb[1],view.south),Math.min(bb[2],view.east),Math.min(bb[3],view.north)];
+    if (!(area[2] > area[0] && area[3] > area[1])) area = [view.west,view.south,view.east,view.north];
+  }
   const latc = (area[1]+area[3])/2, mLon = SPRAWL_MARGIN_KM*1000/mPerDegLon(latc), mLat = SPRAWL_MARGIN_KM*1000/mPerDegLat(latc);
   const gx0 = Math.floor((area[0]-mLon-lon0)/dlon), gx1 = Math.ceil((area[2]+mLon-lon0)/dlon);
   const gy0 = Math.floor((lat0-area[3]-mLat)/dlat), gy1 = Math.ceil((lat0-area[1]+mLat)/dlat);
@@ -2662,7 +2671,7 @@ function sprawlOverlay(w,r,a,b) {
   const show = r.mode === 'steps' ? state.sprawlShow : 'class';
   for (let i=0;i<out.length;i++) {
     const code = grid[i];
-    if (!code || code > b) continue;
+    if (!code || code > b || !dom[i]) continue;   // outside the filter the map keeps only the base-year grey, as in the growth view
     let c;
     if (r.mode === 'steps' && code <= a) c = SPRAWL_BASE[sprawlDens(r,i,show === 'now' || show === 'stage' ? b : a)];
     else if (show === 'stage') { const st = r.stageAtPix ? r.stageAtPix[i] : 255;if (st === 255) continue;c = STAGES[st].c; }
@@ -2672,7 +2681,7 @@ function sprawlOverlay(w,r,a,b) {
     if (r.szc && r.szc[i] === 3 && code > a && !(show === 'year' && code !== b)) c = SPRAWL_SIZE[3].c;
     else if (c === colors[13] && r.szc && r.szc[i]) c = SPRAWL_SIZE[r.szc[i]].c;
     if (!c) continue;
-    px[i*4] = c[0];px[i*4+1] = c[1];px[i*4+2] = c[2];px[i*4+3] = dom[i] ? 255 : 70;
+    px[i*4] = c[0];px[i*4+1] = c[1];px[i*4+2] = c[2];px[i*4+3] = 255;
   }
   ctx.putImageData(img,0,0);
   return cv;
