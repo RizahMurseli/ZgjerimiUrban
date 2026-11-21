@@ -340,7 +340,7 @@ function paint(mapOnly=false) {
   // Over a dark base map the land tint is strong; over RGB or panchromatic imagery it stays light so the image shows.
   const tint = !state.basemap ? 255 : state.basemapMode === 'dark' ? 150 : 45, seaTint = !state.basemap ? 255 : state.basemapMode === 'dark' ? 215 : 120;
   const land = [13,23,39,tint], sea = [7,12,20,seaTint], dim = [52,64,84,255];
-  const sprawlOn = state.mapView === 'forms' && sprawlCurrent();
+  const sprawlOn = state.mapView === 'forms' && sprawlCurrent(), formsWait = state.mapView === 'forms' && !sprawlOn;
   for (let i=0;i<sample.length;i++) {
     const code = sample[i];
     const index = mode === 'compare' && i%size < split ? state.compareIndex : state.index;
@@ -349,6 +349,7 @@ function paint(mapOnly=false) {
     let c;
     if (!detected) c = mask[i*4+3] > 127 ? land : sea;
     else if (sprawlOn) c = code === 1 ? palette[0] : land;
+    else if (formsWait) c = code === 1 ? palette[0] : [118,130,150];   // forms view while classifying: no year colours
     else if (mode === 'added') c = code === index+1 || index === 0 ? palette[code-1] : dim;
     else c = palette[code-1];
     // Outside the filter only the base-year built-up area is drawn, in its usual grey, for orientation.
@@ -1133,7 +1134,7 @@ function renderRadial() {
           const v = dir[b][k];
           if (v <= 0) continue;
           const ra = r0+base/max*h, rb = r0+(base+v)/max*h;
-          out += `<path d="${sector(a-width/2,a+width/2,ra,Math.max(rb,ra+.6))}" fill="${fr ? 'rgb('+sprawlRadialColor(b).join(',')+')' : shade(color,b)}" opacity="${opacity}"/>`;
+          out += `<path d="${sector(a-width/2,a+width/2,ra,Math.max(rb,ra+.6))}" fill="${fr ? 'rgb('+sprawlRadialColor(b).join(',')+')' : state.mapView === 'forms' ? shade([118,130,150],b) : shade(color,b)}" opacity="${opacity}"/>`;
           base += v;
         }
       }
@@ -2777,6 +2778,8 @@ $('sprawlMode').onchange = () => { state.sprawlMode = $('sprawlMode').value;spra
 function sprawlLegendHtml() {
   const sw = (c,t,cls='') => `<span class="${cls}"><i style="background:rgb(${c.join(',')})"></i>${esc(t)}</span>`;
   $('sprawlLegend').hidden = state.mapView === 'time';
+  if (state.mapView === 'forms' && manifest && !sprawlCurrent() && !(state.sprawlMode === 'two' && state.index === 0)) {
+    $('sprawlLegend').innerHTML = `<b>${L('Duke klasifikuar format për këtë pamje…','Classifying the forms for this view…')}</b>`+sw([118,130,150],L('ndërtim ende pa klasë','built-up not yet classified'),'base');return; }
   const show = state.sprawlMode === 'steps' ? state.sprawlShow : 'class';
   $('sprawlLegend').innerHTML = (show === 'now' ? `<b>${L('Klasa në vitin e zgjedhur:','Class in the chosen year:')}</b>` : show === 'class' && state.sprawlMode === 'steps' ? `<b>${L('Klasa kur u ndërtua:','Class when built:')}</b>` : '')
     +(show === 'year' ? `<b>${L('Shtesat e këtij viti:','This year\'s additions:')}</b>` : '')+SPRAWL_CLASSES.map(c => sw(c.c,c.t)).join('')+(show === 'year' ? sw([70,82,102],L('vitet e mëparshme','earlier years'),'base') : '')
