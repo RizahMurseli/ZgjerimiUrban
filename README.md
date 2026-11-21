@@ -1,10 +1,10 @@
-# Zgjerimi urban në Kosovë
+# Observatori Urban i Kosovës
 
 Aplikacion interaktiv në shqip për eksplorimin e zonave të ndërtuara në çdo pikë të Kosovës, nga viti 1985 deri në 2026, i zgjerueshëm për çdo shtet me të dhëna globale.
 
 **Autori:** Rizah Murseli · koncepti, analiza dhe zhvillimi
 
-> Si ta citoni: Murseli, R. (2026). *Zgjerimi urban në Kosovë: atlas interaktiv i zonave të ndërtuara, 1985–2026.* Të dhënat: DLR World Settlement Footprint.
+> Si ta citoni: Murseli, R. (2026). *Observatori Urban i Kosovës: zgjerimi urban, format e tij, SDG dhe skenarë planifikimi, 1985–2030.* Të dhënat: DLR World Settlement Footprint.
 
 ## Nisja lokale
 
