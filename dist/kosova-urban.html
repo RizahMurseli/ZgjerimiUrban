@@ -408,6 +408,13 @@ body.view-forms #unitFormsZone{display:block}
 #unitFormsZoneBody .sprawl-chart{max-width:480px}
 body.view-sdg label[for=sprawlShow],body.view-sdg label[for=sprawlMode]{display:none}
 .sprawl-legend .sdg-sym{font-family:'Space Mono',monospace}
+.sdg-info{border:1px solid #2d4a6b;background:#0f1b2b;border-radius:8px;padding:8px 10px;margin:10px 0}
+.sdg-info summary{font-weight:700;color:#8fc3ff;cursor:pointer}
+.sdg-dl{margin:6px 0}
+.sdg-dl dt{font-size:12px;color:#e8eef6;margin-top:7px}
+.sdg-dl dt b{font-family:'Space Mono',monospace;color:#66e0d1;margin-right:4px}
+.sdg-dl dd{margin:2px 0 0;font-size:11.5px;line-height:1.45;color:#b6c4d6}
+.sdg-dl dd span{display:block;color:#d6e0ec}
 
 </style>
 </head>
@@ -530,7 +537,7 @@ body.view-sdg label[for=sprawlShow],body.view-sdg label[for=sprawlMode]{display:
             <p class="note">5. Madhësia: pikselat e kërcimit deri në 100 m larg njëri-tjetrit formojnë një strukturë. Nën 1 ha janë ndërtime të shpërndara (rritja e izoluar te Wilson et al. 2003); nga 1 ha deri te pragu janë grumbuj të shkëputur (degëzimi i grumbulluar); bërthamë e re është struktura e shkëputur, më shumë se 100 m larg ndërtimit urban e suburban të vitit bazë, ku ndërtimi i ri arrin pragun; madhësia matet në vitin e zgjedhur për gjithë strukturën, bashkë me mbushjen dhe skajin e mëvonshëm rreth farës së kërcimit, sepse sapo struktura dendësohet, pikselat e saj nuk janë më kërcim. Pragjet ndryshohen në legjendën e hartës; parazgjedhjet janë 1, 10 dhe 50 ha. Me pragun 10 ha struktura mbulon vetë të paktën 10% të rrethit 1 km² rreth saj, pra arrin dendësinë suburbane sipas rregullit të Angel et al. (2010) dhe krijon skajin e vet; ajo trajtohet si vendbanim i ri, jo si shpërndarje. Literatura nuk jep një prag të vetëm: Angel et al. e quajnë kërcim çdo ndërtim jashtë 100 m pa kufi madhësie, ndërsa Wilson et al. ia lënë përdoruesit vendimin se cilat lloje janë sprawl.</p>
             <p class="note">Burimet: Angel, S., Parent, J. &amp; Civco, D. L. (2010). The Fragmentation of Urban Footprints: Global Evidence of Sprawl, 1990–2000. Lincoln Institute of Land Policy. · Wilson, E. H., Hurd, J. D., Civco, D. L., Prisloe, M. P. &amp; Arnold, C. (2003). Development of a geospatial model to quantify, describe and map urban growth. Remote Sensing of Environment, 86(3), 275–285.</p>
             <p class="note">Kufizime: rrugët nuk përdoren drejtpërdrejt. Ndërtimi jashtë kufirit të shtetit nuk është në të dhëna, prandaj dendësia afër kufirit mund të nënvlerësohet.</p>
-          </details>
+          <div id="sdgMethodInfo"></div></details>
           <div class="sel-actions"><button id="sprawlCsv" type="button">Shkarko CSV të copave</button><button id="sprawlTimeCsv" type="button">Shkarko CSV të ndryshimeve në kohë</button></div>
         </section>
         <div id="zoneRings">
@@ -2584,12 +2591,26 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     const dirs = sdz.dir.map((v,d) => ({d,s:(v[1]+v[2]+v[3]) ? v[3]/(v[1]+v[2]+v[3]) : null})).filter(x => x.s != null).sort((p,q) => q.s-p.s);
     out += `<text x="${gx}" y="${gTop+2}" font-size="10" font-weight="700" style="fill:#66e0d1">${xml(L(`SDG: ✓ ${pc(1)}% në përputhje · ! ${pc(2)}% konsum toke · ✕ ${pc(3)}% cenim`,`SDGs: ✓ ${pc(1)}% in line · ! ${pc(2)}% land take · ✕ ${pc(3)}% breach`))}</text>`;
     if (dirs.length) out += `<text x="${gx}" y="${gTop+16}" font-size="8.5" class="muted">${xml(L(`Cenimi më i lartë në drejtim të ${DIR_GEN[dirs[0].d]} (${fmt1(dirs[0].s*100)}%), më i ulët në drejtim të ${DIR_GEN[dirs[dirs.length-1].d]} (${fmt1(dirs[dirs.length-1].s*100)}%).`,`The breach is highest towards the ${DIR_GEN[dirs[0].d]} (${fmt1(dirs[0].s*100)}%) and lowest towards the ${DIR_GEN[dirs[dirs.length-1].d]} (${fmt1(dirs[dirs.length-1].s*100)}%).`))}</text>`;
-    const top = gTop+30, hh = gBottom-top, wL = Math.round((gRight-gx)*.42), wR = gRight-gx-wL-28;
+    const top = gTop+30, hh = gBottom-top, wL = Math.round((gRight-gx)*.4), wR = gRight-gx-wL-28;
     out += `<text x="${gx}" y="${top+8}" font-size="9" font-weight="700">${xml(L('Sipas drejtimit nga qendra','By direction from the centre'))}</text>`;
     out += sdgDirSvg(sdz,{w:wL}).replace('<svg ',`<svg x="${gx}" y="${top+16}" width="${wL}" height="${Math.round(wL*94/wL)}" `);
-    const rx0 = gx+wL+28;
-    out += `<text x="${rx0}" y="${top+8}" font-size="9" font-weight="700">${xml(L(`Sipas vitit të ndërtimit: si qëndron në ${steps[i].short}`,`By year of building: status in ${steps[i].short}`))}</text>`;
-    out += sdgYearSvg(sdz,{w:wR,h:Math.min(hh-20,160)}).replace('<svg ',`<svg x="${rx0}" y="${top+16}" width="${wR}" height="${Math.min(hh-20,160)}" `);
+    // Year chart in the free space of column A, under the summary.
+    const yTop = yA+14, yH = Math.max(60,Math.min(110,gTop-yTop-26));
+    out += `<text x="${ax}" y="${yTop+8}" font-size="9" font-weight="700">${xml(L(`Sipas vitit të ndërtimit: si qëndron në ${steps[i].short}`,`By year of building: status in ${steps[i].short}`))}</text>`;
+    out += sdgYearSvg(sdz,{w:aw,h:yH}).replace('<svg ',`<svg x="${ax}" y="${yTop+12}" width="${aw}" height="${yH}" `);
+    // What the targets are, on the right.
+    const rx0 = gx+wL+28, wrap = (txt,n) => { const words = txt.split(' '), lines = [];let cur = '';for (const w2 of words) { if ((cur+' '+w2).trim().length > n) { lines.push(cur.trim());cur = w2; } else cur += ' '+w2; }if (cur.trim()) lines.push(cur.trim());return lines; };
+    const cpl = Math.max(40,Math.floor(wR/4.3));
+    let ty = top+8;
+    out += `<text x="${rx0}" y="${ty}" font-size="9" font-weight="700">${xml(L('Çfarë janë SDG dhe pse i llogarisim','What the SDGs are and why we compute them'))}</text>`;
+    ty += 13;
+    for (const line of wrap(L('17 objektiva të OKB-së për 2030 (Agjenda 2030). Ndërtimi i ri lexohet sipas pesë synimeve; shpjegimi i plotë është te metoda në aplikacion.','17 United Nations goals for 2030 (the 2030 Agenda). New construction is read against five targets; the full explanation is in the method notes of the app.'),cpl)) { out += `<text x="${rx0}" y="${ty}" font-size="7.8" class="muted">${xml(line)}</text>`;ty += 10; }
+    for (const x of SDG_INFO) {
+      ty += 4;
+      out += `<text x="${rx0}" y="${ty}" font-size="8.3" font-weight="700" style="fill:#66e0d1">${xml(x.k)} <tspan style="fill:#e8eef6">${xml(x.t)}</tspan></text>`;
+      ty += 10;
+      for (const line of wrap(x.h,cpl)) { out += `<text x="${rx0}" y="${ty}" font-size="7.6" class="muted">${xml(line)}</text>`;ty += 9.5; }
+    }
     [1,2,3].forEach((k,n) => { const ly = top+16+110+n*14;out += `<rect x="${gx}" y="${ly-8}" width="10" height="9" fill="rgb(${SDGF[k].c.join(',')})"/><text x="${gx+14}" y="${ly}" font-size="8.5">${xml(SDGF[k].s+' '+SDGF[k].t)}</text>`; });
   } else   if (stz && stz.flows.slice(1,5).some(f => f.some(v => v > 0))) {
     // Stage view: where detached construction went (Sankey) and the stages over time, with the reading in one line.
@@ -3420,6 +3441,7 @@ function sprawlSummary() {
   return {total,spr,share:total ? spr/total*100 : null,patches,rows:SPRAWL_CLASSES.map(c => ({...c,ha:ha[c.k],pct:total ? ha[c.k]/total*100 : 0,n:r.stats.patches[c.k],mean:r.stats.patches[c.k] ? ha[c.k]/r.stats.patches[c.k] : 0})),base:r.stats.base,res:Math.round((r.w.dx+r.w.dy)/2)};
 }
 function renderSprawlPanel(busy=false) {
+  if ($('sdgMethodInfo') && !$('sdgMethodInfo').innerHTML) $('sdgMethodInfo').innerHTML = sdgInfoHtml().replace(' open>','>');
   { const h3 = $('sprawlBox').querySelector('h3');if (h3) { if (h3.dataset.forms == null) h3.dataset.forms = h3.firstChild.textContent;h3.firstChild.textContent = state.mapView === 'sdg' ? L('SDG dhe ndërtimi i ri ','SDGs and new construction ') : h3.dataset.forms; } }
   if (state.tab === 'units' && formsLike()) setTimeout(renderUnitForms,0);
   $('sprawlBox').hidden = !state.sprawl;
@@ -4206,8 +4228,23 @@ function sdgViewHtml() {
   return `<h4 class="sprawl-sub">${L('Ku dhe kur cenohen SDG','Where and when the SDGs are breached')}</h4>${story}
     <div class="sprawl-chart-title">${L('Sipas drejtimit nga qendra e pamjes','By direction from the centre of the view')}</div>${sdgDirSvg(z)}${leg}
     <div class="sprawl-chart-title">${L(`Sipas vitit të ndërtimit: si qëndron në ${steps[i].short}`,`By year of building: status in ${steps[i].short}`)}</div>${sdgYearSvg(z)}
+    ${sdgInfoHtml()}
     ${sprawlSdgHtml()}
     <p class="note">${L(`Leximi: ✓ mbushja brenda gjurmës ekzistuese dendëson qytetin dhe ul tokën e ndërtuar për banor (SDG 11.3, 11.3.1). ! Zgjerimi në skaj dhe bërthamat e reja ≥ ${state.stageCuts[1]} ha konsumojnë tokë të re, por pranë infrastrukturës ose në një qendër të re. ✕ Ndërtimi i shpërndarë që nuk u bashkua me qytetin dhe nuk formoi bërthamë (shkallët A dhe B) fragmenton tokën rurale e bujqësore (15.3, 2.4) dhe rrit varësinë nga automjeti (11.2). Ndërtimi që u bashkua me qytetin lexohet sipas klasës së tij aktuale. Ky është lexim hapësinor i objektivave, jo tregues zyrtar SDG.`,`Reading: ✓ infill inside the existing footprint densifies the city and lowers built-up land per inhabitant (SDG 11.3, 11.3.1). ! Edge extension and new nuclei ≥ ${state.stageCuts[1]} ha take new land, but next to infrastructure or in a new centre. ✕ Scattered building that neither joined the city nor formed a nucleus (stages A and B) fragments rural and farm land (15.3, 2.4) and increases car dependence (11.2). Construction that joined the city is read by its current class. This is a spatial reading of the goals, not an official SDG indicator.`)}</p>`;
+}
+// What each Sustainable Development Goal target means and why the atlas reads it from new construction.
+const SDG_INFO = [
+  {k:'11.3',t:L('Urbanizim i qëndrueshëm','Sustainable urbanisation'),g:L('Deri në 2030, urbanizim gjithëpërfshirës e i qëndrueshëm dhe planifikim i integruar i vendbanimeve.','By 2030, inclusive and sustainable urbanisation and integrated planning of settlements.'),h:L('Mbushja brenda qytetit e mbështet; ndërtimi i shpërndarë e cenon.','Infill inside the city supports it; scattered building breaches it.')},
+  {k:'11.3.1',t:L('Toka kundrejt popullsisë','Land versus population'),g:L('Treguesi zyrtar: raporti i shpejtësisë së konsumit të tokës ndaj shpejtësisë së rritjes së popullsisë.','The official indicator: the ratio of the land consumption rate to the population growth rate.'),h:L('Skaji dhe bërthamat e reja shtojnë tokë të ndërtuar; mbushja nuk shton.','Edge growth and new nuclei add built-up land; infill does not.')},
+  {k:'15.3',t:L('Toka pa degradim','Land degradation neutrality'),g:L('Ndalimi i degradimit të tokës dhe rikthimi i tokës së dëmtuar.','Halting land degradation and restoring degraded land.'),h:L('Ndërtimi i shpërndarë mbulon dhe fragmenton tokë natyrore.','Scattered building seals and fragments natural land.')},
+  {k:'2.4',t:L('Bujqësi e qëndrueshme','Sustainable agriculture'),g:L('Sisteme të qëndrueshme të prodhimit të ushqimit dhe ruajtja e tokës bujqësore.','Sustainable food production systems and keeping farmland productive.'),h:L('Ndërtimi mbi tokë bujqësore e heq atë përgjithmonë.','Building on farmland removes it for good.')},
+  {k:'11.2',t:L('Transport i qëndrueshëm','Sustainable transport'),g:L('Transport i sigurt, i përballueshëm dhe i qasshëm për të gjithë.','Safe, affordable and accessible transport for all.'),h:L('Ndërtimi larg qendrave rrit varësinë nga automjeti.','Building far from centres increases car dependence.')},
+];
+function sdgInfoHtml() {
+  return `<details class="sdg-more sdg-info" open><summary>${L('Çfarë janë SDG dhe pse i llogarisim','What the SDGs are and why we compute them')}</summary>
+    <p class="note">${L('Objektivat e Zhvillimit të Qëndrueshëm (SDG) janë 17 objektiva të OKB-së, të miratuara në 2015 për vitin 2030 (Agjenda 2030), me synime dhe tregues të matshëm. Atlasi lexon ndërtimin e ri në hartë sipas pesë synimeve që lidhen drejtpërdrejt me mënyrën si rritet zona e ndërtuar:','The Sustainable Development Goals (SDGs) are 17 United Nations goals adopted in 2015 for 2030 (the 2030 Agenda), with targets and measurable indicators. The atlas reads new construction on the map against five targets that depend directly on how the built-up area grows:')}</p>
+    <dl class="sdg-dl">${SDG_INFO.map(x => `<dt><b>${x.k}</b> ${esc(x.t)}</dt><dd>${esc(x.g)} <span>${L('Këtu:','Here:')} ${esc(x.h)}</span></dd>`).join('')}</dl>
+    <p class="note">${L('Burimi: OKB, Korniza globale e treguesve të SDG (Rezoluta A/RES/71/313). Atlasi bën një lexim hapësinor të këtyre synimeve; vetëm 11.3.1 është tregues zyrtar, dhe ai llogaritet te skeda «SDG» djathtas me të dhënat e popullsisë.','Source: United Nations, global indicator framework for the SDGs (Resolution A/RES/71/313). The atlas gives a spatial reading of these targets; only 11.3.1 is an official indicator, and it is computed in the «SDG» tab on the right with population data.')}</p></details>`;
 }
 
 window.atlasExport = exportSvg;   // for testing from the console
