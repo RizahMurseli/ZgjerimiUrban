@@ -96,12 +96,13 @@
       <div class="playback">
         <div class="play-row"><button id="play" disabled aria-label="Luaj animacionin">▶ <span>Luaj</span></button><input id="time" aria-label="Viti" type="range" min="0" max="30" value="0"><select id="speed" aria-label="Shpejtësia"><option value="800">0,5×</option><option value="400" selected>1×</option><option value="200">2×</option></select></div>
         <div id="legend" aria-label="Legjenda e viteve"></div>
-        <p class="timeline-hint">Çdo ngjyrë i përket një viti. Grija tregon gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.</p>
+        <p class="timeline-hint" id="timelineHint">Çdo ngjyrë i përket një viti. Grija tregon gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.</p>
       </div>
     </section>
     <section class="insights" aria-label="Analiza">
       <div class="tabs" role="tablist"><button role="tab" data-tab="zone" aria-selected="true">Kjo zonë</button><button role="tab" data-tab="units" aria-selected="false">Njësitë</button><button role="tab" data-tab="sdg" aria-selected="false">Qëndrueshmëria</button><button role="tab" data-tab="race" aria-selected="false" id="tabRace">Gara 5 km</button><button role="tab" data-tab="kosovo" aria-selected="false" id="tabNation">Kosova</button></div>
       <div class="tab" id="tab-zone">
+        <div id="zoneGrowth">
         <p class="story" id="zoneStory">—</p>
         <div class="kpis"><div><span>Rritja</span><strong id="kpiGrowth">—</strong></div><div><span>Viti më aktiv</span><strong id="kpiPeak">—</strong></div><div><span>Mesatarja vjetore</span><strong id="kpiAvg">—</strong></div></div>
         <h3>Zona e ndërtuar, kumulative <small>km²</small></h3><div class="chart" id="chartCumulative"></div>
@@ -109,6 +110,7 @@
         <h3>Statistikat përshkruese <small>shtesat dhe rritja vjetore, pa gjendjen fillestare</small></h3><div id="descStats"></div>
         <details class="year-table"><summary>Tabela për çdo vit <small>ha dhe %</small></summary><div id="yearTable"></div></details>
         <div class="sel-actions zone-actions"><button id="zoneCsv" type="button">Shkarko CSV të zonës</button></div>
+        </div>
                 <section id="sprawlBox" class="sprawl-box" hidden>
           <h3>Format e zgjerimit <small>(mbushje, skaj, kërcim) · <span id="sprawlMeta"></span></small></h3>
           <label class="sprawl-mode" for="sprawlMode">Krahasimi <select id="sprawlMode"><option value="steps">Hap pas hapi: çdo vit me vitin paraprak</option><option value="two">Dy data: viti bazë me vitin e zgjedhur</option></select></label>
@@ -126,7 +128,9 @@
           </details>
           <div class="sel-actions"><button id="sprawlCsv" type="button">Shkarko CSV të copave</button><button id="sprawlTimeCsv" type="button">Shkarko CSV të ndryshimeve në kohë</button></div>
         </section>
+        <div id="zoneRings">
         <h3>Qendër apo periferi? <small>% e tokës së ndërtuar sipas largësisë nga qendra e pamjes</small></h3><div class="chart" id="chartRings"></div>
+        </div>
       </div>
       <div class="tab" id="tab-units" hidden>
         <div class="cascade">

@@ -324,7 +324,7 @@ function paint(mapOnly=false) {
   const palette = colors();
   const color = palette[state.index];
   $('year').textContent = stepYear(state.index);
-  $('year').style.color = 'rgb('+color.join(',')+')';
+  $('year').style.color = state.mapView === 'forms' ? '#e8eef6' : 'rgb('+color.join(',')+')';
   $('epoch').textContent = period().steps[state.index].epoch;
   $('time').value = state.index;
   [...$('legend').children].forEach((element,i) => {
@@ -340,7 +340,7 @@ function paint(mapOnly=false) {
   // Over a dark base map the land tint is strong; over RGB or panchromatic imagery it stays light so the image shows.
   const tint = !state.basemap ? 255 : state.basemapMode === 'dark' ? 150 : 45, seaTint = !state.basemap ? 255 : state.basemapMode === 'dark' ? 215 : 120;
   const land = [13,23,39,tint], sea = [7,12,20,seaTint], dim = [52,64,84,255];
-  const sprawlOn = state.index > 0 && state.mapView === 'forms' && sprawlCurrent();
+  const sprawlOn = state.mapView === 'forms' && sprawlCurrent();
   for (let i=0;i<sample.length;i++) {
     const code = sample[i];
     const index = mode === 'compare' && i%size < split ? state.compareIndex : state.index;
@@ -391,7 +391,7 @@ function paint(mapOnly=false) {
   overview();
   renderRadial();
   renderAoiDraft();
-  if (state.sprawl && (!sprawlRes || sprawlRes.key !== sprawlCalcKey())) { scheduleSprawl();renderSprawlPanel(); }
+  if (state.sprawl && !(state.sprawlMode === 'two' && state.index === 0) && (!sprawlRes || sprawlRes.key !== sprawlCalcKey())) { scheduleSprawl();renderSprawlPanel(); }
   else if (state.sprawl && sprawlCurrent() && sprawlRes.viewKey !== `${baseOff()+1}|${baseOff()+state.index+1}|${state.sprawlShow}`) { sprawlView();if (sprawlRes.viewKey) { renderSprawlPanel();paint(true); } }
 }
 const layer = document.createElement('canvas');
@@ -1102,11 +1102,12 @@ function renderRadial() {
   const fr = typeof sprawlRadial === 'function' ? sprawlRadial() : null;
   if (fr) {
     const show = sprawlRes.mode === 'steps' ? state.sprawlShow : 'class';
-    $('radialKeyText').innerHTML += ' '+(show === 'now' ? L(`Ngjyrat: klasa e ndërtimit në ${esc(period().steps[state.index].short)}, si në hartë.`,`Colours: the class of construction in ${esc(period().steps[state.index].short)}, as on the map.`)
+    $('radialKeyText').innerHTML += ' '+(state.index === 0 ? L('Shtyllat e zbehura tregojnë ndërtimin e viteve në vijim, me klasën kur u ndërtua; ngjyrat si në hartë.','Faded bars show the construction of the coming years, in its class when built; colours as on the map.') : show === 'now' ? L(`Ngjyrat: klasa e ndërtimit në ${esc(period().steps[state.index].short)}, si në hartë.`,`Colours: the class of construction in ${esc(period().steps[state.index].short)}, as on the map.`)
       : show === 'year' ? L('Ngjyrat: klasa e shtesave të këtij viti, si në hartë.','Colours: the class of this year\'s additions, as on the map.') : L('Ngjyrat: klasa kur u ndërtua, si në hartë.','Colours: the class when built, as on the map.'));
   }
   const swEl = $('radialSwatches');
   if (swEl.dataset.bands == null) swEl.dataset.bands = swEl.innerHTML;
+  swEl.hidden = !!fr;
   swEl.innerHTML = fr ? [0,1,2,...(fr.some(dir => dir[3].some(v => v > 0)) ? [3] : [])].map(l => `<span><i class="sw" style="background:rgb(${sprawlRadialColor(l).join(',')})"></i>${esc(sprawlRadialName(l))}</span>`).join('') : swEl.dataset.bands;
   $('radialKeyNote').textContent = fr ? L('Çdo shtyllë është një vit ndërtimi; koha ecën në drejtim të akrepave të orës.','Each bar is one year of building; time runs clockwise.') : L('Çdo shtyllë është një vit, me ngjyrën e vitit në hartë; koha ecën në drejtim të akrepave të orës.','Each bar is one year, in that year\'s map colour; time runs clockwise.');
   if (s && (s.radial || fr)) {
@@ -1125,7 +1126,7 @@ function renderRadial() {
       const step = m > 1 ? RADIAL.span/(m-1) : RADIAL.span, width = step*.78;
       const sector = (a0,a1,ra,rb) => `M${f(pt(a0,ra))}L${f(pt(a0,rb))}A${rb} ${rb} 0 0 1 ${f(pt(a1,rb))}L${f(pt(a1,ra))}A${ra} ${ra} 0 0 0 ${f(pt(a0,ra))}Z`;
       for (let k=0;k<m;k++) {
-        const color = palette[k+1], opacity = now >= 0 && k > now ? .25 : 1;
+        const color = palette[k+1], opacity = (fr || now >= 0) && k > now ? .25 : 1;
         const a = ang(d,k);
         let base = 0;
         for (let b=0;b<nl;b++) {
@@ -1782,7 +1783,7 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   text(period().source,9.5,'muted mono',400,17);
   const yearColor = 'rgb('+palette[i].join(',')+')';
   y += 50;
-  out += `<text x="${ax}" y="${y}" font-size="46" class="mono" style="fill:${yearColor}">${xml(yearOnly(steps[i].label))}</text>`;
+  out += `<text x="${ax}" y="${y}" font-size="46" class="mono" style="fill:${state.mapView === 'forms' ? '#e8eef6' : yearColor}">${xml(yearOnly(steps[i].label))}</text>`;
   if (steps[i].epoch) text(steps[i].epoch,8.5,'muted',400,15);
   const spr = state.sprawl && i > 0 ? sprawlSummary() : null;
   if (spr) {
@@ -2418,7 +2419,10 @@ const SPRAWL_CLASSES = [
   {k:11,c:[69,208,192],t:L('Zgjerim në skaj','Edge extension'),d:L('ngjitur me skajin, në hapësirën e jashtme','contiguous, in the exterior fringe'),sprawl:false},
   {k:13,c:[255,77,109],t:L('Kërcim (leapfrog)','Leapfrog'),d:L('tërësisht në hapësirë rurale, larg zonave urbane','entirely in rural open space, away from urban areas'),sprawl:true},
 ];
-const SPRAWL_BASE = {1:[150,160,178],2:[98,108,124],3:[60,68,82]};
+const SPRAWL_BASE = {1:[214,220,230],2:[140,150,168],3:[84,94,112]};   // urban, suburban, rural: one neutral ramp, light = dense
+const SPRAWL_DENS_NAMES = {1:L('urbane (≥ 50%)','urban (≥ 50%)'),2:L('suburbane (10–50%)','suburban (10–50%)'),3:L('rurale (< 10%)','rural (< 10%)')};
+// Density class of a built-up pixel at step k (1 urban, 2 suburban, 3 rural), from the first step it reached each class.
+const sprawlDens = (r,i,k) => r.firstUrb[i] <= k ? 1 : r.firstSub[i] <= k ? 2 : 3;
 // Class of earlier development at the year on display: its position in that year's footprint (Angel's rules),
 // never less absorbed than when it was built: sprawl → edge → infill.
 const SPRAWL_RANK = {13:0,12:0,11:1,10:2};
@@ -2611,9 +2615,10 @@ function sprawlOverlay(w,r,a,b) {
   const show = r.mode === 'steps' ? state.sprawlShow : 'class';
   for (let i=0;i<out.length;i++) {
     const code = grid[i];
-    if (!code || code > b || (r.mode === 'steps' && code <= a)) continue;
+    if (!code || code > b) continue;
     let c;
-    if (show === 'now') c = colors[sprawlNow(r,i,b)];
+    if (r.mode === 'steps' && code <= a) c = SPRAWL_BASE[sprawlDens(r,i,show === 'now' ? b : a)];
+    else if (show === 'now') c = colors[sprawlNow(r,i,b)];
     else if (show === 'year' && code !== b) c = [70,82,102];
     else c = colors[out[i]];
     if (!c) continue;
@@ -2644,6 +2649,7 @@ function sprawlStack(rows,keys,colorOf,labelOf,unit,opts={}) {
 // Drawn over the map in paint(): the classes replace the year colours of the new built-up area.
 function drawSprawl() {
   const r = sprawlRes;
+  if (state.mapView === 'forms') sprawlLegendHtml();
   if (!state.sprawl || !sprawlCurrent() || !r.overlay) return;
   sprawlView();
   const w = r.w, kx = view.size/(view.east-view.west), ky = view.size/(view.north-view.south);
@@ -2672,11 +2678,12 @@ function renderSprawlPanel(busy=false) {
   $('sprawlShow').disabled = state.sprawlMode !== 'steps';
   $('sprawlTimeCsv').hidden = state.sprawlMode !== 'steps';
   $('sprawlMeta').textContent = `${steps[0].short} → ${steps[i].short}`;
-  if (i === 0) { $('sprawlBody').innerHTML = `<p class="note">${L('Zgjidhni një vit pas vitit bazë: klasifikohet ndërtimi i ri ndërmjet tyre.','Choose a year after the base year: the new construction between them is classified.')}</p>`;return; }
+  if (i === 0 && state.sprawlMode === 'two') { $('sprawlBody').innerHTML = `<p class="note">${L('Zgjidhni një vit pas vitit bazë: klasifikohet ndërtimi i ri ndërmjet tyre.','Choose a year after the base year: the new construction between them is classified.')}</p>`;return; }
   if (busy || (!current && !(r?.tooBig && r.key === sprawlCalcKey()) && !(r?.error && r.key === sprawlCalcKey()))) {
     if (!sprawlPending) scheduleSprawl(true); $('sprawlBody').innerHTML = `<p class="note sprawl-busy">${L('Duke klasifikuar copat në rezolucionin burimor…','Classifying the patches at the source resolution…')}</p>`;return; }
   if (r?.tooBig && r.key === sprawlCalcKey()) { $('sprawlBody').innerHTML = `<p class="note">${L(`Zona është shumë e madhe për klasifikim në rezolucionin burimor (${number(Math.round(r.w.W*r.w.H/1e6))} milionë piksela; kufiri ${SPRAWL_MAX_PX/1e6}). Zvogëloni mbulimin e hartës ose zgjidhni një zonë më të vogël.`,`The area is too large for classification at the source resolution (${number(Math.round(r.w.W*r.w.H/1e6))} million pixels; limit ${SPRAWL_MAX_PX/1e6}). Reduce the map extent or choose a smaller zone.`)}</p>`;return; }
   if (r?.error && r.key === sprawlCalcKey()) { $('sprawlBody').innerHTML = `<p class="note">${L('Klasifikimi dështoi: ','The classification failed: ')}${esc(r.error)}</p>`;return; }
+  if (i === 0) { $('sprawlBody').innerHTML = sprawlDensHtml(true);return; }
   const s = sprawlSummary();
   if (!s) return;
   const bar = s.rows.map(c => `<i style="width:${c.pct.toFixed(2)}%;background:rgb(${c.c.join(',')})" title="${esc(c.t)}: ${fmt1(c.pct)}%"></i>`).join('');
@@ -2688,7 +2695,8 @@ function renderSprawlPanel(busy=false) {
     <table class="sprawl-table"><thead><tr><th>${L('Klasa','Class')}</th><th>ha</th><th>%</th><th>${L('Copa','Patches')}</th><th>${L('ha/copë','ha/patch')}</th></tr></thead><tbody>
     ${s.rows.map(c => `<tr title="${esc(c.d)}"><td class="l"><i style="background:rgb(${c.c.join(',')})"></i>${esc(c.t)} </td><td>${fmtHa(c.ha)}</td><td>${fmt1(c.pct)}</td><td>${number(c.n)}</td><td>${c.n ? fmt2(c.mean) : '—'}</td></tr>`).join('')}
     <tr class="sum"><td class="l">${L('Gjithsej','Total')}</td><td>${fmtHa(s.total)}</td><td>100</td><td>${number(s.patches)}</td><td>${s.patches ? fmt2(s.total/s.patches) : '—'}</td></tr></tbody></table>
-    <p class="note">${L(`Ndërtimi në ${steps[0].label.toLowerCase()} sipas dendësisë në rrethin 1 km²: urban ${fmtHa(s.base[1])} ha (${fmt1(baseTot ? s.base[1]/baseTot*100 : 0)}%), suburban ${fmtHa(s.base[2])} ha (${fmt1(baseTot ? s.base[2]/baseTot*100 : 0)}%), rural ${fmtHa(s.base[3])} ha (${fmt1(baseTot ? s.base[3]/baseTot*100 : 0)}%).`,`Built-up in ${steps[0].label} by density in the 1 km² circle: urban ${fmtHa(s.base[1])} ha (${fmt1(baseTot ? s.base[1]/baseTot*100 : 0)}%), suburban ${fmtHa(s.base[2])} ha (${fmt1(baseTot ? s.base[2]/baseTot*100 : 0)}%), rural ${fmtHa(s.base[3])} ha (${fmt1(baseTot ? s.base[3]/baseTot*100 : 0)}%).`)}</p>
+    ${state.sprawlMode === 'two' ? `<p class="note">${L(`Ndërtimi në ${steps[0].label.toLowerCase()} sipas dendësisë në rrethin 1 km²: urban ${fmtHa(s.base[1])} ha (${fmt1(baseTot ? s.base[1]/baseTot*100 : 0)}%), suburban ${fmtHa(s.base[2])} ha (${fmt1(baseTot ? s.base[2]/baseTot*100 : 0)}%), rural ${fmtHa(s.base[3])} ha (${fmt1(baseTot ? s.base[3]/baseTot*100 : 0)}%).`,`Built-up in ${steps[0].label} by density in the 1 km² circle: urban ${fmtHa(s.base[1])} ha (${fmt1(baseTot ? s.base[1]/baseTot*100 : 0)}%), suburban ${fmtHa(s.base[2])} ha (${fmt1(baseTot ? s.base[2]/baseTot*100 : 0)}%), rural ${fmtHa(s.base[3])} ha (${fmt1(baseTot ? s.base[3]/baseTot*100 : 0)}%).`)}</p>` : ''}
+    ${sprawlDensHtml(false)}
     ${sprawlSdgHtml()}
     ${sprawlTimeHtml(s)}
     <p class="note">${modeNote}</p>
@@ -2751,6 +2759,11 @@ state.mapView = 'time';
 function setMapView(v,repaint=true) {
   state.mapView = v;
   state.sprawl = v === 'forms';
+  document.body.classList.toggle('view-forms',v === 'forms');
+  if (v === 'forms' && state.mode !== 'cumulative') setMode('cumulative',false);
+  const hint = $('timelineHint');
+  if (hint) { if (hint.dataset.time == null) hint.dataset.time = hint.textContent;
+    hint.textContent = v === 'forms' ? L('Ngjyrat në hartë tregojnë formën e zgjerimit, jo vitin. Fillo nga viti bazë për të parë gjendjen fillestare. Shkurtore: ← → për vitin, hapësira për të luajtur.','Map colours show the form of expansion, not the year. Start at the base year to see the initial state. Shortcuts: ← → for the year, space to play.') : hint.dataset.time; }
   document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-selected',String(b.dataset.view === v)));
   renderSprawlPanel();
   if (v === 'forms') scheduleSprawl(true);
@@ -2767,6 +2780,7 @@ function sprawlLegendHtml() {
   const show = state.sprawlMode === 'steps' ? state.sprawlShow : 'class';
   $('sprawlLegend').innerHTML = (show === 'now' ? `<b>${L('Klasa në vitin e zgjedhur:','Class in the chosen year:')}</b>` : show === 'class' && state.sprawlMode === 'steps' ? `<b>${L('Klasa kur u ndërtua:','Class when built:')}</b>` : '')
     +(show === 'year' ? `<b>${L('Shtesat e këtij viti:','This year\'s additions:')}</b>` : '')+SPRAWL_CLASSES.map(c => sw(c.c,c.t)).join('')+(show === 'year' ? sw([70,82,102],L('vitet e mëparshme','earlier years'),'base') : '')
+    +(state.sprawlMode === 'steps' && manifest ? `<b class="leg-base">${L(`Ndërtimi i ${esc(period().steps[0].short)}, dendësia në ${esc(period().steps[show === 'now' ? state.index : 0].short)}:`,`Built by ${esc(period().steps[0].short)}, density in ${esc(period().steps[show === 'now' ? state.index : 0].short)}:`)}</b>`+[1,2,3].map(k => sw(SPRAWL_BASE[k],SPRAWL_DENS_NAMES[k],'base')).join('') : '')
     +(state.sprawlMode === 'two' ? [[1,L('urban','urban')],[2,L('suburban','suburban')],[3,L('rural','rural')]].map(([k,t]) => sw(SPRAWL_BASE[k],t,'base')).join('') : '');
 }
 sprawlLegendHtml();
@@ -2774,7 +2788,7 @@ sprawlLegendHtml();
 const SPRAWL_RADIAL_LAYERS = [10,11,13,0];
 function sprawlRadial() {
   const r = sprawlRes;
-  if (state.mapView !== 'forms' || !sprawlCurrent() || state.index < 1 || !view) return null;
+  if (state.mapView !== 'forms' || !sprawlCurrent() || !view) return null;
   sprawlView();
   const key = `${r.viewKey}|${view.west},${view.north},${state.span}`;
   if (r.radialKey === key) return r.radial;
@@ -2872,6 +2886,53 @@ function sprawlSdgHtml() {
     </tbody></table>
     <p class="note">${L('✓ në përputhje · ◐ konsum toke në skaj · ✕ në kundërshtim. 11.3 urbanizim i qëndrueshëm · 11.3.1 toka kundrejt popullsisë · 15.3 degradimi i tokës · 2.4 toka bujqësore · 11.2 transporti.','✓ in line · ◐ land take at the edge · ✕ against. 11.3 sustainable urbanisation · 11.3.1 land versus population · 15.3 land degradation · 2.4 farmland · 11.2 transport.')}</p>
     ${trend}${muni}`;
+}
+
+// How the built-up area developed by density from the base year: urban, suburban and rural ha in every year.
+function sprawlDensSeries() {
+  const r = sprawlRes;
+  if (!r || r.mode !== 'steps' || !r.firstUrb) return null;
+  if (r.densSeries) return r.densSeries;
+  const n = period().steps.length+baseOff()+1, d = [1,2,3].map(() => new Float64Array(n+2));
+  const {grid,domain,w} = r;
+  for (let i=0;i<grid.length;i++) {
+    const c = grid[i];
+    if (!c || !domain[i]) continue;
+    const ha = r.rowHa[(i-i%w.W)/w.W], fs = Math.max(c,Math.min(r.firstSub[i],n+1)), fu = Math.max(c,Math.min(r.firstUrb[i],n+1));
+    d[2][c] += ha;d[2][fs] -= ha;           // rural from the step it was built until it turns suburban
+    d[1][fs] += ha;d[1][Math.max(fs,fu)] -= ha;
+    d[0][fu] += ha;
+  }
+  for (const a of d) for (let k=1;k<a.length;k++) a[k] += a[k-1];
+  return r.densSeries = d;
+}
+function sprawlDensHtml(first) {
+  const d = sprawlDensSeries(), steps = period().steps, i = state.index, off = baseOff();
+  if (!d) return first ? `<p class="note">${L('Gjendja fillestare sipas dendësisë shfaqet në mënyrën «Hap pas hapi».','The initial state by density is shown in the “Step by step” mode.')}</p>` : '';
+  const at = k => [d[0][off+k+1],d[1][off+k+1],d[2][off+k+1]], A = at(0), B = at(i), tot = v => v[0]+v[1]+v[2];
+  const pc = (v,j) => tot(v) ? fmt1(v[j]/tot(v)*100) : '—';
+  const sw = k => `<i style="background:rgb(${SPRAWL_BASE[k].join(',')})"></i>`;
+  // Stacked bars: built-up by density class in every year, from the base year to the last; the chosen year is marked.
+  const n = steps.length, W = 300, H = 120, m = {l:34,r:6,t:8,b:20}, pw = W-m.l-m.r, ph = H-m.t-m.b, slot = pw/n, bw = Math.max(1.5,slot*.72);
+  const max = niceMax(Math.max(...Array.from({length:n},(_,k) => tot(at(k))))*1.05);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="sprawl-chart" role="img">`;
+  for (const t of [0,max/2,max]) { const y = m.t+ph-t/max*ph;svg += `<line x1="${m.l}" x2="${W-m.r}" y1="${y}" y2="${y}" stroke="#1e2a3a"/><text x="${m.l-4}" y="${y+3}" text-anchor="end" font-size="8" fill="#7f93ab">${fmtHa(t)}</text>`; }
+  for (let k=0;k<n;k++) {
+    const v = at(k), x = m.l+k*slot+(slot-bw)/2;let y = m.t+ph;
+    svg += `<g opacity="${k > i ? .3 : 1}"><title>${esc(steps[k].label)}: ${[1,2,3].map(j => `${SPRAWL_DENS_NAMES[j]} ${fmtHa(v[j-1])} ha`).join(' · ')}</title>`;
+    for (const j of [0,1,2]) { const h = v[j]/max*ph;if (h <= 0) continue;y -= h;svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(.5,h-.6).toFixed(1)}" fill="rgb(${SPRAWL_BASE[j+1].join(',')})"/>`; }
+    svg += '</g>';
+  }
+  const ticks = Array.from({length:n},(_,k) => k).filter(k => n <= 12 || Number(String(steps[k].short).replace(/\D/g,'').slice(-4))%5 === 0 || k === n-1 || k === 0);
+  for (const k of ticks) svg += `<text x="${(m.l+k*slot+slot/2).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="8" fill="#7f93ab">${esc(steps[k].short)}</text>`;
+  svg += `<line x1="${(m.l+i*slot+slot/2).toFixed(1)}" x2="${(m.l+i*slot+slot/2).toFixed(1)}" y1="${m.t}" y2="${m.t+ph}" stroke="#fff" stroke-width="1" stroke-dasharray="2 2"/></svg>`;
+  const row = j => `<tr><td class="l">${sw(j+1)}${esc(SPRAWL_DENS_NAMES[j+1])}</td><td>${fmtHa(A[j])}</td><td>${pc(A,j)}</td>${first ? '' : `<td>${fmtHa(B[j])}</td><td>${pc(B,j)}</td>`}</tr>`;
+  return `<h4 class="sprawl-sub">${first ? L(`Gjendja fillestare: forma urbane në ${esc(steps[0].short)}`,`Initial state: the urban form in ${esc(steps[0].short)}`) : L('Si u zhvilluan zonat urbane','How the urban areas developed')}</h4>
+    <p class="note">${first ? L(`Ndërtimi i ${esc(steps[0].short)} sipas dendësisë në rrethin 1 km² rreth çdo pikseli. Ky është pikënisja: lëvizni vitin për të parë si ndërtimi i ri mbush, zgjeron ose kërcen jashtë këtyre zonave.`,`Built-up land in ${esc(steps[0].short)} by density in the 1 km² circle around each pixel. This is the starting point: move the year to see how new construction fills, extends or leaps beyond these areas.`)
+      : L(`E gjithë zona e ndërtuar sipas dendësisë, ${esc(steps[0].short)} → ${esc(steps[i].short)}: zonat urbane kalojnë nga ${fmtHa(A[0])} në ${fmtHa(B[0])} ha.`,`The whole built-up area by density, ${esc(steps[0].short)} → ${esc(steps[i].short)}: urban areas go from ${fmtHa(A[0])} to ${fmtHa(B[0])} ha.`)}</p>
+    <table class="sprawl-table"><thead><tr><th>${L('Dendësia','Density')}</th><th>${esc(steps[0].short)} ha</th><th>%</th>${first ? '' : `<th>${esc(steps[i].short)} ha</th><th>%</th>`}</tr></thead><tbody>
+    ${[0,1,2].map(row).join('')}<tr class="sum"><td class="l">${L('Gjithsej','Total')}</td><td>${fmtHa(tot(A))}</td><td>100</td>${first ? '' : `<td>${fmtHa(tot(B))}</td><td>100</td>`}</tr></tbody></table>
+    <div class="sprawl-chart-title">${L('Zona e ndërtuar sipas dendësisë në çdo vit (ha)','Built-up area by density in every year (ha)')}</div>${svg}`;
 }
 
 window.atlasExport = exportSvg;   // for testing from the console

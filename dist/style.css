@@ -363,3 +363,7 @@ body.recording .map-wrap{outline:2px solid #ff5d5d88;outline-offset:-2px}
 .sdg-forms td.sdg-mark{font-weight:700;text-align:center;cursor:help}
 .sdg-legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:#b6c4d6;margin:2px 0 4px}
 .sdg-legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+body.view-forms #zoneGrowth,body.view-forms #zoneRings,body.view-forms .mode-switch{display:none}
+body.view-forms #legend button{border-top-color:#3a4658}
+body.view-forms #legend button.active{border-top-color:var(--accent)}
+.sprawl-legend .leg-base{margin-left:6px}
