@@ -40,7 +40,11 @@ from common import args, bbox_of, burn, mirror_name, paths, polygons, utm_forwar
 HOST = 'https://lulctimeseries.blob.core.windows.net'
 # Esri publishes new years in new containers from time to time; every one listed here is searched.
 CONTAINERS = ['lulctimeseriesv003', 'lulctimeseriesv004', 'lulctimeseriesv005', 'lulctimeseriesv006', 'lulctimeseriespublic']
-URL = HOST+'/{container}/lc{y}/{tile}_{y}0101-{y1}0101.tif'
+# File names: up to 2023 the period ends on 1 January of the next year; from 2024 on it ends on 31 December.
+URLS = [HOST+'/{container}/lc{y}/{tile}_{y}0101-{y1}0101.tif', HOST+'/{container}/lc{y}/{tile}_{y}0101-{y}1231.tif']
+def url_for(src, y, tile):
+    container, k = src
+    return URLS[k].format(container=container, y=y, y1=y+1, tile=tile)
 FIRST_YEAR = 2017
 URBAN_BUFFER_M = 100
 TILE_STEP = 3  # class tiles: every 3rd Tracker pixel (~30 m), every map year
@@ -198,8 +202,8 @@ def list_container(container, zone):
         while True:
             with urllib.request.urlopen(url+(f'&marker={marker}' if marker else ''), timeout=60) as r:
                 xml = r.read().decode('utf8', 'replace')
-            for y in re.findall(rf'<Name>lc(\d{{4}})/{zone}_\d{{8}}-\d{{8}}\.tif</Name>', xml):
-                years[int(y)] = container
+            for y, end in re.findall(rf'<Name>lc(\d{{4}})/{zone}_\d{{8}}-(\d{{8}})\.tif</Name>', xml):
+                years[int(y)] = (container, 1 if end.endswith('1231') else 0)
             marker = (re.findall(r'<NextMarker>([^<]*)</NextMarker>', xml) or [''])[0]
             if not marker:
                 return years
@@ -217,10 +221,12 @@ def available_years(zones):
             found.update(listed)
             continue
         for y in range(FIRST_YEAR, time.gmtime().tm_year+1):
-            tif = open_source(URL.format(container=container, y=y, y1=y+1, tile=zones[0]))
-            if tif is not None:
-                tif.close()
-                found[y] = container
+            for k in range(len(URLS)):
+                tif = open_source(url_for((container, k), y, zones[0]))
+                if tif is not None:
+                    tif.close()
+                    found[y] = (container, k)
+                    break
     return dict(sorted(found.items()))
 
 
@@ -247,7 +253,7 @@ def main():
         old = json.loads((DATA/'landcover.json').read_text(encoding='utf8')).get('years', []) if (DATA/'landcover.json').exists() else []
         print(f'NEWYEAR {OPTS.country} {years[-1]}' if years != old else f'SAME {OPTS.country} {years[-1]}', flush=True)
         return
-    print(f'Esri Land Cover: vitet {", ".join(map(str, years))} ({", ".join(sorted(set(where.values())))}), zonat {", ".join(zones)}', flush=True)
+    print(f'Esri Land Cover: vitet {", ".join(map(str, years))} ({", ".join(sorted(set(c for c, _ in where.values())))}), zonat {", ".join(zones)}', flush=True)
     map_year = step_years(years)
     Y, S = len(years), len(steps)
     # Which year index each Tracker code (1..S) uses; −1 = baseline step.
@@ -255,7 +261,7 @@ def main():
     for i, m in enumerate(map_year):
         if m:
             code_year[i+1] = years.index(m['year'])
-    sources = {y: [t for t in (open_source(URL.format(container=where[y], y=y, y1=y+1, tile=z)) for z in zones) if t is not None] for y in years}
+    sources = {y: [t for t in (open_source(url_for(where[y], y, z)) for z in zones) if t is not None] for y in years}
     projections = {}
     for y in years:
         for tif in sources[y]:
