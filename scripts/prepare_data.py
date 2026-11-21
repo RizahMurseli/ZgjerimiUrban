@@ -38,17 +38,21 @@ DATA, SCRATCH = paths(ISO)
 
 
 def legend_swatches(path):
-    """Read the colour of every legend entry, top to bottom, until the swatches stop."""
+    """Read the colour of every legend entry, top to bottom.
+
+    A swatch is a run of at least 12 pixel rows of one non-white colour in the swatch column; thinner marks (a header
+    line, anti-aliasing) are skipped. Black counts as a swatch: since November 2026 DLR draws the first date in black,
+    and the entries no longer start at a fixed offset."""
     legend = Image.open(path).convert('RGBA')
-    swatches = []
-    for i in range(200):
-        y = 32+23*i
-        if y >= legend.height:
-            break
-        color = legend.getpixel((10, y))
-        if color[3] < 255 or color[:3] in ((255, 255, 255), (0, 0, 0)) or color in swatches:
-            break
-        swatches.append(color)
+    swatches, run, prev = [], 0, None
+    for y in range(legend.height+1):
+        color = legend.getpixel((10, y)) if y < legend.height else None
+        if color == prev:
+            run += 1
+            continue
+        if prev is not None and prev[3] == 255 and prev[:3] != (255, 255, 255) and run >= 12 and prev not in swatches:
+            swatches.append(prev)
+        prev, run = color, 1
     if len(swatches) < 2:
         raise SystemExit('Legjenda e WSF Tracker nuk u lexua: struktura e saj mund të ketë ndryshuar.')
     return swatches
