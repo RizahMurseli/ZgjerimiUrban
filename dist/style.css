@@ -392,3 +392,8 @@ body.view-forms #tab-units .unit-controls,body.view-forms #metricNote,body.view-
 .uf-table tr[data-id]{cursor:pointer}
 .uf-table tr[data-id]:hover td{background:#142032}
 .uf-table tr.sel td{background:#123a3a}
+#unitFormsZone{display:none;margin-top:6px}
+body.view-forms #unitFormsZone{display:block}
+#unitFormsZone > h3{margin:14px 0 6px}
+#unitFormsZoneBody{border-bottom:1px solid #1e2a3a;padding-bottom:10px;margin-bottom:6px}
+#unitFormsZoneBody .sprawl-chart{max-width:480px}
