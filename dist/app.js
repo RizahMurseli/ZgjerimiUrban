@@ -1906,7 +1906,7 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
       y += 12;out += `<text x="${bx+30}" y="${y}" font-size="8.5">${xml(L(`kundër 11.3 · 15.3 · 2.4 (kërcim) ${fmt1(g.pct(13))}%`,`against 11.3 · 15.3 · 2.4 (leapfrog) ${fmt1(g.pct(13))}%`))}</text>`;
       const z = sprawlRes?.sizeShown;
       if (z) { y += 12;out += `<text x="${bx+30}" y="${y}" font-size="8.5" class="muted">${xml(L(`madhësia: <1 ha ${fmtHa(z.ha[1])} · grumbuj ${fmtHa(z.ha[2])} · bërthama ${fmtHa(z.ha[3])} ha`,`size: <1 ha ${fmtHa(z.ha[1])} · clusters ${fmtHa(z.ha[2])} · nuclei ${fmtHa(z.ha[3])} ha`))}</text>`; }
-      if (g.muni) { y += 12;const m = g.muni;out += `<text x="${bx+30}" y="${y}" font-size="8.5" class="muted">${xml(L(`11.3.1 · ${m.name} ${SDG_T0}–${SDG_T1}: LCRPGR ${m.ratio == null ? '—' : dec(m.ratio,2)} · ${SDG_CAT[m.cat].t}`,`11.3.1 · ${m.name} ${SDG_T0}–${SDG_T1}: LCRPGR ${m.ratio == null ? '—' : dec(m.ratio,2)} · ${SDG_CAT[m.cat].t}`))}</text>`; }
+      if (g.muni) { const m = g.muni;y += 12;out += `<text x="${bx+30}" y="${y}" font-size="8.5" class="muted">${xml(`11.3.1 · ${m.name} ${SDG_T0}–${SDG_T1}: LCRPGR ${m.ratio == null ? '—' : dec(m.ratio,2)}`)}</text>`;y += 11;out += `<text x="${bx+30}" y="${y}" font-size="8.5" class="muted">${xml(SDG_CAT[m.cat].t)}</text>`; }
     }
 } else {
   text(L('Si u rrit zona e ndërtuar','How the built-up area grew'),11,'',700,0,bx);
@@ -1927,33 +1927,34 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   const sdzT = sdz ? sdz.tot[1]+sdz.tot[2]+sdz.tot[3] : 0;
   const stz = !sdzT && spr && state.sprawlMode === 'steps' && state.sprawlShow === 'stage' && i > 0 && typeof stageSummary === 'function' ? stageSummary() : null;
   if (sdzT) {
-    // SDG view: the reading in one line, the breach by direction and by year of building.
-    // The year chart sits under the summary in column A; the block below moves down to make room for it.
-    const yH = 100, sh = Math.max(0,yA+14+12+yH+22-gTop), gT = gTop+sh;
-    const pc = k => fmt1(sdz.tot[k]/sdzT*100);
-    const dirs = sdz.dir.map((v,d) => ({d,s:(v[1]+v[2]+v[3]) ? v[3]/(v[1]+v[2]+v[3]) : null})).filter(x => x.s != null).sort((p,q) => q.s-p.s);
-    out += `<text x="${gx}" y="${gT+2}" font-size="10" font-weight="700" style="fill:#66e0d1">${xml(L(`SDG: ✓ ${pc(1)}% në përputhje · ! ${pc(2)}% konsum toke · ✕ ${pc(3)}% cenim`,`SDGs: ✓ ${pc(1)}% in line · ! ${pc(2)}% land take · ✕ ${pc(3)}% breach`))}</text>`;
-    if (dirs.length) out += `<text x="${gx}" y="${gT+16}" font-size="8.5" class="muted">${xml(L(`Cenimi më i lartë në drejtim të ${DIR_GEN[dirs[0].d]} (${fmt1(dirs[0].s*100)}%), më i ulët në drejtim të ${DIR_GEN[dirs[dirs.length-1].d]} (${fmt1(dirs[dirs.length-1].s*100)}%).`,`The breach is highest towards the ${DIR_GEN[dirs[0].d]} (${fmt1(dirs[0].s*100)}%) and lowest towards the ${DIR_GEN[dirs[dirs.length-1].d]} (${fmt1(dirs[dirs.length-1].s*100)}%).`))}</text>`;
-    const top = gT+28, hh = gBottom-top, wL = Math.round((gRight-gx)*.4), wR = gRight-gx-wL-28;
-    out += `<text x="${gx}" y="${top+8}" font-size="9" font-weight="700">${xml(L('Sipas drejtimit nga qendra','By direction from the centre'))}</text>`;
-    out += sdgDirSvg(sdz,{w:wL,row:19}).replace('<svg ',`<svg x="${gx}" y="${top+14}" width="${wL}" height="${4*19+6}" `);
-    // Year chart in the free space of column A, under the summary.
-    const yTop = yA+14;
+    // SDG view. Column A: the year chart under the summary. Column B: the SDG targets read here, under the sprawl block.
+    // Below both: the reading in one line and the breach by direction, with its legend beside it.
+    const yH = 100, yTop = yA+14;
     out += `<text x="${ax}" y="${yTop+8}" font-size="9" font-weight="700">${xml(L(`Sipas vitit të ndërtimit: si qëndron në ${steps[i].short}`,`By year of building: status in ${steps[i].short}`))}</text>`;
     out += sdgYearSvg(sdz,{w:aw,h:yH}).replace('<svg ',`<svg x="${ax}" y="${yTop+12}" width="${aw}" height="${yH}" `);
-    // What the targets are, on the right.
-    const rx0 = gx+wL+28, wrap = (txt,n) => { const words = txt.split(' '), lines = [];let cur = '';for (const w2 of words) { if ((cur+' '+w2).trim().length > n) { lines.push(cur.trim());cur = w2; } else cur += ' '+w2; }if (cur.trim()) lines.push(cur.trim());return lines; };
-    const cpl = Math.max(40,Math.floor(wR/4.3));
-    let ty = top+8;
-    out += `<text x="${rx0}" y="${ty}" font-size="9" font-weight="700">${xml(L('Synimet SDG (OKB, Agjenda 2030) që lexohen këtu','SDG targets (UN, 2030 Agenda) read here'))}</text>`;
+    const wrap = (txt,n) => { const words = txt.split(' '), lines = [];let cur = '';for (const w2 of words) { if ((cur+' '+w2).trim().length > n) { lines.push(cur.trim());cur = w2; } else cur += ' '+w2; }if (cur.trim()) lines.push(cur.trim());return lines; };
+    const cpl = Math.max(40,Math.floor((bRight-bx)/4.3));
+    let ty = y+24;
+    out += `<text x="${bx}" y="${ty}" font-size="9" font-weight="700">${xml(L('Synimet SDG (OKB, Agjenda 2030) që lexohen këtu','SDG targets (UN, 2030 Agenda) read here'))}</text>`;
     ty += 9;
     for (const x of SDG_INFO) {
       ty += 3;
-      out += `<text x="${rx0}" y="${ty}" font-size="8.3" font-weight="700" style="fill:#66e0d1">${xml(x.k)} <tspan style="fill:#e8eef6">${xml(x.t)}</tspan></text>`;
+      out += `<text x="${bx}" y="${ty}" font-size="8.3" font-weight="700" style="fill:#66e0d1">${xml(x.k)} <tspan style="fill:#e8eef6">${xml(x.t)}</tspan></text>`;
       ty += 10;
-      for (const line of wrap(x.h,cpl)) { out += `<text x="${rx0}" y="${ty}" font-size="7.6" class="muted">${xml(line)}</text>`;ty += 9.5; }
+      for (const line of wrap(x.h,cpl)) { out += `<text x="${bx}" y="${ty}" font-size="7.6" class="muted">${xml(line)}</text>`;ty += 9.5; }
     }
-    [1,2,3].forEach((k,n) => { const ly = top+14+4*19+18+n*13;out += `<rect x="${gx}" y="${ly-8}" width="10" height="9" fill="rgb(${SDGF[k].c.join(',')})"/><text x="${gx+14}" y="${ly}" font-size="8.5">${xml(SDGF[k].s+' '+SDGF[k].t)}</text>`; });
+    // Below the year chart, in column A: the reading, the breach by direction and the legend.
+    let gy = yTop+12+yH+26;
+    const pc = k => fmt1(sdz.tot[k]/sdzT*100), cplA = Math.floor(aw/5.2);
+    const dirs = sdz.dir.map((v,d) => ({d,s:(v[1]+v[2]+v[3]) ? v[3]/(v[1]+v[2]+v[3]) : null})).filter(x => x.s != null).sort((p,q) => q.s-p.s);
+    for (const line of wrap(L(`SDG: ✓ ${pc(1)}% në përputhje · ! ${pc(2)}% konsum toke · ✕ ${pc(3)}% cenim`,`SDGs: ✓ ${pc(1)}% in line · ! ${pc(2)}% land take · ✕ ${pc(3)}% breach`),Math.floor(aw/6.2))) { out += `<text x="${ax}" y="${gy}" font-size="10" font-weight="700" style="fill:#66e0d1">${xml(line)}</text>`;gy += 13; }
+    if (dirs.length) for (const line of wrap(L(`Cenimi më i lartë në drejtim të ${DIR_GEN[dirs[0].d]} (${fmt1(dirs[0].s*100)}%), më i ulët në drejtim të ${DIR_GEN[dirs[dirs.length-1].d]} (${fmt1(dirs[dirs.length-1].s*100)}%).`,`The breach is highest towards the ${DIR_GEN[dirs[0].d]} (${fmt1(dirs[0].s*100)}%) and lowest towards the ${DIR_GEN[dirs[dirs.length-1].d]} (${fmt1(dirs[dirs.length-1].s*100)}%).`),cplA)) { out += `<text x="${ax}" y="${gy}" font-size="8.5" class="muted">${xml(line)}</text>`;gy += 11; }
+    gy += 8;
+    out += `<text x="${ax}" y="${gy}" font-size="9" font-weight="700">${xml(L('Sipas drejtimit nga qendra','By direction from the centre'))}</text>`;
+    out += sdgDirSvg(sdz,{w:aw,row:19}).replace('<svg ',`<svg x="${ax}" y="${gy+6}" width="${aw}" height="${4*19+6}" `);
+    // The legend goes under the targets in column B.
+    let ly2 = ty+14;
+    [1,2,3].forEach(k => { out += `<rect x="${bx}" y="${ly2-8}" width="10" height="9" fill="rgb(${SDGF[k].c.join(',')})"/><text x="${bx+14}" y="${ly2}" font-size="8.5">${xml(SDGF[k].s+' '+SDGF[k].t)}</text>`;ly2 += 13; });
   } else   if (stz && stz.flows.slice(1,5).some(f => f.some(v => v > 0))) {
     // Stage view: where detached construction went (Sankey) and the stages over time, with the reading in one line.
     const all = stz.now.reduce((p,q) => p+q,0), det = all-stz.now[0], sh = v => det ? fmt1(v/det*100) : '—';
