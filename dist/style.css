@@ -315,3 +315,27 @@ body.recording .map-wrap{outline:2px solid #ff5d5d88;outline-offset:-2px}
 .sdg-def .sdg-def-src{font-size:11px;color:var(--muted);margin-bottom:4px}
 .sdg-def .sdg-def-atlas{font-size:11.5px;color:#c9d6e4;border-top:1px solid #c9850033;padding-top:10px;margin-top:10px}
 .sdg-def-link{cursor:pointer;text-decoration:underline dotted #c98500;text-underline-offset:3px}
+/* Urban sprawl layer */
+#toggleSprawl[aria-pressed=true]{background:#ffb00022;border-color:#ffb000;color:#ffcf66}
+.sprawl-legend{position:absolute;left:14px;bottom:44px;z-index:3;display:flex;flex-wrap:wrap;gap:4px 10px;max-width:min(560px,calc(100% - 28px));background:#0b111bdd;border:1px solid #263244;border-radius:7px;padding:7px 10px;font-size:11px;pointer-events:none}
+.sprawl-legend[hidden]{display:none}
+.sprawl-legend span{display:flex;align-items:center;gap:5px;color:var(--text)}.sprawl-legend span.base{color:var(--muted)}
+.sprawl-legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.sprawl-box{margin-top:18px;border-top:1px solid #ffb00055;padding-top:6px}
+.sprawl-box[hidden]{display:none}
+.sprawl-kpi{display:flex;gap:12px;align-items:center;margin:8px 0 10px}
+.sprawl-kpi strong{font:700 30px 'Space Mono',monospace;color:#ffb000;white-space:nowrap}
+.sprawl-kpi span{font-size:12px;color:var(--muted);line-height:1.45}.sprawl-kpi b{color:var(--text)}
+.sprawl-bar{display:flex;height:12px;border-radius:3px;overflow:hidden;gap:2px;background:#0b1620;margin-bottom:10px}
+.sprawl-bar i{display:block;height:100%}
+.sprawl-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:8px}
+.sprawl-table th{font-weight:400;color:var(--muted);text-align:right;padding:4px 4px;border-bottom:1px solid var(--border)}.sprawl-table th:first-child{text-align:left}
+.sprawl-table td{text-align:right;padding:5px 4px;font-family:'Space Mono',monospace;font-size:11px;border-bottom:1px solid #1a2433}
+.sprawl-table td.l{text-align:left;font-family:'DM Sans',sans-serif;font-size:12px}
+.sprawl-table td.l i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:7px;vertical-align:-1px}
+.sprawl-table td.l small{color:#ffb000;font-size:9.5px;margin-left:3px}
+.sprawl-table tr.sum td{font-weight:700;border-bottom:0}
+.sprawl-busy{color:#ffcf66!important}
+.sprawl-mode{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--muted);margin:8px 0 4px}
+.sprawl-mode select{padding:7px 9px;font-size:12px}
+.sprawl-progress{height:5px;background:#0b1620;border-radius:3px;overflow:hidden;margin:4px 0 8px}.sprawl-progress i{display:block;height:100%;background:#ffb000;transition:width .2s}
