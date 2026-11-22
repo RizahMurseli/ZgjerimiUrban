@@ -1864,7 +1864,8 @@ function exportSvg() {
   if (!sample || !view || !viewStats) throw new Error(L('Harta nuk është ngarkuar ende.','The map has not loaded yet.'));
   const r = canvas.width/canvas.clientWidth;
   const S = Math.max(640,Math.round(view.size/r)), sx = S/(view.size/r), ox = view.x/r, oy = view.y/r;
-  const P = 640, W = S+P, H = S;
+  const P = 640, W = S+P, H0 = S;
+  let H = H0;
   const crop = document.createElement('canvas');
   crop.width = crop.height = view.size;
   crop.getContext('2d').drawImage(canvas,view.x,view.y,view.size,view.size,0,0,view.size,view.size);
@@ -1979,7 +1980,8 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   const yB = y;
   // Two linked panels over the same years: the total (with this year's addition as a coloured cap) and the
   // yearly addition on its own scale, with mean, median, peak and context events, plus an interpretive caption.
-  const gx = ax, gRight = bRight, gBottom = H-122;
+  const gx = ax, gRight = bRight;
+  let gBottom = H-122;
   const bars = z.rows.slice(1), m = bars.length, shown = bars.slice(0,Math.max(1,i));
   const baseRgb = 'rgb('+palette[0].join(',')+')';
   const label = v => v >= 10 ? number(Math.round(v)) : fmt1(v);
@@ -2034,6 +2036,9 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   let dy = 17;
   for (const t of [line1,line2].filter(Boolean)) { for (const ln of wrap(t,54)) { text(ln,9.5,'muted',400,dy,bx);dy = 13; } dy = 17; }
   }
+  // The charts under the two columns need room: when the text above them runs long (for example the stage
+  // view with its SDG lines), the sheet grows downwards instead of squeezing the Sankey and the stage chart.
+  if (spr && state.mapView === 'forms' && state.sprawlMode === 'steps' && state.sprawlShow === 'stage' && i > 0) { const gT = Math.max(yA,y)+30, minG = 240;if (gBottom-gT < minG) { H += minG-(gBottom-gT);gBottom = H-122; } }
   const gTop = Math.max(yA,y)+30, axisW = 34, px0 = gx+axisW, pw = gRight-px0, slot = pw/m, barW = Math.max(2,slot*.66);
   const totalH = Math.round((gBottom-gTop)*.46), gap = 24;
   const aTop = gTop+52, aBottom = gTop+totalH, bTop = aBottom+gap+12, bBottom = gBottom;
@@ -2223,7 +2228,9 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
   const head = `<rect x="0" y="0" width="${W}" height="${TH}" fill="#0b1422"/><rect x="0" y="0" width="6" height="${TH}" fill="#66e0d1"/><line x1="0" x2="${W}" y1="${TH-.5}" y2="${TH-.5}" stroke="#2b3d57"/>`
     +`<text x="26" y="${TH/2+10}" font-size="${title.length > 70 ? 21 : 27}" font-weight="700">${xml(title)}</text>`
     +`<text x="${W-24}" y="${TH/2+4}" font-size="10.5" text-anchor="end" class="muted mono">${xml(sub)}</text>`;
-  out = out.replace(`width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,`width="${W}" height="${H+TH}" viewBox="0 0 ${W} ${H+TH}">`);
+  if (H > H0) out = out.replace(`<rect width="${W}" height="${H0}" fill="#090d15"/>`,`<rect width="${W}" height="${H}" fill="#090d15"/>`)
+    .replace(`<rect x="${S}" width="${P}" height="${H0}" fill="#0d1520"/><line x1="${S}" x2="${S}" y2="${H0}"`,`<rect x="${S}" width="${P}" height="${H}" fill="#0d1520"/><line x1="${S}" x2="${S}" y2="${H}"`);
+  out = out.replace(`width="${W}" height="${H0}" viewBox="0 0 ${W} ${H0}">`,`width="${W}" height="${H+TH}" viewBox="0 0 ${W} ${H+TH}">`);
   const cut = out.indexOf('</style>')+8;
   out = out.slice(0,cut)+head+`<g transform="translate(0,${TH})">`+out.slice(cut);
   return {svg:out+'</g></svg>',width:W,height:H+TH};
@@ -3572,7 +3579,7 @@ function stageSeriesSvg(z) {
     for (const k of order) { const h = v[k]/max*ph;if (h <= 0) continue;y -= h;svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(.5,h-.6).toFixed(1)}" fill="rgb(${STAGES[k].c.join(',')})"/>`; }
     svg += '</g>';
   });
-  const ticks = z.series.map((_,j) => j).filter(j => n <= 12 || Number(String(steps[j+1]?.short).replace(/\D/g,'').slice(-4))%5 === 0 || j === n-1);
+  const ticks = z.series.map((_,j) => j).filter(j => n <= 12 || Number(String(steps[j+1]?.short).replace(/\D/g,'').slice(-4))%5 === 0 || j === n-1).filter(j => n <= 12 || j === n-1 || n-1-j >= 3);
   for (const j of ticks) svg += `<text x="${(m.l+j*slot+slot/2).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="8" fill="#7f93ab">${esc(steps[j+1]?.short || '')}</text>`;
   return svg+'</svg>';
 }
@@ -3754,7 +3761,7 @@ function sdgYearSvg(z,opts={}) {
     for (const k of [1,2,3]) { const h = v[k]/t*ph;if (h <= 0) continue;y -= h;svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(.5,h-.6).toFixed(1)}" fill="rgb(${SDGF[k].c.join(',')})"/>`; }
     svg += '</g>';
   });
-  const ticks = z.year.map((_,j) => j).filter(j => n <= 12 || Number(String(steps[j+1]?.short).replace(/\D/g,'').slice(-4))%5 === 0 || j === n-1);
+  const ticks = z.year.map((_,j) => j).filter(j => n <= 12 || Number(String(steps[j+1]?.short).replace(/\D/g,'').slice(-4))%5 === 0 || j === n-1).filter(j => n <= 12 || j === n-1 || n-1-j >= 3);
   for (const j of ticks) svg += `<text x="${(m.l+j*slot+slot/2).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="8" fill="#7f93ab">${esc(steps[j+1]?.short || '')}</text>`;
   return svg+'</svg>';
 }
