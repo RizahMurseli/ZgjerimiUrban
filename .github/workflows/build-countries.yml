@@ -92,7 +92,7 @@ jobs:
         with:
           pattern: pack-*
           path: packs
-      - name: Install packs, index and offline files
+      - name: Install packs and index
         run: |
           for dir in packs/pack-*; do
             iso="${dir##*/pack-}"
@@ -100,7 +100,6 @@ jobs:
             echo "Paketa $iso: $(ls "dist/data/$iso" | wc -l) skedarë"
           done
           python scripts/list_countries.py
-          python scripts/build_single_html.py
       - name: Commit and republish
         env:
           GH_TOKEN: ${{ github.token }}

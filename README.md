@@ -147,10 +147,9 @@ python scripts/compute_stats.py --country ALB          # statistikat
 python scripts/prepare_landcover.py --country ALB      # mbulesa e tokës (Esri 10m Land Cover, seri vjetore)
 python scripts/prepare_soil.py --country XKX           # përshtatshmëria e tokës bujqësore (vetëm ku ka raster)
 python scripts/list_countries.py                       # dist/data/countries.json
-python scripts/build_single_html.py                    # versionet offline, një për shtet
 ```
 
-Pa `--country`, skriptet punojnë për Kosovën (`XKX`). Versioni offline i Kosovës është `dist/kosova-urban.html`, i shteteve të tjera `dist/atlas-<iso3>.html`.
+Pa `--country`, skriptet punojnë për Kosovën (`XKX`).
 
 ## Publikimi në GitHub Pages
 
