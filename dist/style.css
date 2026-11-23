@@ -513,4 +513,4 @@ body.view-plan #sprawlBox > h3 small,body.view-plan #sprawlBox > .sprawl-mode{di
 .sec-mode button[aria-pressed=true]{background:#1c2a3c;color:var(--text)}
 .sec-wrap{position:relative}
 .sec-wrap .sec-cell{cursor:crosshair}.sec-wrap .sec-cell:hover{stroke:#e8eef6;stroke-width:1.5}
-.sec-scale{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--muted);margin:4px 0 0;font-family:'Space Mono',monospace}.sec-scale i{display:block;width:120px;height:7px;border-radius:2px}
+.sec-scale{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:10.5px;color:var(--muted);margin:4px 0 0;font-family:'Space Mono',monospace}.sec-scale i{display:block;width:120px;height:8px;border-radius:2px}.sec-scale em{font-style:normal;font-family:inherit;margin-left:6px}

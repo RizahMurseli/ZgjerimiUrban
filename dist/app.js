@@ -1006,7 +1006,7 @@ function ringR50(s, index) {
   for (let r=0;r<s.rings;r++) { if (acc+b[r] >= tot/2) return Math.min(s.halfKm,(r+(tot/2-acc)/b[r])*s.step);acc += b[r]; }
   return s.halfKm;
 }
-const SECTOR_RAMP = [[15,28,39],[22,74,85],[31,127,134],[63,184,176],[143,232,216],[232,255,250]];
+const SECTOR_RAMP = [[26,120,66],[102,189,99],[217,239,139],[253,174,97],[215,48,39],[120,0,24]];
 const SECTOR_DIRS = () => L('V VL L JL J JP P VP','N NE E SE S SW W NW').split(' ');
 const SECTOR_NAMES = () => L('Veri,Verilindje,Lindje,Juglindje,Jug,Jugperëndim,Perëndim,Veriperëndim','North,North-east,East,South-east,South,South-west,West,North-west').split(',');
 function sectorRamp(v) {
@@ -1037,7 +1037,7 @@ function sectorSvg(s, o) {
     const a0 = c.j*45-22.5, a1 = a0+45, r0 = rad(c.r), r1 = rad(c.r+1);
     let fill = 'rgb(15,24,36)', op = 1;
     if (!c.land) fill = 'rgb(9,13,21)';
-    else if (o.mode === 'year') { if (c.meanIdx != null && maxNew > 0) { fill = 'rgb('+palette[Math.max(1,Math.min(palette.length-1,Math.round(c.meanIdx)))].join(',')+')';op = .22+.78*Math.sqrt(c.newHa/maxNew); } }
+    else if (o.mode === 'year') { if (c.meanIdx != null && maxNew > 0) { fill = 'rgb('+palette[Math.max(1,Math.min(palette.length-1,Math.round(c.meanIdx)))].join(',')+')';op = .45+.55*Math.sqrt(c.newHa/maxNew); } }
     else fill = 'rgb('+sectorRamp(c.share).join(',')+')';
     const d = r0 < .5 ? `M${f([cx,cy])}L${f(pt(a0,r1))}A${r1.toFixed(1)} ${r1.toFixed(1)} 0 0 1 ${f(pt(a1,r1))}Z`
       : `M${f(pt(a0,r1))}A${r1.toFixed(1)} ${r1.toFixed(1)} 0 0 1 ${f(pt(a1,r1))}L${f(pt(a1,r0))}A${r0.toFixed(1)} ${r0.toFixed(1)} 0 0 0 ${f(pt(a0,r0))}Z`;
@@ -1062,6 +1062,13 @@ function sectorReading(s, cells) {
   const dj = byDir.indexOf(Math.max(...byDir)), km = r => number(Math.round(Math.min(s.halfKm,r*s.step)*100)/100);
   return L(`Qeliza me më shumë ndërtim të ri: <b>${names[best.j]}, ${km(best.r)}–${km(best.r+1)} km</b> (+${number(Math.round(best.newHa))} ha). Drejtimi me më shumë: <b>${names[dj]}</b> (${number(Math.round(byDir[dj]/tot*100))}% e shtesës).`,
     `Cell with the most new construction: <b>${names[best.j]}, ${km(best.r)}–${km(best.r+1)} km</b> (+${number(Math.round(best.newHa))} ha). Leading direction: <b>${names[dj]}</b> (${number(Math.round(byDir[dj]/tot*100))}% of the additions).`);
+}
+// Colour bar of the years from the first new year to the chosen one, with three labels.
+function sectorYearStops(idx) {
+  const pal = colors(), steps = period().steps, last = Math.max(1,idx);
+  const stops = [];for (let k=1;k<=last;k++) stops.push([(k-1)/Math.max(1,last-1),'rgb('+pal[k].join(',')+')']);
+  const lab = [1,Math.round((1+last)/2),last].filter((v,j,a) => a.indexOf(v) === j).map(k => [(k-1)/Math.max(1,last-1),yearOnly(steps[k]?.label || '')]);
+  return {stops,lab};
 }
 function sectorLegend(mode, idx) {
   if (mode === 'year') return L(`Ngjyra = viti mesatar i ndërtimit të ri (si në hartë); sa më e zbehtë, aq më pak hektarë.`,`Colour = mean year of the new construction (as on the map); the fainter, the fewer hectares.`);
@@ -1096,7 +1103,8 @@ function ringChart(host) {
   let out = svg+`<h4 class="ring-sub">${esc(L('Rritja sipas drejtimit dhe largësisë','Growth by direction and distance'))}</h4>`
     +`<div class="seg sec-mode" role="group"><button type="button" data-sm="density" aria-pressed="${mode === 'density'}">${esc(L('Dendësia','Density'))}</button><button type="button" data-sm="year" aria-pressed="${mode === 'year'}">${esc(L('Kur u ndërtua','When built'))}</button></div>`
     +`<div class="sec-wrap"><svg width="${W}" height="${D}" role="img" aria-label="${esc(L('Diagrami i sektorëve: 8 drejtime × unazat','Sector diagram: 8 directions × the rings'))}">${sec.svg}</svg><div class="chart-tip" hidden></div></div>`;
-  if (mode === 'density') { const stops = [0,.25,.5,.75,1].map(v => `rgb(${sectorRamp(v).join(',')}) ${v*100}%`).join(',');out += `<div class="sec-scale"><span>0%</span><i style="background:linear-gradient(90deg,${stops})"></i><span>100%</span></div>`; }
+  if (mode === 'density') { const stops = [0,.2,.4,.6,.8,1].map(v => `rgb(${sectorRamp(v).join(',')}) ${v*100}%`).join(',');out += `<div class="sec-scale"><span>0%</span><i style="background:linear-gradient(90deg,${stops})"></i><span>100%</span><em>${esc(L('periferi → qendër','periphery → centre'))}</em></div>`; }
+  else if (i > 0) { const ys = sectorYearStops(i);out += `<div class="sec-scale"><span>${esc(ys.lab[0][1])}</span><i style="background:linear-gradient(90deg,${ys.stops.map(([p,c]) => c+' '+(p*100).toFixed(1)+'%').join(',')})"></i><span>${esc(ys.lab.at(-1)[1])}</span><em>${esc(L('zbehtë = pak hektarë','faint = few hectares'))}</em></div>`; }
   out += `<p class="note">${esc(sectorLegend(mode,i))}</p>`;
   if (i > 0) {
     const r0 = ringR50(s,0), r1 = ringR50(s,i), moved = r0 != null && r1 != null ? r1-r0 : 0;
@@ -2375,9 +2383,13 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     const D = Math.min(232,gBottom-gTop-4), mode = state.sectorMode || 'density';
     out += `<text x="${gx}" y="${gTop+2}" font-size="9" font-weight="700">${xml(L('Drejtimi × largësia (km)','Direction × distance (km)'))}</text>`;
     if (mode === 'density') {
-      out += `<defs><linearGradient id="secRamp">${[0,.25,.5,.75,1].map(v => `<stop offset="${v}" stop-color="rgb(${sectorRamp(v).join(',')})"/>`).join('')}</linearGradient></defs><rect x="${gx}" y="${gTop+7}" width="36" height="6" fill="url(#secRamp)"/>`;
+      out += `<defs><linearGradient id="secRamp">${[0,.2,.4,.6,.8,1].map(v => `<stop offset="${v}" stop-color="rgb(${sectorRamp(v).join(',')})"/>`).join('')}</linearGradient></defs><rect x="${gx}" y="${gTop+7}" width="36" height="6" fill="url(#secRamp)"/>`;
       out += `<text x="${gx+40}" y="${gTop+13}" font-size="7.5" class="muted">${xml(L(`0–100% e ndërtuar, ${steps[i].short}`,`0–100% built up, ${steps[i].short}`))}</text>`;
-    } else out += `<text x="${gx}" y="${gTop+13}" font-size="7.5" class="muted">${xml(L('viti mesatar i ndërtimit të ri','mean year of new construction'))}</text>`;
+    } else {
+      const ys = sectorYearStops(i);
+      out += `<defs><linearGradient id="secYears">${ys.stops.map(([p,c]) => `<stop offset="${p.toFixed(3)}" stop-color="${c}"/>`).join('')}</linearGradient></defs><rect x="${gx}" y="${gTop+7}" width="36" height="6" fill="url(#secYears)"/>`;
+      out += `<text x="${gx+40}" y="${gTop+13}" font-size="7.5" class="muted">${xml(L(`viti mesatar i ndërtimit të ri, ${ys.lab[0][1]}–${ys.lab.at(-1)[1]}`,`mean year of new construction, ${ys.lab[0][1]}–${ys.lab.at(-1)[1]}`))}</text>`;
+    }
     const sec = sectorSvg(vs,{x:gx,y:gTop+16,size:D-14,idx:i,mode,fs:8,bg:'#0d1520',gap:.8});
     out += sec.svg;
     gx += D+14;px0 = gx+axisW;pw = gRight-px0;slot = pw/m;barW = Math.max(2,slot*.66);
