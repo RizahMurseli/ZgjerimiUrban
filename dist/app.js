@@ -2340,7 +2340,9 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     out += `<text x="${gx}" y="${gTop+16}" font-size="8.5" class="muted">${xml(L(`I shkëputur nga qyteti: ${fmt1(det/(all || 1)*100)}% e ndërtimit të ri (${fmtHa(det)} ha). Deri në ${steps[i].short}: u bashkua ${sh(stz.now[5])}% · bërthama/qyteza ${sh(stz.now[3]+stz.now[4])}% · mbetet i shpërndarë ${sh(stz.now[1]+stz.now[2])}%.`,`Detached from the city: ${fmt1(det/(all || 1)*100)}% of new construction (${fmtHa(det)} ha). By ${steps[i].short}: joined ${sh(stz.now[5])}% · nuclei/towns ${sh(stz.now[3]+stz.now[4])}% · still scattered ${sh(stz.now[1]+stz.now[2])}%.`))}</text>`;
     const top = gTop+30, hh = gBottom-top, wL = Math.round((gRight-gx)*.56), wR = gRight-gx-wL-24;
     out += `<text x="${gx}" y="${top+8}" font-size="9" font-weight="700">${xml(L(`Prej shkallës kur u ndërtua → shkalla në ${steps[i].short} (ha)`,`From the stage when built → stage in ${steps[i].short} (ha)`))}</text>`;
-    out += sankeySvg(stz,{w:wL,h:hh-20,lx:130,rx:140,fs:9}).replace('<svg ',`<svg x="${gx}" y="${top+16}" width="${wL}" height="${hh-20}" `);
+    // On tall sheets (large maps) the Sankey keeps a sensible shape instead of stretching to the bottom.
+    const skH = Math.min(hh-20,Math.round(wL*.8));
+    out += sankeySvg(stz,{w:wL,h:skH,lx:130,rx:140,fs:9}).replace('<svg ',`<svg x="${gx}" y="${top+16}" width="${wL}" height="${skH}" `);
     const rx0 = gx+wL+24;
     out += `<text x="${rx0}" y="${top+8}" font-size="9" font-weight="700">${xml(L('Ndërtimi i shkëputur sipas shkallës në çdo vit (ha)','Detached construction by stage in every year (ha)'))}</text>`;
     out += stageSeriesSvg(stz).replace('<svg ',`<svg x="${rx0}" y="${top+16}" width="${wR}" height="${Math.min(hh-40,wR*.4)}" `);
