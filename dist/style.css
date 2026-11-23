@@ -514,3 +514,7 @@ body.view-plan #sprawlBox > h3 small,body.view-plan #sprawlBox > .sprawl-mode{di
 .sec-wrap{position:relative}
 .sec-wrap .sec-cell{cursor:crosshair}.sec-wrap .sec-cell:hover{stroke:#e8eef6;stroke-width:1.5}
 .sec-scale{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:10.5px;color:var(--muted);margin:4px 0 0;font-family:'Space Mono',monospace}.sec-scale i{display:block;width:120px;height:8px;border-radius:2px}.sec-scale em{font-style:normal;font-family:inherit;margin-left:6px}
+
+#about .about-h{font-weight:700;color:var(--text);margin-top:14px}
+#about .refs{font-size:11.5px;line-height:1.5;padding-left:1.6em;text-indent:-1.6em;overflow-wrap:anywhere}
+#citeText{overflow-wrap:anywhere}

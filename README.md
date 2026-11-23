@@ -4,7 +4,9 @@ Aplikacion interaktiv në shqip për eksplorimin e zonave të ndërtuara në çd
 
 **Autori:** Rizah Murseli · koncepti, analiza dhe zhvillimi
 
-> Si ta citoni: Murseli, R. (2026). *Observatori Urban i Kosovës: zgjerimi urban, format e tij, SDG dhe skenarë planifikimi, 1985–2030.* Të dhënat: DLR World Settlement Footprint.
+> Si ta citoni (Chicago): Murseli, Rizah. *Observatori Urban i Kosovës: Zgjerimi urban, format e tij, SDG dhe skenarë planifikimi, 1985–2030*. Atlas interaktiv. 2026. https://rizahmurseli.github.io/ZgjerimiUrban/.
+>
+> Të dhënat: DLR World Settlement Footprint (Marconcini et al. 2020; Marconcini et al. 2021; DLR dhe MindEarth, WSF Tracker 2026).
 
 ## Nisja lokale
 
