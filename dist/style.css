@@ -496,9 +496,15 @@ details.tab-info li{margin:3px 0}
 details.tab-info li b{color:#e8eef6}
 .view-info details.tab-info{margin:6px 0 8px}
 /* Tabs never wrap, in either language */
-.tabs button{white-space:nowrap;padding:9px 4px;min-width:0}
+.tabs button{white-space:nowrap;padding:9px 5px;min-width:0;flex:1 1 auto}
 .map-views button{white-space:nowrap}
 /* In the forms, SDG and plan views the class legend sits at the bottom: the radial key moves to the top left */
 body.view-forms #radialKey{bottom:auto;top:178px;max-height:calc(100% - 330px);overflow:auto}
 body.view-forms #radialKey #radialSwatches{display:none}
 body.view-plan #sprawlBox > h3 small,body.view-plan #sprawlBox > .sprawl-mode{display:none}
+
+.ring-ctl{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;margin:8px 0 2px}.ring-ctl label{margin:0;white-space:nowrap}.ring-ctl output{font-family:'Space Mono',monospace;font-size:12px;color:var(--accent);text-align:right;white-space:nowrap;min-width:52px}
+.ring-hint{margin:2px 0 8px}
+.ring-sub{margin:14px 0 4px;font-size:12px;font-weight:600}.ring-sub small{display:block;font-weight:400;color:var(--muted);margin-top:2px}
+#radial .radial-ring{fill:none;stroke:#66e0d1;stroke-width:.8;stroke-dasharray:2 5;opacity:.45;pointer-events:none}
+#radial .radial-ringlabel{fill:#9fd7ff;font:9px 'Space Mono',Consolas,monospace;opacity:.85;pointer-events:none;paint-order:stroke;stroke:#070c14;stroke-width:2.5px}

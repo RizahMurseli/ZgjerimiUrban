@@ -6,7 +6,7 @@
   <title>Observatori Urban i Kosovës</title>
   <meta name="description" content="Eksploro historinë e zgjerimit urban të çdo vendbanimi në Kosovë, nga të dhënat satelitore të DLR.">
   <meta name="author" content="Rizah Murseli">
-  <link rel="stylesheet" href="style.css?v=29f391d2d9">
+  <link rel="stylesheet" href="style.css?v=a07887562c">
 </head>
 <body>
   <header><a class="brand" href="./"><span class="brand-mark" id="brandMark">K</span> OBSERVATORI URBAN <span class="region" id="brandRegion">/ KOSOVË</span></a><span class="header-right"><span class="lang-switch" role="group" aria-label="Gjuha / Language"><button type="button" data-lang="sq" lang="sq" title="Shqip" aria-label="Shqip"><svg viewBox="0 0 28 20" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="28" height="20" fill="#e41e20"/><g fill="#000"><path d="M14 8 6 4 4 6l2 1-2 1.5 2.5.5L5 11l3-.2-1 2.2 3-1h4z"/><path d="M14 8l8-4 2 2-2 1 2 1.5-2.5.5L23 11l-3-.2 1 2.2-3-1h-4z"/><ellipse cx="14" cy="11" rx="2" ry="3.5"/><path d="M13.3 8 12 5l-1.5-1.2 1.3-.3L13 4.5 14 7z"/><path d="M14.7 8 16 5l1.5-1.2-1.3-.3L15 4.5 14 7z"/><path d="M12.5 14 11 17l3-1 3 1-1.5-3z"/></g></svg></button><button type="button" data-lang="en" lang="en" title="English" aria-label="English"><svg viewBox="0 0 60 30" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><clipPath id="ukS"><path d="M0 0v30h60V0z"/></clipPath><clipPath id="ukT"><path d="M30 15h30v15zv15H0zH0V0zV0h30z"/></clipPath><g clip-path="url(#ukS)"><path d="M0 0v30h60V0z" fill="#012169"/><path d="M0 0l60 30m0-30L0 30" stroke="#fff" stroke-width="6"/><path d="M0 0l60 30m0-30L0 30" clip-path="url(#ukT)" stroke="#c8102e" stroke-width="4"/><path d="M30 0v30M0 15h60" stroke="#fff" stroke-width="10"/><path d="M30 0v30M0 15h60" stroke="#c8102e" stroke-width="6"/></g></svg></button></span><span class="data-label">DLR · WSF</span></span></header>
@@ -133,7 +133,10 @@
           <div class="sel-actions"><button id="sprawlCsv" type="button">Shkarko CSV të copave</button><button id="sprawlTimeCsv" type="button">Shkarko CSV të ndryshimeve në kohë</button></div>
         </section>
         <div id="zoneRings">
-        <h3>Qendër apo periferi? <small>% e tokës së ndërtuar sipas largësisë nga qendra e pamjes</small></h3><div class="chart" id="chartRings"></div>
+        <h3>Qendër apo periferi? <small>% e ndërtuar e çdo unaze sipas largësisë nga qendra</small></h3>
+        <div class="ring-ctl"><label for="ringR">Rrezja R</label><input id="ringR" type="range" min="1" max="10" step="1" value="5" aria-label="Rrezja R në km"><output id="ringRValue">5 km</output></div>
+        <p class="note ring-hint">Rrethi i diagramit radial merr rrezen R; unazat vizatohen çdo 1 km (0,5 km nën 3 km).</p>
+        <div class="chart" id="chartRings"></div>
         </div>
       </div>
       <div class="tab" id="tab-units" hidden>
@@ -220,7 +223,9 @@
       </div>
       <div class="tab" id="tab-race" hidden>
         <p class="story" id="raceStory">38 qendrat komunale, krahasuar në rreze të njëjtë prej 5 km nga qendra. Renditja ndjek vitin në kohëzgjatje; luaje animacionin për ta parë garën.</p>
-        <div class="race-controls"><label for="raceSort">Rendit sipas</label><select id="raceSort"><option value="area">Sipërfaqes së ndërtuar</option><option value="pct">Rritjes nga viti bazë (%)</option><option value="added">Shtesës së vitit</option></select></div>
+        <div class="ring-ctl"><label for="raceR">Rrezja R</label><input id="raceR" type="range" min="1" max="10" step="1" value="5" aria-label="Rrezja R në km"><output id="raceRValue">5 km</output></div>
+        <div class="race-controls"><label for="raceSort">Rendit sipas</label><select id="raceSort"><option value="area">Sipërfaqes së ndërtuar</option><option value="pct">Rritjes nga viti bazë (%)</option><option value="added">Shtesës së vitit</option><option value="r50">Rrezes ku arrin gjysma e ndërtimit</option></select></div>
+        <p class="note" id="raceNote" hidden></p>
         <div id="race" role="list"></div>
       </div>
       <div class="tab" id="tab-kosovo" hidden>
@@ -234,6 +239,6 @@
     </section>
   </main>
   <footer><span class="credit">Koncepti, analiza dhe zhvillimi: <strong>Rizah Murseli</strong> · 2026</span><span>Burimi <a href="https://geoservice.dlr.de/web/datasets/wsf" target="_blank" rel="noopener">DLR · World Settlement Footprint</a> · CC BY 4.0</span><span><a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> · <a href="https://www.geoboundaries.org/" target="_blank" rel="noopener">geoBoundaries</a> · Harta bazë © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a></span></footer>
-  <script type="module" src="app.js?v=595f244d54"></script>
+  <script type="module" src="app.js?v=55e635d4e0"></script>
 </body>
 </html>
