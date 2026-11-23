@@ -2184,15 +2184,19 @@ function renderRadial() {
   // No dimming outside: the map itself shows only base-year areas there, in their normal colour.
   let out = `<circle class="radial-lens" cx="${cx}" cy="${cy}" r="${lens}"/>`;
   // Concentric rings every step km inside the circle (the same rings as «Centre or periphery?»).
+  // Labels sit on the ring lines straight below the centre, inside the circle, clear of the bars and the year marks.
   if (s?.rings && s.filter?.kind === 'circle') {
     const pxKm = lens/s.halfKm;
-    for (let k=1;k*s.step < s.halfKm-1e-6;k++) {
+    let lastLab = -1e9;
+    const lab = (rr,t) => { out += `<text class="radial-ringlabel" x="${cx.toFixed(1)}" y="${(cy+rr-3).toFixed(1)}" text-anchor="middle">${t}</text>`;lastLab = rr; };
+    const R = number(Math.round(s.halfKm*10)/10);
+    for (let k=1;k*s.step < s.halfKm-s.step*.35;k++) {
       const rr = k*s.step*pxKm;
       if (rr < 6) continue;
       out += `<circle class="radial-ring" cx="${cx}" cy="${cy}" r="${rr.toFixed(1)}"/>`;
-      if (rr > 14 && (s.halfKm/s.step <= 6 || k%2 === 0)) { const [tx,ty] = pt(135,rr);out += `<text class="radial-ringlabel" x="${(tx+3).toFixed(1)}" y="${(ty+9).toFixed(1)}">${number(k*s.step)} km</text>`; }
+      if (rr-lastLab >= 14 && lens-rr >= 14) lab(rr,`${number(k*s.step)} km`);
     }
-    const [tx,ty] = pt(135,lens);out += `<text class="radial-ringlabel" x="${(tx+3).toFixed(1)}" y="${(ty+9).toFixed(1)}">R ${number(Math.round(s.halfKm*10)/10)} km</text>`;
+    lab(lens,`R = ${R} km`);
   }
   $('radialKeyText').innerHTML = s?.filter?.kind === 'aoi' ? L(`Shtesat vjetore brenda zonës së interesit <span class="kname">${esc(s.filter.label)}</span>, sipas drejtimit nga qendra e pamjes.`,`Annual additions inside the zone of interest <span class="kname">${esc(s.filter.label)}</span>, by direction from the centre of the view.`) : byUnits ? L(`Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>) dhe brenda <span class="kname">${esc(s.filter.label)}</span>, sipas drejtimit.`,`Annual additions inside the circle (radius <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>) and inside <span class="kname">${esc(s.filter.label)}</span>, by direction.`) : L(`Shtesat vjetore brenda rrethit (rrezja <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>), sipas drejtimit.`,`Annual additions inside the circle (radius <output id="lensKm">${number(Math.round(RADIAL.lens*state.span*10)/10)} km</output>), by direction.`);
   // In the forms view the bars are stacked by the class shown on the map, in the same colours.
@@ -2877,7 +2881,7 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
 .muted{fill:#94a6bd}.accent{fill:#66e0d1}
 .radial-lens{fill:none;stroke:#66e0d1;stroke-width:1.2;stroke-dasharray:3 4;opacity:.8}
 .radial-ring{fill:none;stroke:#66e0d1;stroke-width:.8;stroke-dasharray:2 5;opacity:.45}
-.radial-ringlabel{fill:#9fd7ff;font:9px 'Space Mono',Consolas,monospace;opacity:.85}
+.radial-ringlabel{fill:#9fd7ff;font:9px 'Space Mono',Consolas,monospace;paint-order:stroke;stroke:#070c14;stroke-width:2.5px}
 .radial-base{fill:none;stroke:#5d708a;stroke-width:1}.radial-now{stroke:#fff;stroke-width:1.5}
 .radial-year{fill:#8aa0bb;font:8.5px 'Space Mono',Consolas,monospace}
 .radial-label{fill:#e8eef6;font:700 10px 'DM Sans',Arial,sans-serif;letter-spacing:1.5px}
