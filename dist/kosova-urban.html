@@ -3151,23 +3151,6 @@ text{font-family:'DM Sans',Arial,sans-serif;fill:#e8eef6}
     const kx = px0, ky = bBottom+46;
     SPRAWL_CLASSES.forEach((c,n) => { out += `<rect x="${kx+n*110}" y="${ky-8}" width="10" height="9" fill="rgb(${c.c.join(',')})"/><text x="${kx+n*110+14}" y="${ky}" font-size="8" class="muted">${xml(c.t)}</text>`; });
 } else {
-  // The sector diagram (direction × distance) on the left; the two bar panels move to its right.
-  const vs = viewStats;
-  if (vs?.rings && vs.secLand && i > 0) {
-    const D = Math.min(232,gBottom-gTop-4), mode = state.sectorMode || 'density';
-    out += `<text x="${gx}" y="${gTop+2}" font-size="9" font-weight="700">${xml(L('Drejtimi × largësia (km)','Direction × distance (km)'))}</text>`;
-    if (mode === 'density') {
-      out += `<defs><linearGradient id="secRamp">${[0,.2,.4,.6,.8,1].map(v => `<stop offset="${v}" stop-color="rgb(${sectorRamp(v).join(',')})"/>`).join('')}</linearGradient></defs><rect x="${gx}" y="${gTop+7}" width="36" height="6" fill="url(#secRamp)"/>`;
-      out += `<text x="${gx+40}" y="${gTop+13}" font-size="7.5" class="muted">${xml(L(`0–100% e ndërtuar, ${steps[i].short}`,`0–100% built up, ${steps[i].short}`))}</text>`;
-    } else {
-      const ys = sectorYearStops(i);
-      out += `<defs><linearGradient id="secYears">${ys.stops.map(([p,c]) => `<stop offset="${p.toFixed(3)}" stop-color="${c}"/>`).join('')}</linearGradient></defs><rect x="${gx}" y="${gTop+7}" width="36" height="6" fill="url(#secYears)"/>`;
-      out += `<text x="${gx+40}" y="${gTop+13}" font-size="7.5" class="muted">${xml(L(`viti mesatar i ndërtimit të ri, ${ys.lab[0][1]}–${ys.lab.at(-1)[1]}`,`mean year of new construction, ${ys.lab[0][1]}–${ys.lab.at(-1)[1]}`))}</text>`;
-    }
-    const sec = sectorSvg(vs,{x:gx,y:gTop+16,size:D-14,idx:i,mode,fs:8,bg:'#0d1520',gap:.8});
-    out += sec.svg;
-    gx += D+14;px0 = gx+axisW;pw = gRight-px0;slot = pw/m;barW = Math.max(2,slot*.66);
-  }
   // Decades: light hatched bands behind both panels (every other decade), each labelled with its change.
   out += `<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#c8d3e0" stroke-width="1" opacity=".16"/></pattern></defs>`;
   const decades = [];
